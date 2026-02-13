@@ -440,6 +440,26 @@
                     </label>
 
                     <label>
+                        <span>Model Mirror</span>
+                        <select @bind="_modelMirror" disabled="@(_isSubmitting || _runInBrowser)">
+                            <option value="auto">Auto (try all)</option>
+                            <option value="HuggingFace">HuggingFace</option>
+                            <option value="HF-Mirror">HF-Mirror</option>
+                            <option value="ModelScope">ModelScope</option>
+                            <option value="GitHub">GitHub</option>
+                            <option value="custom">Custom URL</option>
+                        </select>
+                    </label>
+
+                    @if (_modelMirror == "custom")
+                    {
+                        <label>
+                            <span>Custom Mirror URL</span>
+                            <input @bind="_modelMirrorUrl" placeholder="https://your-mirror.example/models" disabled="@(_isSubmitting || _runInBrowser)" />
+                        </label>
+                    }
+
+                    <label>
                         <span>Formatter</span>
                         <select @bind="_formatProvider" disabled="@(_isSubmitting || _runInBrowser)">
                             <option value="auto">auto</option>
@@ -925,6 +945,8 @@
 
     private string? _selectedDeviceId;
     private string _model = "SmallEn";
+    private string _modelMirror = "auto";
+    private string _modelMirrorUrl = "";
     private string _language = "auto";
     private string _formatProvider = "auto";
     private string _ollamaUri = "http://localhost:11434";
@@ -1339,6 +1361,8 @@
             using var content = new MultipartFormDataContent();
             content.Add(new StringContent(_activeJobId), "jobId");
             content.Add(new StringContent(_model), "model");
+            content.Add(new StringContent(_modelMirror == "auto" ? "" : _modelMirror == "custom" ? "" : _modelMirror), "modelMirrorName");
+            content.Add(new StringContent(_modelMirror == "custom" ? _modelMirrorUrl : ""), "modelMirrorUrl");
             content.Add(new StringContent(_language), "language");
             content.Add(new StringContent(NormalizeTextInput(_ollamaUri, "http://localhost:11434")), "ollamaUri");
             content.Add(new StringContent(NormalizeTextInput(_ollamaModel, "mistral-nemo:12b")), "ollamaModel");

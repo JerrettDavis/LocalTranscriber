@@ -86,11 +86,16 @@ internal sealed class TranscriptionJobProcessor
             var normalized = await _normalizer.Ensure16kMonoWavAsync(request.InputAudioPath);
 
             await PublishAsync(request.JobId, 40, "transcribe", $"Running Whisper model `{request.Model}`...");
+            var downloadOptions = new ResilientModelDownloader.DownloadOptions(
+                MirrorName: request.ModelMirrorName,
+                MirrorUrl: request.ModelMirrorUrl,
+                TrustAllCerts: false);
             var transcript = await _whisper.TranscribeAsync(
                 normalized,
                 request.Model,
                 request.Language,
-                request.MaxSegmentLength);
+                request.MaxSegmentLength,
+                downloadOptions);
 
             var rawWhisperText = transcript.PlainText;
             var subtitleSegments = BuildSubtitleSegments(transcript);

@@ -108,7 +108,9 @@ app.MapPost("/api/transcriptions", async (
         OllamaModel: form["ollamaModel"].ToString().NullIfEmpty() ?? "mistral-nemo:12b",
         HuggingFaceEndpoint: form["hfEndpoint"].ToString().NullIfEmpty() ?? "https://router.huggingface.co",
         HuggingFaceModel: form["hfModel"].ToString().NullIfEmpty() ?? "Qwen/Qwen2.5-14B-Instruct",
-        HuggingFaceApiKey: form["hfApiKey"].ToString().NullIfEmpty() ?? Environment.GetEnvironmentVariable("HF_TOKEN"));
+        HuggingFaceApiKey: form["hfApiKey"].ToString().NullIfEmpty() ?? Environment.GetEnvironmentVariable("HF_TOKEN"),
+        ModelMirrorName: form["modelMirrorName"].ToString().NullIfEmpty(),
+        ModelMirrorUrl: form["modelMirrorUrl"].ToString().NullIfEmpty());
 
     _ = Task.Run(async () =>
     {

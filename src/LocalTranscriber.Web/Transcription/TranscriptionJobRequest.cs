@@ -32,5 +32,7 @@ internal sealed record TranscriptionJobRequest(
     string OllamaModel,
     string HuggingFaceEndpoint,
     string HuggingFaceModel,
-    string? HuggingFaceApiKey
+    string? HuggingFaceApiKey,
+    string? ModelMirrorName = null,
+    string? ModelMirrorUrl = null
 );
