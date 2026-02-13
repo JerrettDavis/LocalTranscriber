@@ -96,6 +96,8 @@ internal static class Program
         Console.WriteLine("  --hf-endpoint https://router.huggingface.co                                   (default: same)");
         Console.WriteLine("  --hf-model Qwen/Qwen2.5-14B-Instruct                                          (default: same)");
         Console.WriteLine("  --hf-api-key <token>                                                          (default: HF_TOKEN env var)");
+        Console.WriteLine("\nNetwork options:");
+        Console.WriteLine("  --trust-all-certs true|false                                                  (default: false; use for enterprise SSL inspection)");
         Console.WriteLine("\nExamples:");
         Console.WriteLine("  localtranscriber devices");
         Console.WriteLine("  localtranscriber record --device 0 --out output\\mic.wav");
@@ -165,6 +167,8 @@ internal static class Program
             throw new ArgumentException("Speaker count must be >= 0");
         var speakerOptions = ParseSpeakerOptions(opts);
 
+        var trustAllCerts = opts.GetBool("trust-all-certs") ?? false;
+
         var formatProvider = ResolveFormatProvider(opts);
         var ollamaUri = opts.GetString("ollama-uri") ?? "http://localhost:11434";
         var ollamaModel = opts.GetString("ollama-model") ?? "mistral-nemo:12b";
@@ -185,7 +189,7 @@ internal static class Program
         var normalized = await normalizer.Ensure16kMonoWavAsync(input);
         Console.WriteLine($"Normalized audio: {normalized}");
 
-        var transcript = await whisper.TranscribeAsync(normalized, model, language, maxSegLength);
+        var transcript = await whisper.TranscribeAsync(normalized, model, language, maxSegLength, trustAllCerts);
 
         if (labelSpeakers)
         {
@@ -312,6 +316,7 @@ internal static class Program
         CopyOptionalArg(opts, transcribeArgs, "format-max-tokens");
         CopyOptionalArg(opts, transcribeArgs, "format-local-big-gap");
         CopyOptionalArg(opts, transcribeArgs, "format-local-small-gap");
+        CopyOptionalArg(opts, transcribeArgs, "trust-all-certs");
 
         return await TranscribeAsync(SimpleArgs.FromDictionary(transcribeArgs));
     }

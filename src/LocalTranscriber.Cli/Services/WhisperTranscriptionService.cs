@@ -11,7 +11,8 @@ internal sealed class WhisperTranscriptionService
         string wav16kMonoPath,
         string modelName,
         string language,
-        int maxSegmentLength)
+        int maxSegmentLength,
+        bool trustAllCerts = false)
     {
         if (!File.Exists(wav16kMonoPath))
             throw new FileNotFoundException("WAV file not found", wav16kMonoPath);
@@ -26,7 +27,7 @@ internal sealed class WhisperTranscriptionService
             throw new ArgumentException($"Unknown model '{modelName}'. Valid values: {valid}");
         }
 
-        var modelPath = await EnsureModelAsync(ggmlType);
+        var modelPath = await ResilientModelDownloader.EnsureModelAsync(ggmlType, trustAllCerts);
 
         using var whisperFactory = WhisperFactory.FromPath(modelPath);
 
@@ -284,48 +285,4 @@ internal sealed class WhisperTranscriptionService
             .Replace('\n', ' ');
     }
 
-    private static async Task<string> EnsureModelAsync(GgmlType type)
-    {
-        var modelFileName = GetExpectedModelFilename(type);
-
-        var dir = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "LocalTranscriber",
-            "models");
-
-        Directory.CreateDirectory(dir);
-        var modelPath = Path.Combine(dir, modelFileName);
-
-        if (File.Exists(modelPath))
-            return modelPath;
-
-        Console.WriteLine($"Downloading Whisper model '{type}' to {modelPath} ...");
-
-        using var modelStream = await WhisperGgmlDownloader.Default.GetGgmlModelAsync(type);
-        using var fileWriter = File.OpenWrite(modelPath);
-        await modelStream.CopyToAsync(fileWriter);
-
-        return modelPath;
-    }
-
-    private static string GetExpectedModelFilename(GgmlType type)
-    {
-        // Keep well-known filenames for better interoperability with existing model caches.
-        return type switch
-        {
-            GgmlType.Tiny => "ggml-tiny.bin",
-            GgmlType.TinyEn => "ggml-tiny.en.bin",
-            GgmlType.Base => "ggml-base.bin",
-            GgmlType.BaseEn => "ggml-base.en.bin",
-            GgmlType.Small => "ggml-small.bin",
-            GgmlType.SmallEn => "ggml-small.en.bin",
-            GgmlType.Medium => "ggml-medium.bin",
-            GgmlType.MediumEn => "ggml-medium.en.bin",
-            GgmlType.LargeV1 => "ggml-large-v1.bin",
-            GgmlType.LargeV2 => "ggml-large-v2.bin",
-            GgmlType.LargeV3 => "ggml-large-v3.bin",
-            GgmlType.LargeV3Turbo => "ggml-large-v3-turbo.bin",
-            _ => $"ggml-{type.ToString().ToLowerInvariant()}.bin"
-        };
-    }
 }
