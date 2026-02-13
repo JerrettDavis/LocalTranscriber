@@ -31,6 +31,7 @@ internal static class Program
             return command switch
             {
                 "devices" => await DevicesAsync(),
+                "mirrors" => MirrorsCommand(opts),
                 "record" => await RecordAsync(opts),
                 "transcribe" => await TranscribeAsync(opts),
                 "record-and-transcribe" => await RecordAndTranscribeAsync(opts),
@@ -57,6 +58,8 @@ internal static class Program
         Console.WriteLine("Commands:");
         Console.WriteLine("  devices");
         Console.WriteLine("      List available audio capture devices (Windows).");
+        Console.WriteLine("\n  mirrors [--mirror-url <url>]");
+        Console.WriteLine("      List available model download mirrors and their status.");
         Console.WriteLine("\n  record --device <index> --out <path.wav> [--loopback true|false]");
         Console.WriteLine("      Record audio until you press ENTER.");
         Console.WriteLine("\n  transcribe --in <path.(wav|mp3|m4a|...)> --out <path.md> [options]");
@@ -96,6 +99,9 @@ internal static class Program
         Console.WriteLine("  --hf-endpoint https://router.huggingface.co                                   (default: same)");
         Console.WriteLine("  --hf-model Qwen/Qwen2.5-14B-Instruct                                          (default: same)");
         Console.WriteLine("  --hf-api-key <token>                                                          (default: HF_TOKEN env var)");
+        Console.WriteLine("\nModel mirror options:");
+        Console.WriteLine("  --mirror <name>                                                               (use specific mirror: HuggingFace, HF-Mirror, ModelScope, GitHub)");
+        Console.WriteLine("  --mirror-url <url>                                                            (use custom mirror URL, e.g., internal server)");
         Console.WriteLine("\nNetwork options:");
         Console.WriteLine("  --trust-all-certs true|false                                                  (default: false; use for enterprise SSL inspection)");
         Console.WriteLine("\nExamples:");
@@ -124,6 +130,24 @@ internal static class Program
         Console.WriteLine();
         Console.WriteLine("Tip: Use --loopback true to record 'what you hear' (system output) instead of a mic.");
         return Task.FromResult(0);
+    }
+
+    private static int MirrorsCommand(SimpleArgs opts)
+    {
+        var customUrl = opts.GetString("mirror-url");
+        
+        Console.WriteLine("Available model mirrors:\n");
+        ResilientModelDownloader.PrintMirrorStatus(customUrl);
+        
+        Console.WriteLine();
+        Console.WriteLine("Usage:");
+        Console.WriteLine("  --mirror <name>       Use a specific mirror by name");
+        Console.WriteLine("  --mirror-url <url>    Use a custom URL (takes highest priority)");
+        Console.WriteLine("  WHISPER_MODEL_MIRROR  Environment variable for custom URL");
+        Console.WriteLine();
+        Console.WriteLine("Mirrors are tried in priority order. Custom URL (if set) is always tried first.");
+        
+        return 0;
     }
 
     private static async Task<int> RecordAsync(SimpleArgs opts)
@@ -168,6 +192,12 @@ internal static class Program
         var speakerOptions = ParseSpeakerOptions(opts);
 
         var trustAllCerts = opts.GetBool("trust-all-certs") ?? false;
+        var mirrorName = opts.GetString("mirror");
+        var mirrorUrl = opts.GetString("mirror-url");
+        var downloadOptions = new ResilientModelDownloader.DownloadOptions(
+            MirrorName: mirrorName,
+            MirrorUrl: mirrorUrl,
+            TrustAllCerts: trustAllCerts);
 
         var formatProvider = ResolveFormatProvider(opts);
         var ollamaUri = opts.GetString("ollama-uri") ?? "http://localhost:11434";
@@ -189,7 +219,7 @@ internal static class Program
         var normalized = await normalizer.Ensure16kMonoWavAsync(input);
         Console.WriteLine($"Normalized audio: {normalized}");
 
-        var transcript = await whisper.TranscribeAsync(normalized, model, language, maxSegLength, trustAllCerts);
+        var transcript = await whisper.TranscribeAsync(normalized, model, language, maxSegLength, downloadOptions);
 
         if (labelSpeakers)
         {
@@ -317,6 +347,8 @@ internal static class Program
         CopyOptionalArg(opts, transcribeArgs, "format-local-big-gap");
         CopyOptionalArg(opts, transcribeArgs, "format-local-small-gap");
         CopyOptionalArg(opts, transcribeArgs, "trust-all-certs");
+        CopyOptionalArg(opts, transcribeArgs, "mirror");
+        CopyOptionalArg(opts, transcribeArgs, "mirror-url");
 
         return await TranscribeAsync(SimpleArgs.FromDictionary(transcribeArgs));
     }

@@ -1,20 +1,36 @@
+using LocalTranscriber.Cli.Services.Mirrors;
 using Whisper.net.Ggml;
 
 namespace LocalTranscriber.Cli.Services;
 
 /// <summary>
-/// Downloads Whisper GGML models with retry logic and enterprise network support.
+/// Downloads Whisper GGML models with retry logic, multi-mirror support, and enterprise network support.
 /// </summary>
 internal static class ResilientModelDownloader
 {
-    private const string HuggingFaceBaseUrl = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main";
+    /// <summary>
+    /// Model download options.
+    /// </summary>
+    public sealed record DownloadOptions(
+        string? MirrorName = null,
+        string? MirrorUrl = null,
+        bool TrustAllCerts = false);
 
     /// <summary>
-    /// Gets or downloads the Whisper model, with retry and proxy support.
+    /// Gets or downloads the Whisper model, with automatic mirror fallback.
+    /// </summary>
+    public static Task<string> EnsureModelAsync(
+        GgmlType type,
+        bool trustAllCerts = false,
+        CancellationToken ct = default)
+        => EnsureModelAsync(type, new DownloadOptions(TrustAllCerts: trustAllCerts), ct);
+
+    /// <summary>
+    /// Gets or downloads the Whisper model with configurable mirror options.
     /// </summary>
     public static async Task<string> EnsureModelAsync(
         GgmlType type,
-        bool trustAllCerts = false,
+        DownloadOptions options,
         CancellationToken ct = default)
     {
         var modelFileName = GetModelFilename(type);
@@ -36,13 +52,12 @@ internal static class ResilientModelDownloader
         }
 
         Directory.CreateDirectory(modelDir);
-        var url = $"{HuggingFaceBaseUrl}/{modelFileName}";
         
         Console.WriteLine($"Downloading Whisper model '{type}'...");
-        Console.WriteLine($"  URL: {url}");
+        Console.WriteLine($"  Model: {modelFileName}");
         Console.WriteLine($"  Destination: {modelPath}");
         
-        if (trustAllCerts)
+        if (options.TrustAllCerts)
             Console.WriteLine("  [WARN] SSL validation disabled");
 
         var progress = new Progress<double>(p =>
@@ -51,11 +66,42 @@ internal static class ResilientModelDownloader
             Console.Write($"\r  Progress: {percent:F1}%   ");
         });
 
+        var resolver = new MirrorResolver(options.MirrorUrl);
+
         try
         {
-            await ResilientHttp.DownloadFileAsync(url, modelPath, trustAllCerts, progress, ct);
-            Console.WriteLine(); // New line after progress
-            Console.WriteLine($"Model downloaded successfully.");
+            // If a specific mirror is requested, try only that one
+            if (!string.IsNullOrEmpty(options.MirrorName))
+            {
+                var mirror = resolver.GetByName(options.MirrorName);
+                if (mirror == null)
+                {
+                    var available = string.Join(", ", resolver.GetMirrorNames());
+                    throw new ArgumentException(
+                        $"Unknown mirror '{options.MirrorName}'. Available: {available}");
+                }
+                
+                var url = mirror.GetDownloadUrl(modelFileName);
+                Console.WriteLine($"Using mirror: {mirror.Name}");
+                Console.WriteLine($"  URL: {url}");
+                
+                await ResilientHttp.DownloadFileAsync(url, modelPath, options.TrustAllCerts, progress, ct);
+                Console.WriteLine();
+                Console.WriteLine($"Model downloaded successfully from {mirror.Name}.");
+            }
+            else
+            {
+                // Auto-fallback through all mirrors
+                var result = await resolver.DownloadWithFallbackAsync(
+                    modelFileName, modelPath, options.TrustAllCerts, progress, ct);
+                
+                Console.WriteLine(); // New line after progress
+                
+                if (result.HasValue)
+                {
+                    Console.WriteLine($"Model downloaded successfully from {result.Value.Mirror.Name}.");
+                }
+            }
         }
         catch (HttpRequestException ex)
         {
@@ -63,13 +109,35 @@ internal static class ResilientModelDownloader
             Console.WriteLine($"\n[ERROR] Model download failed: {ex.Message}");
             Console.WriteLine();
             Console.WriteLine("Manual download instructions:");
-            Console.WriteLine($"  1. Download from: {url}");
+            Console.WriteLine($"  1. Download {modelFileName} from any available source");
             Console.WriteLine($"  2. Save to: {modelPath}");
+            Console.WriteLine();
+            Console.WriteLine("Options:");
+            Console.WriteLine("  --mirror-url <url>    Use a custom mirror URL");
+            Console.WriteLine("  --mirror <name>       Use a specific mirror (run 'mirrors' to list)");
             Console.WriteLine();
             throw;
         }
 
         return modelPath;
+    }
+    
+    /// <summary>
+    /// Prints status of all configured mirrors.
+    /// </summary>
+    public static void PrintMirrorStatus(string? customUrl = null)
+    {
+        var resolver = new MirrorResolver(customUrl);
+        resolver.PrintMirrorStatus();
+    }
+    
+    /// <summary>
+    /// Gets available mirror names.
+    /// </summary>
+    public static IReadOnlyList<string> GetMirrorNames(string? customUrl = null)
+    {
+        var resolver = new MirrorResolver(customUrl);
+        return resolver.GetMirrorNames();
     }
 
     /// <summary>

@@ -12,7 +12,7 @@ internal sealed class WhisperTranscriptionService
         string modelName,
         string language,
         int maxSegmentLength,
-        bool trustAllCerts = false)
+        ResilientModelDownloader.DownloadOptions? downloadOptions = null)
     {
         if (!File.Exists(wav16kMonoPath))
             throw new FileNotFoundException("WAV file not found", wav16kMonoPath);
@@ -27,7 +27,9 @@ internal sealed class WhisperTranscriptionService
             throw new ArgumentException($"Unknown model '{modelName}'. Valid values: {valid}");
         }
 
-        var modelPath = await ResilientModelDownloader.EnsureModelAsync(ggmlType, trustAllCerts);
+        var modelPath = await ResilientModelDownloader.EnsureModelAsync(
+            ggmlType, 
+            downloadOptions ?? new ResilientModelDownloader.DownloadOptions());
 
         using var whisperFactory = WhisperFactory.FromPath(modelPath);
 
