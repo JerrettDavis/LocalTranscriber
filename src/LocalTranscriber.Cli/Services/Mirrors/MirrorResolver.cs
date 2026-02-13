@@ -11,10 +11,10 @@ internal sealed class MirrorResolver
     {
         _mirrors =
         [
-            new HuggingFaceMirror(),    // Priority 10 - primary
+            new HuggingFaceMirror(),    // Priority 10 - primary for local use
             new HuggingFaceMirrorCN(),  // Priority 15 - HF community mirror
             new ModelScopeMirror(),     // Priority 20 - Alibaba mirror
-            new GitHubReleasesMirror(), // Priority 25 - whisper.cpp releases
+            new GitHubReleasesMirror(), // Priority 5 in GitHub Actions, 25 otherwise
         ];
         
         // Add custom URL mirror if provided (via flag or env var)
