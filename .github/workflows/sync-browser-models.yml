@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       models:
-        description: 'Models to sync (comma-separated: tiny,tiny.en,base,base.en,small,small.en)'
+        description: 'Models to sync (tiny,tiny.en,base,base.en work; small models exceed 100MB GitHub limit)'
         required: false
-        default: 'tiny,tiny.en,base,base.en,small,small.en'
+        default: 'tiny,tiny.en,base,base.en'
   schedule:
     # Monthly check for updates
     - cron: '0 0 1 * *'
