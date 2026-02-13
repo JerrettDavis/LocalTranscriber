@@ -1,0 +1,118 @@
+name: Sync Browser Models to GitHub Releases
+
+on:
+  workflow_dispatch:
+    inputs:
+      models:
+        description: 'Models to sync (comma-separated: tiny,tiny.en,base,base.en,small,small.en)'
+        required: false
+        default: 'tiny,tiny.en,base,base.en,small,small.en'
+  schedule:
+    # Monthly check for updates (models rarely change)
+    - cron: '0 0 1 * *'
+
+env:
+  RELEASE_TAG: browser-models-v1
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create/Update Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Create release if it doesn't exist
+          if ! gh release view "${{ env.RELEASE_TAG }}" &>/dev/null; then
+            gh release create "${{ env.RELEASE_TAG }}" \
+              --title "Browser ONNX Models" \
+              --notes "Whisper ONNX models for browser-based transcription (transformers.js compatible).
+
+          These models are mirrored from HuggingFace for networks that block HF.
+
+          **Available models:**
+          - whisper-tiny (~75MB)
+          - whisper-tiny.en (~75MB)
+          - whisper-base (~150MB)
+          - whisper-base.en (~150MB)
+          - whisper-small (~500MB)
+          - whisper-small.en (~500MB)
+
+          **File naming:** \`{model}__{path}.ext\` (e.g., \`whisper-small__onnx__model_quantized.onnx\`)
+
+          **Usage:** The app automatically uses this mirror when HuggingFace is blocked.
+          "
+          fi
+
+      - name: Sync Models
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          
+          MODELS="${{ github.event.inputs.models || 'tiny,tiny.en,base,base.en,small,small.en' }}"
+          RELEASE_TAG="${{ env.RELEASE_TAG }}"
+          
+          # Files to download for each model
+          CONFIG_FILES="config.json tokenizer.json tokenizer_config.json preprocessor_config.json generation_config.json vocab.json merges.txt added_tokens.json special_tokens_map.json normalizer.json"
+          ONNX_FILES="model_quantized.onnx decoder_model_merged_quantized.onnx encoder_model_quantized.onnx decoder_with_past_model_quantized.onnx"
+          
+          for MODEL_SUFFIX in ${MODELS//,/ }; do
+            MODEL_NAME="whisper-${MODEL_SUFFIX}"
+            HF_MODEL="Xenova/${MODEL_NAME}"
+            
+            echo ""
+            echo "=========================================="
+            echo "Processing: ${MODEL_NAME}"
+            echo "=========================================="
+            
+            # Download and upload config files
+            for FILE in ${CONFIG_FILES}; do
+              URL="https://huggingface.co/${HF_MODEL}/resolve/main/${FILE}"
+              ASSET_NAME="${MODEL_NAME}__${FILE}"
+              
+              if curl -fsSL --head "${URL}" 2>/dev/null | grep -q "200"; then
+                echo "  ↓ ${FILE}"
+                TEMP_FILE=$(mktemp)
+                curl -fsSL -o "${TEMP_FILE}" "${URL}"
+                
+                # Delete existing and upload
+                gh release delete-asset "${RELEASE_TAG}" "${ASSET_NAME}" --yes 2>/dev/null || true
+                gh release upload "${RELEASE_TAG}" "${TEMP_FILE}#${ASSET_NAME}" --clobber
+                rm -f "${TEMP_FILE}"
+              fi
+            done
+            
+            # Download and upload ONNX files
+            for FILE in ${ONNX_FILES}; do
+              URL="https://huggingface.co/${HF_MODEL}/resolve/main/onnx/${FILE}"
+              ASSET_NAME="${MODEL_NAME}__onnx__${FILE}"
+              
+              if curl -fsSL --head "${URL}" 2>/dev/null | grep -q "200"; then
+                echo "  ↓ onnx/${FILE} (this may take a while...)"
+                TEMP_FILE=$(mktemp)
+                curl -fsSL -o "${TEMP_FILE}" "${URL}"
+                
+                SIZE=$(du -h "${TEMP_FILE}" | cut -f1)
+                echo "    Size: ${SIZE}"
+                
+                # Delete existing and upload
+                gh release delete-asset "${RELEASE_TAG}" "${ASSET_NAME}" --yes 2>/dev/null || true
+                gh release upload "${RELEASE_TAG}" "${TEMP_FILE}#${ASSET_NAME}" --clobber
+                rm -f "${TEMP_FILE}"
+              fi
+            done
+            
+            echo "  ✓ ${MODEL_NAME} complete"
+          done
+          
+          echo ""
+          echo "=========================================="
+          echo "All models synced!"
+          echo "https://github.com/${{ github.repository }}/releases/tag/${RELEASE_TAG}"
+          echo "=========================================="

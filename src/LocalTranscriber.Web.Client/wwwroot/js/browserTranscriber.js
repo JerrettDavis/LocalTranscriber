@@ -15,10 +15,13 @@ window.localTranscriberBrowser = (() => {
   };
 
   // Mirror configuration for model downloads
-  // Set via: setMirrorPreference('https://hf-mirror.com') or localStorage
+  // Set via: setMirrorPreference('github-releases') or localStorage
+  const GITHUB_RELEASES_BASE = "https://github.com/JerrettDavis/LocalTranscriber/releases/download/browser-models-v1";
+  
   const defaultMirrors = [
-    { url: "https://huggingface.co", name: "HuggingFace", region: "Global" },
-    { url: "https://hf-mirror.com", name: "HF-Mirror", region: "China-friendly" },
+    { url: "https://huggingface.co", name: "HuggingFace", region: "Global", type: "hf" },
+    { url: "github-releases", name: "GitHub Releases", region: "Enterprise-friendly", type: "gh-releases" },
+    { url: "https://hf-mirror.com", name: "HF-Mirror", region: "China-friendly", type: "hf" },
   ];
 
   let transformersModulePromise = null;
@@ -26,6 +29,7 @@ window.localTranscriberBrowser = (() => {
   const asrPipelineCache = new Map();
   const webLlmEngineCache = new Map();
   let preferredMirror = null; // Set by user or auto-detected
+  let originalFetch = null; // For GitHub Releases URL rewriting
 
   function getCapabilities() {
     const hasWebGpu = typeof navigator !== "undefined" && !!navigator.gpu;
@@ -294,7 +298,7 @@ window.localTranscriberBrowser = (() => {
   
   function listMirrors() {
     // Return available mirrors with status
-    return defaultMirrors.map(m => ({ ...m }));
+    return defaultMirrors.map(m => ({ url: m.url, name: m.name, region: m.region }));
   }
 
   function getMirrorPreference() {
@@ -338,12 +342,97 @@ window.localTranscriberBrowser = (() => {
     return urls;
   }
 
+  // === GitHub Releases Mirror Support ===
+  
+  function isGitHubReleasesMirror(mirrorUrl) {
+    return mirrorUrl === "github-releases";
+  }
+
+  function rewriteUrlForGitHubReleases(url) {
+    // Convert HuggingFace-style URLs to GitHub Releases format
+    // HF: https://huggingface.co/Xenova/whisper-small/resolve/main/onnx/model_quantized.onnx
+    // GH: https://github.com/.../releases/download/browser-models-v1/whisper-small__onnx__model_quantized.onnx
+    
+    try {
+      const urlObj = new URL(url);
+      
+      // Check if this is a HuggingFace model URL
+      if (!urlObj.hostname.includes("huggingface")) {
+        return url; // Not a HF URL, don't rewrite
+      }
+      
+      // Parse HF URL: /Xenova/whisper-small/resolve/main/path/to/file.ext
+      const pathMatch = urlObj.pathname.match(/^\/([^/]+)\/([^/]+)\/resolve\/[^/]+\/(.+)$/);
+      if (!pathMatch) {
+        return url; // Doesn't match expected format
+      }
+      
+      const [, org, model, filePath] = pathMatch;
+      
+      // Only rewrite Xenova whisper models
+      if (org !== "Xenova" || !model.startsWith("whisper-")) {
+        return url;
+      }
+      
+      // Convert path separators to double underscore
+      const assetName = `${model}__${filePath.replace(/\//g, "__")}`;
+      const newUrl = `${GITHUB_RELEASES_BASE}/${assetName}`;
+      
+      console.log(`[LocalTranscriber] Rewriting URL for GitHub Releases:`);
+      console.log(`  From: ${url}`);
+      console.log(`  To: ${newUrl}`);
+      
+      return newUrl;
+    } catch {
+      return url;
+    }
+  }
+
+  function enableGitHubReleasesProxy() {
+    if (originalFetch) return; // Already enabled
+    
+    originalFetch = window.fetch;
+    window.fetch = async function(input, init) {
+      let url = typeof input === "string" ? input : input?.url;
+      
+      if (url && url.includes("huggingface.co") && url.includes("Xenova/whisper-")) {
+        const newUrl = rewriteUrlForGitHubReleases(url);
+        if (newUrl !== url) {
+          if (typeof input === "string") {
+            input = newUrl;
+          } else if (input?.url) {
+            input = new Request(newUrl, input);
+          }
+        }
+      }
+      
+      return originalFetch.call(this, input, init);
+    };
+    
+    console.log("[LocalTranscriber] GitHub Releases fetch proxy enabled");
+  }
+
+  function disableGitHubReleasesProxy() {
+    if (originalFetch) {
+      window.fetch = originalFetch;
+      originalFetch = null;
+      console.log("[LocalTranscriber] GitHub Releases fetch proxy disabled");
+    }
+  }
+
   async function probeMirrors(timeoutMs = 5000) {
     // Test which mirrors are reachable (CORS check via small file)
     const results = [];
     
     for (const mirror of defaultMirrors) {
-      const testUrl = `${mirror.url}/Xenova/whisper-tiny/resolve/main/config.json`;
+      // Different test URL for GitHub Releases
+      let testUrl;
+      if (mirror.type === "gh-releases") {
+        testUrl = `${GITHUB_RELEASES_BASE}/whisper-tiny__config.json`;
+      } else {
+        testUrl = `${mirror.url}/Xenova/whisper-tiny/resolve/main/config.json`;
+      }
+      
       const start = performance.now();
       
       try {
@@ -360,14 +449,18 @@ window.localTranscriberBrowser = (() => {
         const latency = Math.round(performance.now() - start);
         
         results.push({
-          ...mirror,
+          url: mirror.url,
+          name: mirror.name,
+          region: mirror.region,
           reachable: response.ok || response.status === 302,
           latency,
           status: response.status
         });
       } catch (err) {
         results.push({
-          ...mirror,
+          url: mirror.url,
+          name: mirror.name,
+          region: mirror.region,
           reachable: false,
           latency: null,
           error: err.name === "AbortError" ? "Timeout" : (err.message || "Network error")
@@ -421,10 +514,21 @@ window.localTranscriberBrowser = (() => {
 
     // Try each mirror in order
     for (const mirrorUrl of mirrors) {
-      applyMirrorToEnv(transformers, mirrorUrl);
-      const mirrorName = defaultMirrors.find(m => m.url === mirrorUrl)?.name || mirrorUrl;
+      const mirrorInfo = defaultMirrors.find(m => m.url === mirrorUrl);
+      const mirrorName = mirrorInfo?.name || mirrorUrl;
+      const isGhReleases = mirrorInfo?.type === "gh-releases" || mirrorUrl === "github-releases";
       
-      console.log(`[LocalTranscriber] Trying mirror: ${mirrorName} (${mirrorUrl})`);
+      // Enable/disable GitHub Releases fetch proxy
+      if (isGhReleases) {
+        enableGitHubReleasesProxy();
+        // For GH Releases, we still use HF as the "host" but intercept fetch calls
+        applyMirrorToEnv(transformers, "https://huggingface.co");
+      } else {
+        disableGitHubReleasesProxy();
+        applyMirrorToEnv(transformers, mirrorUrl);
+      }
+      
+      console.log(`[LocalTranscriber] Trying mirror: ${mirrorName}${isGhReleases ? " (via fetch proxy)" : ""}`);
 
       try {
         // Try WebGPU first
@@ -468,16 +572,21 @@ window.localTranscriberBrowser = (() => {
           // Check for network/CORS errors - try next mirror
           if (errorMsg.includes("CORS") || errorMsg.includes("NetworkError") || 
               errorMsg.includes("Failed to fetch") || errorMsg.includes("blocked") ||
-              errorMsg.includes("TypeError")) {
-            console.warn(`[LocalTranscriber] ✗ ${mirrorName} blocked (CORS/network), trying next...`);
+              errorMsg.includes("TypeError") || errorMsg.includes("404")) {
+            console.warn(`[LocalTranscriber] ✗ ${mirrorName} failed (${errorMsg.slice(0, 50)}), trying next...`);
+            disableGitHubReleasesProxy(); // Clean up before trying next
             continue;
           }
           
           // For other errors, might not be mirror-related
           console.error(`[LocalTranscriber] ✗ ${mirrorName} failed:`, cpuError);
+          disableGitHubReleasesProxy();
         }
       }
     }
+
+    // Clean up proxy on failure
+    disableGitHubReleasesProxy();
 
     // All mirrors failed
     const mirrorList = mirrors.map(u => defaultMirrors.find(m => m.url === u)?.name || u).join(", ");
@@ -486,8 +595,8 @@ window.localTranscriberBrowser = (() => {
       "This is likely due to network policies blocking model CDNs.\n\n" +
       "Options:\n" +
       "1. Run: localTranscriberBrowser.autoSelectMirror() to find a working mirror\n" +
-      "2. Set manually: localTranscriberBrowser.setMirrorPreference('https://hf-mirror.com')\n" +
-      "3. Use a VPN or different network\n" +
+      "2. Set manually: localTranscriberBrowser.setMirrorPreference('github-releases')\n" +
+      "3. If using GitHub Releases, ensure models are synced (run workflow)\n" +
       "4. Use server-side transcription mode instead";
     
     throw new Error(helpMessage + "\n\nLast error: " + (lastError?.message || "Unknown"));
