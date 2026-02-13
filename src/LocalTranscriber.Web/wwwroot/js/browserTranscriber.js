@@ -14,10 +14,18 @@ window.localTranscriberBrowser = (() => {
     largev3turbo: "Xenova/whisper-large-v3-turbo",
   };
 
+  // Mirror configuration for model downloads
+  // Set window.TRANSFORMERS_MIRROR to override (e.g., "https://hf-mirror.com")
+  const defaultMirrors = [
+    "https://huggingface.co",          // Primary - HuggingFace CDN
+    "https://hf-mirror.com",           // Community mirror (China-friendly)
+  ];
+
   let transformersModulePromise = null;
   let webLlmModulePromise = null;
   const asrPipelineCache = new Map();
   const webLlmEngineCache = new Map();
+  let currentMirrorIndex = 0;
 
   function getCapabilities() {
     const hasWebGpu = typeof navigator !== "undefined" && !!navigator.gpu;
@@ -282,6 +290,23 @@ window.localTranscriberBrowser = (() => {
     return transformersModulePromise;
   }
 
+  function getMirrors() {
+    // Allow custom mirror via window global or localStorage
+    const customMirror = window.TRANSFORMERS_MIRROR || localStorage.getItem("transformers_mirror");
+    if (customMirror) {
+      return [customMirror.replace(/\/$/, ""), ...defaultMirrors];
+    }
+    return defaultMirrors;
+  }
+
+  function setMirror(transformers, mirrorUrl) {
+    if (transformers?.env) {
+      transformers.env.remoteHost = mirrorUrl;
+      // HuggingFace path template: /{model}/resolve/{revision}/{file}
+      transformers.env.remotePathTemplate = "{model}/resolve/{revision}/{file}";
+    }
+  }
+
   async function createAsrPipeline(transformers, modelId, onProgress) {
     if (transformers?.env) {
       transformers.env.allowRemoteModels = true;
@@ -289,26 +314,68 @@ window.localTranscriberBrowser = (() => {
       transformers.env.useBrowserCache = true;
     }
 
-    try {
-      return await transformers.pipeline("automatic-speech-recognition", modelId, {
-        device: "webgpu",
-        quantized: true,
-        progress_callback: (update) => {
-          if (!onProgress || typeof update?.progress !== "number") return;
-          const pct = Math.round(30 + update.progress * 13);
-          onProgress(pct);
-        },
-      });
-    } catch {
-      return await transformers.pipeline("automatic-speech-recognition", modelId, {
-        quantized: true,
-        progress_callback: (update) => {
-          if (!onProgress || typeof update?.progress !== "number") return;
-          const pct = Math.round(30 + update.progress * 13);
-          onProgress(pct);
-        },
-      });
+    const mirrors = getMirrors();
+    let lastError = null;
+
+    // Try each mirror in order
+    for (let i = 0; i < mirrors.length; i++) {
+      const mirror = mirrors[i];
+      setMirror(transformers, mirror);
+      
+      console.log(`[LocalTranscriber] Trying model mirror: ${mirror}`);
+
+      try {
+        // Try WebGPU first
+        const pipeline = await transformers.pipeline("automatic-speech-recognition", modelId, {
+          device: "webgpu",
+          quantized: true,
+          progress_callback: (update) => {
+            if (!onProgress || typeof update?.progress !== "number") return;
+            const pct = Math.round(30 + update.progress * 13);
+            onProgress(pct);
+          },
+        });
+        console.log(`[LocalTranscriber] Model loaded successfully from ${mirror}`);
+        return pipeline;
+      } catch (webGpuError) {
+        // If WebGPU failed, try without it (could be model loading or WebGPU issue)
+        try {
+          const pipeline = await transformers.pipeline("automatic-speech-recognition", modelId, {
+            quantized: true,
+            progress_callback: (update) => {
+              if (!onProgress || typeof update?.progress !== "number") return;
+              const pct = Math.round(30 + update.progress * 13);
+              onProgress(pct);
+            },
+          });
+          console.log(`[LocalTranscriber] Model loaded (CPU fallback) from ${mirror}`);
+          return pipeline;
+        } catch (cpuError) {
+          lastError = cpuError;
+          const errorMsg = cpuError?.message || String(cpuError);
+          
+          // Check for network/CORS errors
+          if (errorMsg.includes("CORS") || errorMsg.includes("NetworkError") || 
+              errorMsg.includes("Failed to fetch") || errorMsg.includes("blocked")) {
+            console.warn(`[LocalTranscriber] Mirror ${mirror} blocked (CORS/network), trying next...`);
+            continue; // Try next mirror
+          }
+          
+          // For other errors, might not be mirror-related
+          console.error(`[LocalTranscriber] Mirror ${mirror} failed:`, cpuError);
+        }
+      }
     }
+
+    // All mirrors failed - provide helpful error message
+    const helpMessage = 
+      "Model download failed. This may be due to network policies blocking HuggingFace.\n\n" +
+      "Options:\n" +
+      "1. Set a custom mirror: localStorage.setItem('transformers_mirror', 'https://your-mirror.com')\n" +
+      "2. Use a VPN or different network\n" +
+      "3. Use the server-side transcription mode instead";
+    
+    throw new Error(helpMessage + "\n\nOriginal error: " + (lastError?.message || "Unknown"));
   }
 
   async function formatWithWebLlm(webLlmModel, whisperModel, language, transcript, onProgress) {

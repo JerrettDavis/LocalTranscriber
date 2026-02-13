@@ -291,7 +291,8 @@
 }
 
 .mic-select-wrap span,
-.field-grid span {
+.field-grid span,
+.settings-row span {
     color: var(--ink-subtle);
     font-size: 0.75rem;
     font-weight: 700;
@@ -301,7 +302,9 @@
 
 .mic-select-wrap select,
 .field-grid select,
-.field-grid input {
+.field-grid input,
+.settings-row select,
+.settings-row input[type="checkbox"] {
     background: color-mix(in srgb, var(--surface-elevated) 90%, transparent);
     border: 1px solid var(--border-soft);
     border-radius: 12px;
@@ -309,6 +312,96 @@
     min-height: 2.55rem;
     padding: 0.45rem 0.7rem;
     width: 100%;
+}
+
+/* Settings row - horizontal layout for model/speaker controls */
+.settings-row {
+    display: grid;
+    gap: 0.85rem;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    min-width: min(420px, 92vw);
+}
+
+.settings-row label {
+    display: grid;
+    gap: 0.36rem;
+    min-width: 0;
+}
+
+.settings-row select {
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+    background-position: right 0.7rem center;
+    background-repeat: no-repeat;
+    cursor: pointer;
+    padding-right: 2.2rem;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.settings-row select:hover:not(:disabled) {
+    border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+.settings-row select:focus {
+    border-color: color-mix(in srgb, var(--accent) 65%, transparent);
+    box-shadow: 0 0 0 0.14rem color-mix(in srgb, var(--accent) 18%, transparent);
+    outline: none;
+}
+
+.settings-row select:disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+}
+
+/* Toggle row - checkbox with label */
+.settings-row .toggle-row {
+    align-items: center;
+    display: grid;
+    gap: 0.55rem;
+    grid-template-columns: 1fr auto;
+}
+
+.settings-row .toggle-row input[type="checkbox"] {
+    accent-color: var(--accent);
+    appearance: none;
+    background: color-mix(in srgb, var(--surface) 85%, transparent);
+    border: 1px solid var(--border-strong);
+    border-radius: 999px;
+    cursor: pointer;
+    height: 1.55rem;
+    min-height: auto;
+    padding: 0;
+    position: relative;
+    transition: background 0.2s ease, border-color 0.2s ease;
+    width: 2.8rem;
+}
+
+.settings-row .toggle-row input[type="checkbox"]::before {
+    background: var(--ink-muted);
+    border-radius: 999px;
+    content: "";
+    height: 1.1rem;
+    left: 0.18rem;
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    transition: transform 0.2s ease, background 0.2s ease;
+    width: 1.1rem;
+}
+
+.settings-row .toggle-row input[type="checkbox"]:checked {
+    background: color-mix(in srgb, var(--accent) 25%, var(--surface-elevated));
+    border-color: color-mix(in srgb, var(--accent) 65%, transparent);
+}
+
+.settings-row .toggle-row input[type="checkbox"]:checked::before {
+    background: var(--accent);
+    transform: translateX(1.2rem) translateY(-50%);
+}
+
+.settings-row .toggle-row input[type="checkbox"]:disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
 }
 
 .field-grid input[type="range"] {
