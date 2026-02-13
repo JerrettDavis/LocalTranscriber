@@ -15,12 +15,13 @@ window.localTranscriberBrowser = (() => {
   };
 
   // Mirror configuration for model downloads
-  // Set via: setMirrorPreference('github-releases') or localStorage
-  const GITHUB_RELEASES_BASE = "https://github.com/JerrettDavis/LocalTranscriber/releases/download/browser-models-v1";
+  // Set via: setMirrorPreference('jsdelivr') or localStorage
+  // jsDelivr CDN serves from the browser-models branch with CORS headers
+  const JSDELIVR_BASE = "https://cdn.jsdelivr.net/gh/JerrettDavis/LocalTranscriber@browser-models";
   
   const defaultMirrors = [
     { url: "https://huggingface.co", name: "HuggingFace", region: "Global", type: "hf" },
-    { url: "github-releases", name: "GitHub Releases", region: "Enterprise-friendly", type: "gh-releases" },
+    { url: "jsdelivr", name: "jsDelivr CDN", region: "Enterprise-friendly", type: "jsdelivr" },
     { url: "https://hf-mirror.com", name: "HF-Mirror", region: "China-friendly", type: "hf" },
   ];
 
@@ -342,16 +343,16 @@ window.localTranscriberBrowser = (() => {
     return urls;
   }
 
-  // === GitHub Releases Mirror Support ===
+  // === jsDelivr CDN Mirror Support ===
   
-  function isGitHubReleasesMirror(mirrorUrl) {
-    return mirrorUrl === "github-releases";
+  function isJsDelivrMirror(mirrorUrl) {
+    return mirrorUrl === "jsdelivr";
   }
 
-  function rewriteUrlForGitHubReleases(url) {
-    // Convert HuggingFace-style URLs to GitHub Releases format
+  function rewriteUrlForJsDelivr(url) {
+    // Convert HuggingFace-style URLs to jsDelivr CDN format
     // HF: https://huggingface.co/Xenova/whisper-small/resolve/main/onnx/model_quantized.onnx
-    // GH: https://github.com/.../releases/download/browser-models-v1/whisper-small__onnx__model_quantized.onnx
+    // jsDelivr: https://cdn.jsdelivr.net/gh/JerrettDavis/LocalTranscriber@browser-models/whisper-small/onnx/model_quantized.onnx
     
     try {
       const urlObj = new URL(url);
@@ -374,11 +375,10 @@ window.localTranscriberBrowser = (() => {
         return url;
       }
       
-      // Convert path separators to double underscore
-      const assetName = `${model}__${filePath.replace(/\//g, "__")}`;
-      const newUrl = `${GITHUB_RELEASES_BASE}/${assetName}`;
+      // jsDelivr uses directory structure: /model/path/file.ext
+      const newUrl = `${JSDELIVR_BASE}/${model}/${filePath}`;
       
-      console.log(`[LocalTranscriber] Rewriting URL for GitHub Releases:`);
+      console.log(`[LocalTranscriber] Rewriting URL for jsDelivr CDN:`);
       console.log(`  From: ${url}`);
       console.log(`  To: ${newUrl}`);
       
@@ -388,7 +388,7 @@ window.localTranscriberBrowser = (() => {
     }
   }
 
-  function enableGitHubReleasesProxy() {
+  function enableJsDelivrProxy() {
     if (originalFetch) return; // Already enabled
     
     originalFetch = window.fetch;
@@ -396,7 +396,7 @@ window.localTranscriberBrowser = (() => {
       let url = typeof input === "string" ? input : input?.url;
       
       if (url && url.includes("huggingface.co") && url.includes("Xenova/whisper-")) {
-        const newUrl = rewriteUrlForGitHubReleases(url);
+        const newUrl = rewriteUrlForJsDelivr(url);
         if (newUrl !== url) {
           if (typeof input === "string") {
             input = newUrl;
@@ -409,14 +409,14 @@ window.localTranscriberBrowser = (() => {
       return originalFetch.call(this, input, init);
     };
     
-    console.log("[LocalTranscriber] GitHub Releases fetch proxy enabled");
+    console.log("[LocalTranscriber] jsDelivr CDN fetch proxy enabled");
   }
 
-  function disableGitHubReleasesProxy() {
+  function disableJsDelivrProxy() {
     if (originalFetch) {
       window.fetch = originalFetch;
       originalFetch = null;
-      console.log("[LocalTranscriber] GitHub Releases fetch proxy disabled");
+      console.log("[LocalTranscriber] jsDelivr CDN fetch proxy disabled");
     }
   }
 
@@ -425,10 +425,10 @@ window.localTranscriberBrowser = (() => {
     const results = [];
     
     for (const mirror of defaultMirrors) {
-      // Different test URL for GitHub Releases
+      // Different test URL for jsDelivr CDN
       let testUrl;
-      if (mirror.type === "gh-releases") {
-        testUrl = `${GITHUB_RELEASES_BASE}/whisper-tiny__config.json`;
+      if (mirror.type === "jsdelivr") {
+        testUrl = `${JSDELIVR_BASE}/whisper-tiny/config.json`;
       } else {
         testUrl = `${mirror.url}/Xenova/whisper-tiny/resolve/main/config.json`;
       }
@@ -516,19 +516,19 @@ window.localTranscriberBrowser = (() => {
     for (const mirrorUrl of mirrors) {
       const mirrorInfo = defaultMirrors.find(m => m.url === mirrorUrl);
       const mirrorName = mirrorInfo?.name || mirrorUrl;
-      const isGhReleases = mirrorInfo?.type === "gh-releases" || mirrorUrl === "github-releases";
+      const isJsDelivr = mirrorInfo?.type === "jsdelivr" || mirrorUrl === "jsdelivr";
       
-      // Enable/disable GitHub Releases fetch proxy
-      if (isGhReleases) {
-        enableGitHubReleasesProxy();
-        // For GH Releases, we still use HF as the "host" but intercept fetch calls
+      // Enable/disable jsDelivr CDN fetch proxy
+      if (isJsDelivr) {
+        enableJsDelivrProxy();
+        // For jsDelivr, we still use HF as the "host" but intercept fetch calls
         applyMirrorToEnv(transformers, "https://huggingface.co");
       } else {
-        disableGitHubReleasesProxy();
+        disableJsDelivrProxy();
         applyMirrorToEnv(transformers, mirrorUrl);
       }
       
-      console.log(`[LocalTranscriber] Trying mirror: ${mirrorName}${isGhReleases ? " (via fetch proxy)" : ""}`);
+      console.log(`[LocalTranscriber] Trying mirror: ${mirrorName}${isJsDelivr ? " (via fetch proxy)" : ""}`);
 
       try {
         // Try WebGPU first
@@ -574,19 +574,19 @@ window.localTranscriberBrowser = (() => {
               errorMsg.includes("Failed to fetch") || errorMsg.includes("blocked") ||
               errorMsg.includes("TypeError") || errorMsg.includes("404")) {
             console.warn(`[LocalTranscriber] ✗ ${mirrorName} failed (${errorMsg.slice(0, 50)}), trying next...`);
-            disableGitHubReleasesProxy(); // Clean up before trying next
+            disableJsDelivrProxy(); // Clean up before trying next
             continue;
           }
           
           // For other errors, might not be mirror-related
           console.error(`[LocalTranscriber] ✗ ${mirrorName} failed:`, cpuError);
-          disableGitHubReleasesProxy();
+          disableJsDelivrProxy();
         }
       }
     }
 
     // Clean up proxy on failure
-    disableGitHubReleasesProxy();
+    disableJsDelivrProxy();
 
     // All mirrors failed
     const mirrorList = mirrors.map(u => defaultMirrors.find(m => m.url === u)?.name || u).join(", ");
@@ -595,8 +595,8 @@ window.localTranscriberBrowser = (() => {
       "This is likely due to network policies blocking model CDNs.\n\n" +
       "Options:\n" +
       "1. Run: localTranscriberBrowser.autoSelectMirror() to find a working mirror\n" +
-      "2. Set manually: localTranscriberBrowser.setMirrorPreference('github-releases')\n" +
-      "3. If using GitHub Releases, ensure models are synced (run workflow)\n" +
+      "2. Set manually: localTranscriberBrowser.setMirrorPreference('jsdelivr')\n" +
+      "3. If using jsDelivr CDN, ensure models are synced (run workflow)\n" +
       "4. Use server-side transcription mode instead";
     
     throw new Error(helpMessage + "\n\nLast error: " + (lastError?.message || "Unknown"));

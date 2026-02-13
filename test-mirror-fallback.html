@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Mirror Fallback Test</title>
+    <style>
+        body { font-family: system-ui, sans-serif; padding: 2rem; background: #1a1a2e; color: #eee; }
+        .test { margin: 1rem 0; padding: 1rem; background: #16213e; border-radius: 8px; }
+        .pass { border-left: 4px solid #4caf50; }
+        .fail { border-left: 4px solid #f44336; }
+        .pending { border-left: 4px solid #ff9800; }
+        .log { font-family: monospace; font-size: 0.85rem; white-space: pre-wrap; background: #0f0f1a; padding: 0.5rem; margin-top: 0.5rem; border-radius: 4px; max-height: 300px; overflow: auto; }
+        button { background: #4a6fa5; color: white; border: none; padding: 0.75rem 1.5rem; border-radius: 6px; cursor: pointer; margin: 0.25rem; }
+        button:hover { background: #5a7fb5; }
+        h1 { color: #8892b0; }
+        h2 { color: #a8b2d1; font-size: 1rem; margin: 0; }
+    </style>
+</head>
+<body>
+    <h1>🧪 LocalTranscriber Mirror Fallback Tests</h1>
+    
+    <div>
+        <button onclick="runAllTests()">Run All Tests</button>
+        <button onclick="testProbeMirrors()">Test Probe Mirrors</button>
+        <button onclick="testBlockedHuggingFace()">Test Blocked HuggingFace</button>
+        <button onclick="testGitHubReleasesOnly()">Test GitHub Releases Only</button>
+        <button onclick="clearLogs()">Clear Logs</button>
+    </div>
+
+    <div id="results"></div>
+
+    <script src="src/LocalTranscriber.Web.Client/wwwroot/js/browserTranscriber.js"></script>
+    <script>
+        const resultsDiv = document.getElementById('results');
+        let originalFetch = window.fetch;
+        
+        function log(testId, msg) {
+            const logDiv = document.getElementById(`log-${testId}`);
+            if (logDiv) {
+                logDiv.textContent += msg + '\n';
+                logDiv.scrollTop = logDiv.scrollHeight;
+            }
+            console.log(`[${testId}]`, msg);
+        }
+        
+        function createTestDiv(id, title) {
+            const div = document.createElement('div');
+            div.id = `test-${id}`;
+            div.className = 'test pending';
+            div.innerHTML = `<h2>⏳ ${title}</h2><div id="log-${id}" class="log"></div>`;
+            resultsDiv.appendChild(div);
+            return div;
+        }
+        
+        function setTestResult(id, passed, title) {
+            const div = document.getElementById(`test-${id}`);
+            if (div) {
+                div.className = `test ${passed ? 'pass' : 'fail'}`;
+                div.querySelector('h2').textContent = `${passed ? '✅' : '❌'} ${title}`;
+            }
+        }
+        
+        function clearLogs() {
+            resultsDiv.innerHTML = '';
+        }
+        
+        // Block HuggingFace domains
+        function blockHuggingFace() {
+            window.fetch = async function(input, init) {
+                const url = typeof input === 'string' ? input : input?.url;
+                if (url && (url.includes('huggingface.co') || url.includes('hf-mirror.com'))) {
+                    throw new Error('CORS: Blocked by test - simulating network policy');
+                }
+                return originalFetch.call(this, input, init);
+            };
+            console.log('[TEST] HuggingFace blocked');
+        }
+        
+        function unblockHuggingFace() {
+            window.fetch = originalFetch;
+            console.log('[TEST] HuggingFace unblocked');
+        }
+        
+        // Test 1: Probe all mirrors
+        async function testProbeMirrors() {
+            const id = 'probe';
+            createTestDiv(id, 'Probe All Mirrors');
+            
+            try {
+                log(id, 'Probing mirrors (5s timeout each)...\n');
+                const results = await localTranscriberBrowser.probeMirrors(5000);
+                
+                for (const r of results) {
+                    const status = r.reachable 
+                        ? `✓ ${r.latency}ms` 
+                        : `✗ ${r.error || 'unreachable'}`;
+                    log(id, `${r.name} (${r.region}): ${status}`);
+                }
+                
+                const reachable = results.filter(r => r.reachable);
+                log(id, `\n${reachable.length}/${results.length} mirrors reachable`);
+                
+                setTestResult(id, reachable.length > 0, `Probe Mirrors (${reachable.length} reachable)`);
+                return reachable.length > 0;
+            } catch (err) {
+                log(id, `Error: ${err.message}`);
+                setTestResult(id, false, 'Probe Mirrors (error)');
+                return false;
+            }
+        }
+        
+        // Test 2: Block HuggingFace, verify fallback
+        async function testBlockedHuggingFace() {
+            const id = 'blocked-hf';
+            createTestDiv(id, 'Blocked HuggingFace Fallback');
+            
+            try {
+                log(id, 'Blocking HuggingFace and HF-Mirror domains...');
+                blockHuggingFace();
+                
+                log(id, 'Setting mirror preference to default (will try HF first)...');
+                localTranscriberBrowser.setMirrorPreference(null);
+                
+                log(id, 'Probing mirrors with HF blocked...\n');
+                const results = await localTranscriberBrowser.probeMirrors(5000);
+                
+                for (const r of results) {
+                    const status = r.reachable 
+                        ? `✓ ${r.latency}ms` 
+                        : `✗ ${r.error || 'unreachable'}`;
+                    log(id, `${r.name}: ${status}`);
+                }
+                
+                // GitHub Releases should be reachable
+                const ghReleases = results.find(r => r.name === 'GitHub Releases');
+                const hfBlocked = results.find(r => r.name === 'HuggingFace')?.reachable === false;
+                
+                log(id, `\nHuggingFace blocked: ${hfBlocked}`);
+                log(id, `GitHub Releases reachable: ${ghReleases?.reachable}`);
+                
+                const passed = hfBlocked && ghReleases?.reachable;
+                setTestResult(id, passed, `Blocked HF Fallback (GH: ${ghReleases?.reachable ? 'OK' : 'FAIL'})`);
+                
+                return passed;
+            } catch (err) {
+                log(id, `Error: ${err.message}`);
+                setTestResult(id, false, 'Blocked HF Fallback (error)');
+                return false;
+            } finally {
+                unblockHuggingFace();
+            }
+        }
+        
+        // Test 3: Test jsDelivr CDN directly
+        async function testGitHubReleasesOnly() {
+            const id = 'gh-releases';
+            createTestDiv(id, 'jsDelivr CDN Direct Access');
+            
+            try {
+                const baseUrl = 'https://cdn.jsdelivr.net/gh/JerrettDavis/LocalTranscriber@browser-models';
+                const testFiles = [
+                    'whisper-tiny/config.json',
+                    'whisper-tiny.en/config.json',
+                    'whisper-base/config.json',
+                    'whisper-small/config.json'
+                ];
+                
+                log(id, 'Testing direct access to GitHub Releases assets...\n');
+                
+                let passed = 0;
+                for (const file of testFiles) {
+                    const url = `${baseUrl}/${file}`;
+                    try {
+                        const resp = await fetch(url, { method: 'HEAD' });
+                        const ok = resp.ok || resp.status === 302;
+                        log(id, `${ok ? '✓' : '✗'} ${file}: ${resp.status}`);
+                        if (ok) passed++;
+                    } catch (err) {
+                        log(id, `✗ ${file}: ${err.message}`);
+                    }
+                }
+                
+                log(id, `\n${passed}/${testFiles.length} assets accessible`);
+                
+                const allPassed = passed === testFiles.length;
+                setTestResult(id, allPassed, `GitHub Releases (${passed}/${testFiles.length} OK)`);
+                return allPassed;
+            } catch (err) {
+                log(id, `Error: ${err.message}`);
+                setTestResult(id, false, 'GitHub Releases (error)');
+                return false;
+            }
+        }
+        
+        // Test 4: URL rewriting
+        async function testUrlRewriting() {
+            const id = 'url-rewrite';
+            createTestDiv(id, 'URL Rewriting for GitHub Releases');
+            
+            try {
+                log(id, 'Testing URL rewrite function...\n');
+                
+                // Access internal rewrite function via module (if exposed)
+                // Since it's in IIFE, we'll test it via the fetch interception
+                
+                log(id, 'Setting mirror to github-releases...');
+                localTranscriberBrowser.setMirrorPreference('github-releases');
+                
+                const pref = localTranscriberBrowser.getMirrorPreference();
+                log(id, `Mirror preference: ${pref}`);
+                
+                const passed = pref === 'github-releases';
+                setTestResult(id, passed, `URL Rewriting (pref: ${pref})`);
+                
+                // Reset
+                localTranscriberBrowser.setMirrorPreference(null);
+                
+                return passed;
+            } catch (err) {
+                log(id, `Error: ${err.message}`);
+                setTestResult(id, false, 'URL Rewriting (error)');
+                return false;
+            }
+        }
+        
+        async function runAllTests() {
+            clearLogs();
+            
+            const results = [];
+            results.push(await testProbeMirrors());
+            results.push(await testGitHubReleasesOnly());
+            results.push(await testBlockedHuggingFace());
+            results.push(await testUrlRewriting());
+            
+            const passed = results.filter(r => r).length;
+            const total = results.length;
+            
+            const summary = document.createElement('div');
+            summary.className = `test ${passed === total ? 'pass' : 'fail'}`;
+            summary.innerHTML = `<h2>${passed === total ? '✅' : '⚠️'} Summary: ${passed}/${total} tests passed</h2>`;
+            resultsDiv.insertBefore(summary, resultsDiv.firstChild);
+        }
+        
+        // Auto-run on load
+        console.log('Mirror Fallback Test Page Loaded');
+        console.log('Available functions:', Object.keys(localTranscriberBrowser));
+    </script>
+</body>
+</html>

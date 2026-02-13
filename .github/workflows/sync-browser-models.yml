@@ -1,4 +1,4 @@
-name: Sync Browser Models to GitHub Releases
+name: Sync Browser Models
 
 on:
   workflow_dispatch:
@@ -8,11 +8,8 @@ on:
         required: false
         default: 'tiny,tiny.en,base,base.en,small,small.en'
   schedule:
-    # Monthly check for updates (models rarely change)
+    # Monthly check for updates
     - cron: '0 0 1 * *'
-
-env:
-  RELEASE_TAG: browser-models-v1
 
 jobs:
   sync:
@@ -22,41 +19,41 @@ jobs:
     
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
 
-      - name: Create/Update Release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Setup Git
         run: |
-          # Create release if it doesn't exist
-          if ! gh release view "${{ env.RELEASE_TAG }}" &>/dev/null; then
-            gh release create "${{ env.RELEASE_TAG }}" \
-              --title "Browser ONNX Models" \
-              --notes "Whisper ONNX models for browser-based transcription (transformers.js compatible).
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          These models are mirrored from HuggingFace for networks that block HF.
-
-          **Available models:**
-          - whisper-tiny (~75MB)
-          - whisper-tiny.en (~75MB)
-          - whisper-base (~150MB)
-          - whisper-base.en (~150MB)
-          - whisper-small (~500MB)
-          - whisper-small.en (~500MB)
-
-          **File naming:** \`{model}__{path}.ext\` (e.g., \`whisper-small__onnx__model_quantized.onnx\`)
-
-          **Usage:** The app automatically uses this mirror when HuggingFace is blocked.
-          "
+      - name: Create/checkout browser-models branch
+        run: |
+          # Create orphan branch if it doesn't exist
+          if git show-ref --verify --quiet refs/remotes/origin/browser-models; then
+            git checkout browser-models
+            git pull origin browser-models
+          else
+            git checkout --orphan browser-models
+            git rm -rf . || true
+            echo "# Browser ONNX Models" > README.md
+            echo "" >> README.md
+            echo "Whisper models for browser-based transcription (transformers.js)." >> README.md
+            echo "" >> README.md
+            echo "These are mirrored from HuggingFace for networks that block HF." >> README.md
+            echo "" >> README.md
+            echo "**CDN URL:** \`https://cdn.jsdelivr.net/gh/JerrettDavis/LocalTranscriber@browser-models/\`" >> README.md
+            git add README.md
+            git commit -m "Initialize browser-models branch"
+            git push -u origin browser-models
           fi
 
       - name: Sync Models
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -e
           
           MODELS="${{ github.event.inputs.models || 'tiny,tiny.en,base,base.en,small,small.en' }}"
-          RELEASE_TAG="${{ env.RELEASE_TAG }}"
           
           # Files to download for each model
           CONFIG_FILES="config.json tokenizer.json tokenizer_config.json preprocessor_config.json generation_config.json vocab.json merges.txt added_tokens.json special_tokens_map.json normalizer.json"
@@ -65,58 +62,74 @@ jobs:
           for MODEL_SUFFIX in ${MODELS//,/ }; do
             MODEL_NAME="whisper-${MODEL_SUFFIX}"
             HF_MODEL="Xenova/${MODEL_NAME}"
+            MODEL_DIR="${MODEL_NAME}"
             
             echo ""
             echo "=========================================="
             echo "Processing: ${MODEL_NAME}"
             echo "=========================================="
             
-            # Create temp directory for this model
-            WORK_DIR=$(mktemp -d)
+            # Create model directory
+            mkdir -p "${MODEL_DIR}/onnx"
             
-            # Download and upload config files
+            # Download config files
             for FILE in ${CONFIG_FILES}; do
               URL="https://huggingface.co/${HF_MODEL}/resolve/main/${FILE}"
-              ASSET_NAME="${MODEL_NAME}__${FILE}"
-              ASSET_PATH="${WORK_DIR}/${ASSET_NAME}"
+              DEST="${MODEL_DIR}/${FILE}"
               
               if curl -fsSL --head "${URL}" 2>/dev/null | grep -q "200"; then
                 echo "  ↓ ${FILE}"
-                curl -fsSL -o "${ASSET_PATH}" "${URL}"
-                
-                # Delete existing and upload
-                gh release delete-asset "${RELEASE_TAG}" "${ASSET_NAME}" --yes 2>/dev/null || true
-                gh release upload "${RELEASE_TAG}" "${ASSET_PATH}" --clobber
+                curl -fsSL -o "${DEST}" "${URL}"
               fi
             done
             
-            # Download and upload ONNX files
+            # Download ONNX files
             for FILE in ${ONNX_FILES}; do
               URL="https://huggingface.co/${HF_MODEL}/resolve/main/onnx/${FILE}"
-              ASSET_NAME="${MODEL_NAME}__onnx__${FILE}"
-              ASSET_PATH="${WORK_DIR}/${ASSET_NAME}"
+              DEST="${MODEL_DIR}/onnx/${FILE}"
               
               if curl -fsSL --head "${URL}" 2>/dev/null | grep -q "200"; then
                 echo "  ↓ onnx/${FILE} (this may take a while...)"
-                curl -fsSL -o "${ASSET_PATH}" "${URL}"
+                curl -fsSL -o "${DEST}" "${URL}"
                 
-                SIZE=$(du -h "${ASSET_PATH}" | cut -f1)
+                SIZE=$(du -h "${DEST}" | cut -f1)
                 echo "    Size: ${SIZE}"
-                
-                # Delete existing and upload
-                gh release delete-asset "${RELEASE_TAG}" "${ASSET_NAME}" --yes 2>/dev/null || true
-                gh release upload "${RELEASE_TAG}" "${ASSET_PATH}" --clobber
               fi
             done
-            
-            # Cleanup
-            rm -rf "${WORK_DIR}"
             
             echo "  ✓ ${MODEL_NAME} complete"
           done
           
           echo ""
           echo "=========================================="
-          echo "All models synced!"
-          echo "https://github.com/${{ github.repository }}/releases/tag/${RELEASE_TAG}"
+          echo "All models downloaded"
           echo "=========================================="
+
+      - name: Commit and Push
+        run: |
+          # Add all model files
+          git add -A
+          
+          # Check if there are changes
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "Sync browser models from HuggingFace"
+            git push origin browser-models
+            echo ""
+            echo "Models synced! CDN URL:"
+            echo "https://cdn.jsdelivr.net/gh/JerrettDavis/LocalTranscriber@browser-models/"
+          fi
+
+      - name: Purge jsDelivr cache
+        run: |
+          # Purge cache for updated models (best effort)
+          MODELS="${{ github.event.inputs.models || 'tiny,tiny.en,base,base.en,small,small.en' }}"
+          
+          for MODEL_SUFFIX in ${MODELS//,/ }; do
+            MODEL_NAME="whisper-${MODEL_SUFFIX}"
+            PURGE_URL="https://purge.jsdelivr.net/gh/JerrettDavis/LocalTranscriber@browser-models/${MODEL_NAME}/config.json"
+            curl -s "${PURGE_URL}" > /dev/null || true
+          done
+          
+          echo "Cache purge requested"
