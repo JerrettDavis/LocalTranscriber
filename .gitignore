@@ -1,0 +1,11 @@
+**/bin/
+**/obj/
+output/
+**/*.user
+**/*.suo
+**/*.cache
+models/
+artifacts/
+src/**/.build-check/
+LocalTranscriber/
+*.log

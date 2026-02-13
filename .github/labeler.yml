@@ -1,0 +1,22 @@
+area:cli:
+  - "src/LocalTranscriber.Cli/**"
+
+area:web:
+  - "src/LocalTranscriber.Web/**"
+
+area:docs:
+  - "*.md"
+  - ".github/**/*.md"
+  - ".github/ISSUE_TEMPLATE/**"
+
+area:ci:
+  - ".github/workflows/**"
+  - ".github/dependabot.yml"
+  - ".github/labeler.yml"
+  - ".github/labels.yml"
+
+area:infra:
+  - ".editorconfig"
+  - ".gitattributes"
+  - ".gitignore"
+  - "global.json"

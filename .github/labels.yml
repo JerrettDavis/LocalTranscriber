@@ -1,0 +1,39 @@
+- name: bug
+  description: Something is broken
+  color: d73a4a
+
+- name: enhancement
+  description: New feature or request
+  color: a2eeef
+
+- name: documentation
+  description: Documentation updates
+  color: 0075ca
+
+- name: dependencies
+  description: Dependency updates
+  color: 0366d6
+
+- name: ci
+  description: CI/CD or automation work
+  color: 1d76db
+
+- name: area:cli
+  description: LocalTranscriber CLI changes
+  color: 5319e7
+
+- name: area:web
+  description: LocalTranscriber Web UI/API changes
+  color: 0e8a16
+
+- name: area:docs
+  description: Docs and templates
+  color: 0052cc
+
+- name: area:ci
+  description: GitHub workflows and automation
+  color: fbca04
+
+- name: area:infra
+  description: Repository structure and tooling
+  color: cfd3d7

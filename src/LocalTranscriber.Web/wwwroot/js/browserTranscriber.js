@@ -1,0 +1,887 @@
+window.localTranscriberBrowser = (() => {
+  const whisperModelMap = {
+    tiny: "Xenova/whisper-tiny",
+    tinyen: "Xenova/whisper-tiny.en",
+    base: "Xenova/whisper-base",
+    baseen: "Xenova/whisper-base.en",
+    small: "Xenova/whisper-small",
+    smallen: "Xenova/whisper-small.en",
+    medium: "Xenova/whisper-medium",
+    mediumen: "Xenova/whisper-medium.en",
+    largev1: "Xenova/whisper-large-v1",
+    largev2: "Xenova/whisper-large-v2",
+    largev3: "Xenova/whisper-large-v3",
+    largev3turbo: "Xenova/whisper-large-v3-turbo",
+  };
+
+  let transformersModulePromise = null;
+  let webLlmModulePromise = null;
+  const asrPipelineCache = new Map();
+  const webLlmEngineCache = new Map();
+
+  function getCapabilities() {
+    const hasWebGpu = typeof navigator !== "undefined" && !!navigator.gpu;
+    const hasAudioContext =
+      typeof window !== "undefined" &&
+      (typeof window.AudioContext !== "undefined" ||
+        typeof window.webkitAudioContext !== "undefined");
+    const hasMediaRecorder = typeof MediaRecorder !== "undefined";
+    const supported = hasWebGpu && hasAudioContext && hasMediaRecorder;
+
+    let reason = "Browser-only mode unavailable.";
+    if (supported) {
+      reason =
+        "Browser-only mode available. WebGPU detected, transcription can run fully in-browser.";
+    } else {
+      const missing = [];
+      if (!hasWebGpu) missing.push("WebGPU");
+      if (!hasAudioContext) missing.push("AudioContext");
+      if (!hasMediaRecorder) missing.push("MediaRecorder");
+      reason = `Browser-only mode unavailable. Missing: ${missing.join(", ")}.`;
+    }
+
+    return {
+      supported,
+      hasWebGpu,
+      hasAudioContext,
+      hasMediaRecorder,
+      reason,
+    };
+  }
+
+  async function transcribeInBrowser(dotNetRef, request) {
+    const capabilities = getCapabilities();
+    if (!capabilities.supported) {
+      throw new Error(capabilities.reason);
+    }
+
+    await emitProgress(dotNetRef, request, 5, "prepare", "Browser mode enabled.");
+    await emitProgress(dotNetRef, request, 12, "prepare", "Decoding audio in browser...");
+
+    const audioData = await decodeToMono16kFloat32(request.base64);
+    await emitProgress(
+      dotNetRef,
+      request,
+      28,
+      "transcribe",
+      "Loading in-browser Whisper model..."
+    );
+
+    const asr = await getWhisperPipeline(request.model, (pct) =>
+      emitProgress(
+        dotNetRef,
+        request,
+        Math.min(43, Math.max(30, pct)),
+        "transcribe",
+        "Preparing in-browser Whisper runtime..."
+      )
+    );
+
+    await emitProgress(
+      dotNetRef,
+      request,
+      45,
+      "transcribe",
+      "Running in-browser transcription..."
+    );
+
+    const language =
+      request.language && request.language.toLowerCase() !== "auto"
+        ? request.language
+        : undefined;
+
+    let asrResult;
+    try {
+      asrResult = await asr(audioData, {
+        chunk_length_s: 30,
+        stride_length_s: 5,
+        return_timestamps: "word",
+        ...(language ? { language } : {}),
+      });
+    } catch {
+      asrResult = await asr(audioData, {
+        chunk_length_s: 30,
+        stride_length_s: 5,
+        return_timestamps: true,
+        ...(language ? { language } : {}),
+      });
+    }
+
+    const rawText = normalizeText(asrResult?.text ?? "");
+    const subtitleSegments = buildSubtitleSegments(asrResult?.chunks, rawText);
+    await emitProgress(
+      dotNetRef,
+      request,
+      62,
+      "transcribe",
+      "In-browser transcription complete.",
+      { rawWhisperText: rawText, subtitleSegments }
+    );
+
+    let speakerLabeledText = rawText;
+    let detectedSpeakerCount = null;
+
+    if (request.enableSpeakerLabels) {
+      await emitProgress(
+        dotNetRef,
+        request,
+        68,
+        "speakers",
+        "Applying browser speaker labels..."
+      );
+
+      const speakerResult = buildSpeakerLabeledTranscript(subtitleSegments, rawText);
+      speakerLabeledText = speakerResult.text;
+      detectedSpeakerCount = speakerResult.detectedSpeakerCount;
+
+      await emitProgress(
+        dotNetRef,
+        request,
+        74,
+        "speakers",
+        "Speaker labeling complete (browser heuristic).",
+        {
+          rawWhisperText: rawText,
+          speakerLabeledText,
+          detectedSpeakerCount,
+          subtitleSegments,
+        }
+      );
+    }
+
+    const transcriptForFormatting = request.enableSpeakerLabels
+      ? speakerLabeledText
+      : rawText;
+
+    await emitProgress(
+      dotNetRef,
+      request,
+      82,
+      "format",
+      "Formatting transcript..."
+    );
+
+    let formatterOutput = "";
+    let formatterUsed = "local-browser";
+
+    if (request.enableWebLlmCleanup) {
+      try {
+        await emitProgress(
+          dotNetRef,
+          request,
+          86,
+          "format",
+          `Loading WebLLM model (${request.webLlmModel})...`
+        );
+
+        formatterOutput = await formatWithWebLlm(
+          request.webLlmModel,
+          request.model,
+          request.language,
+          transcriptForFormatting,
+          (pct, msg) =>
+            emitProgress(dotNetRef, request, pct, "format", msg)
+        );
+        formatterUsed = "webllm";
+
+        await emitProgress(
+          dotNetRef,
+          request,
+          92,
+          "format",
+          "Formatter output received from WebLLM.",
+          { formatterOutput, formatterUsed }
+        );
+      } catch (err) {
+        const reason = err instanceof Error ? err.message : `${err}`;
+        await emitProgress(
+          dotNetRef,
+          request,
+          90,
+          "format",
+          `WebLLM unavailable (${reason}). Falling back to local browser formatter.`
+        );
+      }
+    }
+
+    if (!formatterOutput) {
+      formatterOutput = formatMarkdownLocally({
+        model: request.model,
+        language: request.language,
+        transcript: transcriptForFormatting,
+        detectedSpeakerCount,
+      });
+      formatterUsed = "local-browser";
+    }
+
+    const finalMarkdown = enforceTranscriptSection(
+      formatterOutput,
+      transcriptForFormatting
+    );
+
+    await emitProgress(dotNetRef, request, 100, "done", "Browser transcription complete.", {
+      isCompleted: true,
+      rawWhisperText: rawText,
+      speakerLabeledText,
+      formatterOutput,
+      formatterUsed,
+      markdown: finalMarkdown,
+      detectedSpeakerCount,
+      subtitleSegments,
+    });
+
+    return {
+      rawWhisperText: rawText,
+      speakerLabeledText,
+      formatterOutput,
+      formatterUsed,
+      markdown: finalMarkdown,
+      detectedSpeakerCount,
+      subtitleSegments,
+    };
+  }
+
+  async function emitProgress(dotNetRef, request, percent, stage, message, extras = {}) {
+    if (!dotNetRef || typeof dotNetRef.invokeMethodAsync !== "function") {
+      return;
+    }
+
+    const payload = {
+      jobId: request.jobId,
+      percent,
+      stage,
+      message,
+      isCompleted: false,
+      isError: false,
+      ...extras,
+    };
+
+    await dotNetRef.invokeMethodAsync("OnBrowserProgress", payload);
+  }
+
+  async function getWhisperPipeline(modelName, onProgress) {
+    const modelId = resolveWhisperModel(modelName);
+    const cacheKey = `webgpu:${modelId}`;
+    if (asrPipelineCache.has(cacheKey)) {
+      return asrPipelineCache.get(cacheKey);
+    }
+
+    const transformers = await getTransformersModule();
+    const instance = await createAsrPipeline(transformers, modelId, onProgress);
+    asrPipelineCache.set(cacheKey, instance);
+    return instance;
+  }
+
+  async function getTransformersModule() {
+    if (!transformersModulePromise) {
+      transformersModulePromise = import(
+        "https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2"
+      );
+    }
+
+    return transformersModulePromise;
+  }
+
+  async function createAsrPipeline(transformers, modelId, onProgress) {
+    if (transformers?.env) {
+      transformers.env.allowRemoteModels = true;
+      transformers.env.allowLocalModels = false;
+      transformers.env.useBrowserCache = true;
+    }
+
+    try {
+      return await transformers.pipeline("automatic-speech-recognition", modelId, {
+        device: "webgpu",
+        quantized: true,
+        progress_callback: (update) => {
+          if (!onProgress || typeof update?.progress !== "number") return;
+          const pct = Math.round(30 + update.progress * 13);
+          onProgress(pct);
+        },
+      });
+    } catch {
+      return await transformers.pipeline("automatic-speech-recognition", modelId, {
+        quantized: true,
+        progress_callback: (update) => {
+          if (!onProgress || typeof update?.progress !== "number") return;
+          const pct = Math.round(30 + update.progress * 13);
+          onProgress(pct);
+        },
+      });
+    }
+  }
+
+  async function formatWithWebLlm(webLlmModel, whisperModel, language, transcript, onProgress) {
+    const cleanedModel = normalizeText(webLlmModel);
+    if (!cleanedModel) {
+      throw new Error("No WebLLM model was specified.");
+    }
+
+    onProgress?.(88, "Starting WebLLM cleanup...");
+
+    const engine = await getWebLlmEngine(cleanedModel, (report) => {
+      const progress = typeof report?.progress === "number" ? report.progress : 0;
+      const pct = Math.round(86 + progress * 6);
+      const text = normalizeText(report?.text) || "Initializing WebLLM model cache...";
+      onProgress?.(Math.min(94, Math.max(86, pct)), text);
+    });
+
+    const prompt = [
+      "You are formatting a transcription into clean markdown.",
+      "Return markdown only.",
+      "Preserve the transcript wording exactly; do not paraphrase transcript lines.",
+      "",
+      `Model: ${whisperModel}`,
+      `Language: ${language || "auto"}`,
+      "",
+      "Input transcript:",
+      transcript || "(no speech detected)",
+      "",
+      "Required output format:",
+      "# Transcription",
+      "- **Model:** `<model>`",
+      "- **Language:** `<language>`",
+      "## Summary",
+      "- concise bullets",
+      "## Action Items",
+      "- []",
+      "## Transcript",
+      "<verbatim transcript>",
+    ].join("\n");
+
+    const completion = await engine.chat.completions.create({
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0.2,
+    });
+
+    const text = normalizeCompletionText(completion);
+    if (!text) {
+      throw new Error("WebLLM returned an empty response.");
+    }
+
+    return text;
+  }
+
+  async function getWebLlmEngine(model, progressCallback) {
+    if (webLlmEngineCache.has(model)) {
+      return webLlmEngineCache.get(model);
+    }
+
+    const webllm = await getWebLlmModule();
+    const createEngine = webllm.CreateMLCEngine || webllm.CreateWebWorkerMLCEngine;
+    if (typeof createEngine !== "function") {
+      throw new Error("WebLLM runtime does not expose a supported engine factory.");
+    }
+
+    const engine = await createEngine(model, {
+      initProgressCallback: (report) => progressCallback?.(report),
+    });
+
+    webLlmEngineCache.set(model, engine);
+    return engine;
+  }
+
+  async function getWebLlmModule() {
+    if (!webLlmModulePromise) {
+      webLlmModulePromise = import("https://esm.run/@mlc-ai/web-llm");
+    }
+
+    return webLlmModulePromise;
+  }
+
+  async function listWebLlmModels() {
+    try {
+      const webllm = await getWebLlmModule();
+      const list = webllm?.prebuiltAppConfig?.model_list;
+      if (!Array.isArray(list)) {
+        return [];
+      }
+
+      return list
+        .map((item) => normalizeText(item?.model_id))
+        .filter((id) => !!id);
+    } catch {
+      return [];
+    }
+  }
+
+  function buildSpeakerLabeledTranscript(subtitleSegments, fallbackText) {
+    const lines = [];
+    if (Array.isArray(subtitleSegments)) {
+      for (const segment of subtitleSegments) {
+        const text = normalizeText(segment?.text);
+        if (!text) continue;
+        lines.push(`[Speaker 1] ${text}`);
+      }
+    }
+
+    if (lines.length === 0) {
+      const text = normalizeText(fallbackText);
+      if (!text) {
+        return { text: "", detectedSpeakerCount: 0 };
+      }
+
+      return {
+        text: `[Speaker 1] ${text}`,
+        detectedSpeakerCount: 1,
+      };
+    }
+
+    return {
+      text: lines.join("\n"),
+      detectedSpeakerCount: 1,
+    };
+  }
+
+  function buildSubtitleSegments(chunks, fallbackText) {
+    const timedWords = [];
+    let cursor = 0;
+
+    if (Array.isArray(chunks)) {
+      for (const chunk of chunks) {
+        const text = normalizeText(chunk?.text);
+        if (!text) continue;
+
+        let start = cursor;
+        let end = cursor + estimateDurationSeconds(text);
+
+        const timestamp = normalizeTimestamp(chunk?.timestamp ?? chunk?.timestamps);
+        if (timestamp) {
+          if (Number.isFinite(timestamp.start) && timestamp.start >= 0) {
+            start = timestamp.start;
+          }
+
+          if (Number.isFinite(timestamp.end) && timestamp.end > start) {
+            end = timestamp.end;
+          }
+        }
+
+        end = Math.max(end, start + estimateDurationSeconds(text));
+
+        if (!Number.isFinite(end) || end <= start) {
+          end = start + estimateDurationSeconds(text);
+        }
+
+        cursor = end;
+        const words = buildTimedWords(text, start, end);
+        timedWords.push(...words);
+      }
+    }
+
+    if (timedWords.length > 0) {
+      return buildSegmentsFromWords(timedWords);
+    }
+
+    const text = normalizeText(fallbackText);
+    if (!text) {
+      return [];
+    }
+
+    const fallbackWords = buildTimedWords(text, 0, Math.max(2, estimateDurationSeconds(text)));
+    return [
+      {
+        startSeconds: 0,
+        endSeconds: Number(Math.max(2, estimateDurationSeconds(text)).toFixed(3)),
+        text,
+        speaker: null,
+        words: fallbackWords,
+      },
+    ];
+  }
+
+  function buildSegmentsFromWords(rawWords) {
+    const words = [...rawWords]
+      .map((word) => ({
+        text: normalizeText(word?.text),
+        startSeconds: toFiniteNumber(word?.startSeconds),
+        endSeconds: toFiniteNumber(word?.endSeconds),
+      }))
+      .filter(
+        (word) =>
+          word.text &&
+          Number.isFinite(word.startSeconds) &&
+          Number.isFinite(word.endSeconds) &&
+          word.endSeconds > word.startSeconds
+      )
+      .sort((a, b) => a.startSeconds - b.startSeconds);
+
+    if (words.length === 0) {
+      return [];
+    }
+
+    const segments = [];
+    let current = [];
+
+    const flush = () => {
+      if (current.length === 0) {
+        return;
+      }
+
+      const segmentText = composeSegmentText(current.map((x) => x.text));
+      if (!segmentText) {
+        current = [];
+        return;
+      }
+
+      segments.push({
+        startSeconds: Number(current[0].startSeconds.toFixed(3)),
+        endSeconds: Number(current[current.length - 1].endSeconds.toFixed(3)),
+        text: segmentText,
+        speaker: null,
+        words: current.map((x) => ({
+          text: x.text,
+          startSeconds: Number(x.startSeconds.toFixed(3)),
+          endSeconds: Number(x.endSeconds.toFixed(3)),
+        })),
+      });
+      current = [];
+    };
+
+    for (const word of words) {
+      if (current.length === 0) {
+        current.push(word);
+        continue;
+      }
+
+      const previous = current[current.length - 1];
+      const gap = Math.max(0, word.startSeconds - previous.endSeconds);
+      const sentenceEnd = /[.!?]$/.test(previous.text);
+      const shouldBreak =
+        gap > 0.6 ||
+        current.length >= 18 ||
+        (sentenceEnd && (gap >= 0.16 || current.length >= 10));
+
+      if (shouldBreak) {
+        flush();
+      }
+
+      current.push(word);
+    }
+
+    flush();
+    return segments;
+  }
+
+  function buildTimedWords(text, startSeconds, endSeconds) {
+    const tokens = normalizeText(text)
+      .split(/\s+/)
+      .map((token) => normalizeText(token))
+      .filter(Boolean);
+
+    if (tokens.length === 0) {
+      return [];
+    }
+
+    let start = Number.isFinite(startSeconds) ? Math.max(0, startSeconds) : 0;
+    let end = Number.isFinite(endSeconds) ? endSeconds : start + estimateDurationSeconds(text);
+    if (!Number.isFinite(end) || end <= start) {
+      end = start + Math.max(0.08, estimateDurationSeconds(text));
+    }
+
+    if (tokens.length === 1) {
+      return [
+        {
+          text: tokens[0],
+          startSeconds: Number(start.toFixed(3)),
+          endSeconds: Number(end.toFixed(3)),
+        },
+      ];
+    }
+
+    const duration = Math.max(0.08, end - start);
+    const weights = tokens.map(estimateWordWeight);
+    const totalWeight = Math.max(1, weights.reduce((a, b) => a + b, 0));
+    const words = [];
+    let cursor = start;
+
+    for (let i = 0; i < tokens.length; i++) {
+      const isLast = i === tokens.length - 1;
+      const slice = isLast ? end - cursor : duration * (weights[i] / totalWeight);
+      let wordEnd = Math.min(end, cursor + Math.max(0.03, slice));
+      if (wordEnd <= cursor) {
+        wordEnd = cursor + 0.03;
+      }
+      if (isLast || wordEnd > end) {
+        wordEnd = end;
+      }
+
+      words.push({
+        text: tokens[i],
+        startSeconds: Number(cursor.toFixed(3)),
+        endSeconds: Number(wordEnd.toFixed(3)),
+      });
+      cursor = wordEnd;
+    }
+
+    return words;
+  }
+
+  function composeSegmentText(tokens) {
+    const parts = [];
+    for (const token of tokens) {
+      const normalized = normalizeText(token);
+      if (!normalized) {
+        continue;
+      }
+
+      if (parts.length === 0) {
+        parts.push(normalized);
+        continue;
+      }
+
+      if (shouldAttachToPrevious(normalized)) {
+        parts[parts.length - 1] = `${parts[parts.length - 1]}${normalized}`;
+      } else {
+        parts.push(normalized);
+      }
+    }
+
+    return parts.join(" ");
+  }
+
+  function shouldAttachToPrevious(token) {
+    if (!token) {
+      return false;
+    }
+
+    if (/^['’\-–—]/.test(token)) {
+      return true;
+    }
+
+    return /^[.,!?;:%)\]}]+$/.test(token);
+  }
+
+  function normalizeTimestamp(value) {
+    if (!Array.isArray(value) || value.length < 2) {
+      return null;
+    }
+
+    const start = toFiniteNumber(value[0]);
+    const end = toFiniteNumber(value[1]);
+    return {
+      start,
+      end,
+    };
+  }
+
+  function estimateDurationSeconds(text) {
+    const normalized = normalizeText(text);
+    if (!normalized) {
+      return 0.8;
+    }
+
+    const chars = normalized.length;
+    const words = normalized.split(/\s+/).filter(Boolean).length;
+    const byWords = words / 2.8;
+    const byChars = chars * 0.052;
+    return Math.max(0.8, Math.max(byWords, byChars));
+  }
+
+  function estimateWordWeight(token) {
+    const normalized = normalizeText(token);
+    if (!normalized) {
+      return 1;
+    }
+
+    const alphaNumeric = (normalized.match(/[A-Za-z0-9]/g) || []).length;
+    return Math.min(14, Math.max(1, alphaNumeric));
+  }
+
+  function toFiniteNumber(value) {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : NaN;
+  }
+
+  function formatMarkdownLocally(args) {
+    const transcript = normalizeText(args.transcript) || "(no speech detected)";
+    const model = normalizeText(args.model) || "unknown";
+    const language = normalizeText(args.language) || "auto";
+    const detected = args.detectedSpeakerCount;
+
+    const lines = [];
+    lines.push("# Transcription");
+    lines.push("");
+    lines.push(`- **Model:** \`${model}\``);
+    lines.push(`- **Language:** \`${language}\``);
+    if (typeof detected === "number" && detected > 0) {
+      lines.push(`- **Detected Speakers:** ${detected}`);
+    }
+    lines.push("");
+    lines.push("## Summary");
+    lines.push("- Browser-mode transcript produced locally.");
+    lines.push("");
+    lines.push("## Action Items");
+    lines.push("- []");
+    lines.push("");
+    lines.push("## Transcript");
+    lines.push("");
+    lines.push(transcript);
+
+    return lines.join("\n");
+  }
+
+  function enforceTranscriptSection(markdown, transcript) {
+    const normalizedMarkdown = normalizeText(markdown);
+    const normalizedTranscript = normalizeText(transcript) || "(no speech detected)";
+    const section = `## Transcript\n\n${normalizedTranscript}`;
+
+    if (!normalizedMarkdown) {
+      return section;
+    }
+
+    const pattern = /^##\s*Transcript\b[\s\S]*$/im;
+    if (pattern.test(normalizedMarkdown)) {
+      return normalizedMarkdown.replace(pattern, section);
+    }
+
+    return `${normalizedMarkdown}\n\n${section}`;
+  }
+
+  function resolveWhisperModel(modelName) {
+    const key = normalizeText(modelName).toLowerCase().replace(/\s+/g, "");
+    return whisperModelMap[key] || whisperModelMap.smallen;
+  }
+
+  async function decodeToMono16kFloat32(base64) {
+    const arrayBuffer = base64ToArrayBuffer(base64);
+    const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextCtor) {
+      throw new Error("AudioContext is not available in this browser.");
+    }
+
+    const decodeContext = new AudioContextCtor();
+    let decoded;
+    try {
+      decoded = await decodeContext.decodeAudioData(arrayBuffer.slice(0));
+    } finally {
+      if (typeof decodeContext.close === "function") {
+        await decodeContext.close();
+      }
+    }
+
+    const targetSampleRate = 16000;
+    if (
+      decoded.sampleRate === targetSampleRate &&
+      decoded.numberOfChannels === 1
+    ) {
+      return decoded.getChannelData(0);
+    }
+
+    const frameCount = Math.ceil(decoded.duration * targetSampleRate);
+    const offline = new OfflineAudioContext(1, frameCount, targetSampleRate);
+    const source = offline.createBufferSource();
+    source.buffer = decoded;
+    source.connect(offline.destination);
+    source.start(0);
+    const rendered = await offline.startRendering();
+    return rendered.getChannelData(0);
+  }
+
+  function base64ToArrayBuffer(base64) {
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    return bytes.buffer;
+  }
+
+  function normalizeCompletionText(completion) {
+    const choices = completion?.choices;
+    if (!Array.isArray(choices) || choices.length === 0) {
+      return "";
+    }
+
+    const message = choices[0]?.message;
+    if (!message) return "";
+
+    if (typeof message.content === "string") {
+      return normalizeText(message.content);
+    }
+
+    if (Array.isArray(message.content)) {
+      const text = message.content
+        .map((part) => (typeof part?.text === "string" ? part.text : ""))
+        .join("\n");
+      return normalizeText(text);
+    }
+
+    return "";
+  }
+
+  function normalizeText(value) {
+    return typeof value === "string" ? value.trim().replace(/\r\n/g, "\n") : "";
+  }
+
+  function loadSessions() {
+    const raw = localStorage.getItem("localtranscriber.sessions.v1");
+    if (!raw) {
+      return [];
+    }
+
+    try {
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) {
+        return [];
+      }
+
+      return parsed.sort((a, b) => {
+        const aTime = Date.parse(a?.createdAt || "") || 0;
+        const bTime = Date.parse(b?.createdAt || "") || 0;
+        return bTime - aTime;
+      });
+    } catch {
+      return [];
+    }
+  }
+
+  function saveSession(session) {
+    if (!session || !session.id) {
+      return;
+    }
+
+    const sessions = loadSessions();
+    const next = sessions.filter((x) => x?.id !== session.id);
+    next.unshift(session);
+    localStorage.setItem("localtranscriber.sessions.v1", JSON.stringify(next.slice(0, 80)));
+  }
+
+  function deleteSession(id) {
+    if (!id) {
+      return;
+    }
+
+    const sessions = loadSessions();
+    const next = sessions.filter((x) => x?.id !== id);
+    localStorage.setItem("localtranscriber.sessions.v1", JSON.stringify(next));
+  }
+
+  function downloadText(fileName, content, mimeType) {
+    const text = typeof content === "string" ? content : `${content ?? ""}`;
+    const safeName = normalizeText(fileName) || "localtranscriber-export.md";
+    const type = normalizeText(mimeType) || "text/plain;charset=utf-8";
+
+    const blob = new Blob([text], { type });
+    const url = URL.createObjectURL(blob);
+
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = safeName;
+    anchor.style.display = "none";
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+
+    setTimeout(() => URL.revokeObjectURL(url), 0);
+  }
+
+  return {
+    deleteSession,
+    downloadText,
+    getCapabilities,
+    listWebLlmModels,
+    loadSessions,
+    saveSession,
+    transcribeInBrowser,
+  };
+})();

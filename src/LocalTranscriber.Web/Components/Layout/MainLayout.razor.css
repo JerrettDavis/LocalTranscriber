@@ -1,0 +1,26 @@
+.app-frame {
+    min-height: 100vh;
+    padding: 0.75rem;
+}
+
+#blazor-error-ui {
+    background: color-mix(in srgb, var(--danger) 18%, transparent);
+    border-top: 1px solid color-mix(in srgb, var(--danger) 52%, transparent);
+    color: var(--ink-strong);
+    bottom: 0;
+    box-sizing: border-box;
+    display: none;
+    left: 0;
+    padding: 0.72rem 1.12rem;
+    position: fixed;
+    width: 100%;
+    z-index: 1000;
+}
+
+#blazor-error-ui .dismiss {
+    cursor: pointer;
+    font-weight: 700;
+    position: absolute;
+    right: 0.75rem;
+    top: 0.45rem;
+}

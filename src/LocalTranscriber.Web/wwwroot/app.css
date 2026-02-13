@@ -1,0 +1,83 @@
+:root {
+    color-scheme: dark light;
+
+    --bg-primary: #0b0f18;
+    --bg-secondary: #121827;
+    --bg-tertiary: #161f33;
+    --surface: rgba(18, 24, 39, 0.82);
+    --surface-elevated: rgba(23, 32, 52, 0.94);
+    --border-soft: rgba(148, 163, 184, 0.32);
+    --border-strong: rgba(148, 163, 184, 0.58);
+    --ink-strong: #eef3ff;
+    --ink-muted: #a6b5d1;
+    --ink-subtle: #8a9bb9;
+    --accent: #5ea4ff;
+    --accent-strong: #3f8dff;
+    --accent-alt: #58d6c7;
+    --danger: #ef5a5a;
+    --success: #25b37a;
+    --warning: #f0a44b;
+    --shadow-soft: 0 20px 48px rgba(2, 6, 16, 0.45);
+    --radius-sm: 10px;
+    --radius-md: 16px;
+    --radius-lg: 22px;
+    --font-ui: "Segoe UI Variable", "Bahnschrift", "IBM Plex Sans", "Trebuchet MS", sans-serif;
+    --font-mono: "Cascadia Mono", "Consolas", "JetBrains Mono", monospace;
+}
+
+@media (prefers-color-scheme: light) {
+    :root {
+        --bg-primary: #f0f3fb;
+        --bg-secondary: #e8edf8;
+        --bg-tertiary: #dce5f3;
+        --surface: rgba(255, 255, 255, 0.82);
+        --surface-elevated: rgba(255, 255, 255, 0.95);
+        --border-soft: rgba(71, 85, 105, 0.2);
+        --border-strong: rgba(71, 85, 105, 0.45);
+        --ink-strong: #172338;
+        --ink-muted: #425773;
+        --ink-subtle: #607595;
+        --accent: #2563eb;
+        --accent-strong: #1d4ed8;
+        --accent-alt: #0891b2;
+        --danger: #c03939;
+        --success: #128757;
+        --warning: #c97c21;
+        --shadow-soft: 0 18px 42px rgba(19, 33, 56, 0.16);
+    }
+}
+
+*,
+*::before,
+*::after {
+    box-sizing: border-box;
+}
+
+html,
+body {
+    margin: 0;
+    min-height: 100%;
+}
+
+body {
+    background:
+        radial-gradient(circle at 8% 12%, rgba(94, 164, 255, 0.18), transparent 36%),
+        radial-gradient(circle at 88% 2%, rgba(88, 214, 199, 0.17), transparent 30%),
+        linear-gradient(145deg, var(--bg-primary) 0%, var(--bg-secondary) 48%, var(--bg-tertiary) 100%);
+    color: var(--ink-strong);
+    font-family: var(--font-ui);
+    line-height: 1.42;
+}
+
+a {
+    color: inherit;
+    text-decoration: none;
+}
+
+button,
+input,
+select,
+textarea {
+    color: inherit;
+    font: inherit;
+}

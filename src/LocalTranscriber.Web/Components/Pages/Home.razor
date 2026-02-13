@@ -1,0 +1,2630 @@
+@page "/"
+@using System.Globalization
+@using System.Net
+@using System.Net.Http.Headers
+@using System.Net.Http.Json
+@using System.Text
+@using LocalTranscriber.Web.Transcription
+@using Microsoft.AspNetCore.SignalR.Client
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+@inject NavigationManager Navigation
+@inject IHttpClientFactory HttpClientFactory
+
+<PageTitle>LocalTranscriber Studio</PageTitle>
+
+<div class="screen-root @(_isStudioMode ? "studio" : "minimal")">
+    <div class="top-left-brand">
+        <p class="eyebrow">LocalTranscriber</p>
+        <h1>Transcription Workspace</h1>
+    </div>
+
+    <div class="top-right-actions">
+        @if (!_isStudioMode)
+        {
+            <button class="icon-action" type="button" title="History" aria-label="History" @onclick="ToggleHistoryViewAsync">
+                <svg class="icon-svg" viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M3 12a9 9 0 1 0 3-6.7" />
+                    <path d="M3 4v5h5" />
+                    <path d="M12 7v5l3 2" />
+                </svg>
+            </button>
+            <button class="icon-action" type="button" title="Open studio mode" aria-label="Open studio mode" @onclick="ToggleLayoutMode">
+                <svg class="icon-svg" viewBox="0 0 24 24" aria-hidden="true">
+                    <rect x="3.5" y="3.5" width="7" height="7" rx="1.5" />
+                    <rect x="13.5" y="3.5" width="7" height="7" rx="1.5" />
+                    <rect x="3.5" y="13.5" width="7" height="7" rx="1.5" />
+                    <rect x="13.5" y="13.5" width="7" height="7" rx="1.5" />
+                </svg>
+            </button>
+        }
+        else
+        {
+            <button class="icon-action" type="button" title="Switch to minimal mode" aria-label="Switch to minimal mode" @onclick="ToggleLayoutMode">
+                <svg class="icon-svg" viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M4 5h16" />
+                    <path d="M4 12h10" />
+                    <path d="M4 19h16" />
+                </svg>
+            </button>
+        }
+    </div>
+
+    @if (!_isStudioMode)
+    {
+        @if (_minimalStage == MinimalStage.History)
+        {
+            <section class="minimal-history">
+                <div class="panel-head">
+                    <h2>Session History</h2>
+                    <button class="ghost-btn" type="button" @onclick="BackToCapture">Back</button>
+                </div>
+
+                @if (!string.IsNullOrWhiteSpace(_historyNotice))
+                {
+                    <p class="notice">@_historyNotice</p>
+                }
+
+                @if (_history.Count == 0)
+                {
+                    <div class="empty-card">No saved sessions yet.</div>
+                }
+                else
+                {
+                    <div class="history-list">
+                        @foreach (var session in _history)
+                        {
+                            <article class="history-item">
+                                <header>
+                                    <strong>@(string.IsNullOrWhiteSpace(session.Source) ? "Saved Session" : session.Source)</strong>
+                                    <span>@FormatSessionTime(session.CreatedAt)</span>
+                                </header>
+                                <p>Model: @(session.Model ?? "unknown") | Formatter: @(session.FormatterUsed ?? "unknown")</p>
+                                <div class="item-actions">
+                                    <button class="chip-btn" type="button" @onclick="() => OpenHistorySessionAsync(session)">Open</button>
+                                    <button class="chip-btn danger" type="button" @onclick="() => DeleteHistorySessionAsync(session.Id)">Delete</button>
+                                </div>
+                            </article>
+                        }
+                    </div>
+                }
+            </section>
+        }
+        else if (_minimalStage == MinimalStage.Processing)
+        {
+            <section class="minimal-processing">
+                <div class="orbit-loader"></div>
+                <h2>@_statusMessage</h2>
+                <p class="subtext">Processing audio and streaming step-by-step diagnostics.</p>
+
+                <div class="log-stream">
+                    @if (_timeline.Count == 0)
+                    {
+                        <div class="log-line">Waiting for first log event...</div>
+                    }
+                    else
+                    {
+                        var logs = GetLatestLogs(9);
+                        @for (var i = 0; i < logs.Count; i++)
+                        {
+                            var item = logs[i];
+                            var opacity = 1 - (i * 0.12);
+                            <div class="log-line @(item.IsError ? "error" : item.IsCompleted ? "complete" : "")" style="opacity:@opacity">
+                                <span>@item.Percent%</span>
+                                <span>@item.Message</span>
+                            </div>
+                        }
+                    }
+                </div>
+
+                @if (!string.IsNullOrWhiteSpace(_errorMessage))
+                {
+                    <div class="error-box">@_errorMessage</div>
+                    <button class="ghost-btn" type="button" @onclick="BackToCapture">Back</button>
+                }
+            </section>
+        }
+        else if (_minimalStage == MinimalStage.Results)
+        {
+            <section class="minimal-results">
+                <div class="panel-head">
+                    <h2>Transcription Result</h2>
+                    <button class="ghost-btn" type="button" @onclick="ResetWorkflowAsync">Reset</button>
+                </div>
+
+                @if (!string.IsNullOrWhiteSpace(_errorMessage))
+                {
+                    <div class="error-box">@_errorMessage</div>
+                }
+
+                @if (ShouldShowSubtitlePlayer)
+                {
+                    <div class="subtitle-sync-card">
+                        <div class="subtitle-sync-head">
+                            <strong>Playback + Synced Subtitles</strong>
+                            <div class="subtitle-sync-meta">
+                                <span>@GetSubtitleStatusText()</span>
+                                <label class="subtitle-autoscroll">
+                                    <input type="checkbox" @bind="_subtitleAutoScroll" />
+                                    <span>Auto-scroll</span>
+                                </label>
+                            </div>
+                        </div>
+                        <audio @ref="_subtitleAudioRef" controls preload="metadata" src="@_inputDownloadHref"></audio>
+                        <div class="subtitle-now">
+                            @if (ActiveSubtitleSegment is { } now)
+                            {
+                                <div class="subtitle-now-meta">
+                                    <span>@FormatSubtitleTimestamp(now.StartSeconds)</span>
+                                    @if (!string.IsNullOrWhiteSpace(now.Speaker))
+                                    {
+                                        <span>@now.Speaker</span>
+                                    }
+                                </div>
+                                <p class="subtitle-live-line">@((MarkupString)BuildHighlightedSubtitleMarkup(now, _subtitleCurrentSeconds))</p>
+                            }
+                            else
+                            {
+                                <p class="subtext">Press play to start subtitle playback.</p>
+                            }
+                        </div>
+                        <div class="subtitle-list" @ref="_subtitleListRef">
+                            @for (var i = 0; i < _subtitleSegments.Count; i++)
+                            {
+                                var segment = _subtitleSegments[i];
+                                <button class="subtitle-line @(i == _activeSubtitleIndex ? "active" : "")" type="button" data-subtitle-index="@i" @onclick="() => SeekToSubtitleAsync(i)">
+                                    <span class="subtitle-time">@FormatSubtitleTimestamp(segment.StartSeconds)</span>
+                                    <span class="subtitle-copy">@segment.Text</span>
+                                </button>
+                            }
+                        </div>
+                    </div>
+                }
+
+                <div class="tab-row">
+                    <button class="@GetTabClass(ResultTab.Input)" type="button" @onclick="() => SetResultTab(ResultTab.Input)">Input</button>
+                    <button class="@GetTabClass(ResultTab.Final)" type="button" @onclick="() => SetResultTab(ResultTab.Final)">Processed</button>
+                    <button class="@GetTabClass(ResultTab.Raw)" type="button" @onclick="() => SetResultTab(ResultTab.Raw)">Raw</button>
+                    <button class="@GetTabClass(ResultTab.Tagged)" type="button" @onclick="() => SetResultTab(ResultTab.Tagged)">Tagged</button>
+                    <button class="@GetTabClass(ResultTab.Formatter)" type="button" @onclick="() => SetResultTab(ResultTab.Formatter)">Formatter</button>
+                    <button class="@GetTabClass(ResultTab.Logs)" type="button" @onclick="() => SetResultTab(ResultTab.Logs)">Logs</button>
+                </div>
+
+                @if (IsEditableTab(_activeTab))
+                {
+                    <div class="result-edit-toolbar">
+                        @if (IsEditingActiveTab)
+                        {
+                            <button class="chip-btn" type="button" @onclick="ApplyActiveTabEdit" disabled="@_isSubmitting">Apply</button>
+                            <button class="chip-btn" type="button" @onclick="CancelActiveTabEdit" disabled="@_isSubmitting">Cancel</button>
+                        }
+                        else
+                        {
+                            <button class="chip-btn" type="button" @onclick="StartEditingActiveTab" disabled="@_isSubmitting">Edit</button>
+                        }
+                        <button class="chip-btn" type="button" @onclick="ExportActiveTabAsync" disabled="@_isSubmitting">Export Markdown</button>
+                    </div>
+                }
+
+                <div class="tab-panel">
+                    @switch (_activeTab)
+                    {
+                        case ResultTab.Input:
+                            if (!string.IsNullOrWhiteSpace(_inputDownloadHref) && !string.IsNullOrWhiteSpace(_inputDownloadFileName))
+                            {
+                                <a class="download-link" href="@_inputDownloadHref" download="@_inputDownloadFileName">Download input audio (@_inputDownloadFileName)</a>
+                            }
+                            else
+                            {
+                                <p class="subtext">Input audio is not available for this result snapshot.</p>
+                            }
+                            break;
+
+                        case ResultTab.Raw:
+                            if (IsEditingActiveTab)
+                            {
+                                <textarea class="text-editor" @bind="_activeTabDraft" @bind:event="oninput"></textarea>
+                            }
+                            else
+                            {
+                                <pre class="text-pane">@(_rawWhisperText ?? "(empty)")</pre>
+                            }
+                            break;
+
+                        case ResultTab.Tagged:
+                            if (IsEditingActiveTab)
+                            {
+                                <textarea class="text-editor" @bind="_activeTabDraft" @bind:event="oninput"></textarea>
+                            }
+                            else
+                            {
+                                <pre class="text-pane">@(_speakerLabeledText ?? "(empty)")</pre>
+                            }
+                            break;
+
+                        case ResultTab.Formatter:
+                            if (IsEditingActiveTab)
+                            {
+                                <textarea class="text-editor" @bind="_activeTabDraft" @bind:event="oninput"></textarea>
+                            }
+                            else
+                            {
+                                <pre class="text-pane">@(_formatterOutput ?? "(empty)")</pre>
+                            }
+                            break;
+
+                        case ResultTab.Logs:
+                            <div class="log-scroll">
+                                @foreach (var item in _timeline)
+                                {
+                                    <div class="timeline-item @(item.IsError ? "error" : item.IsCompleted ? "complete" : "")">
+                                        <span>@item.Percent%</span>
+                                        <span>@item.Message</span>
+                                    </div>
+                                }
+                            </div>
+                            break;
+
+                        default:
+                            if (IsEditingActiveTab)
+                            {
+                                <textarea class="text-editor" @bind="_activeTabDraft" @bind:event="oninput"></textarea>
+                            }
+                            else
+                            {
+                                <pre class="text-pane">@(_markdownOutput ?? "(empty)")</pre>
+                            }
+                            break;
+                    }
+                </div>
+            </section>
+        }
+        else
+        {
+            <section class="minimal-capture @(_isLaunchAnimating ? "launching" : "")">
+                @if (!string.IsNullOrWhiteSpace(_errorMessage))
+                {
+                    <div class="error-box">@_errorMessage</div>
+                }
+
+                <div class="capture-hub">
+                    @if (_hasAudio && !_isRecording)
+                    {
+                        <button class="send-launch" type="button" title="Send for transcription" @onclick="LaunchAndSubmitAsync" disabled="@(_isSubmitting || _isLaunchAnimating)">
+                            <span class="rocket launch-icon" aria-hidden="true">
+                                <svg class="icon-svg" viewBox="0 0 24 24" aria-hidden="true">
+                                    <path d="M3 11.5 21 3l-8.5 18-1.9-7.6z" />
+                                    <path d="m12.6 13.4-3.7 3.7" />
+                                </svg>
+                            </span>
+                            <span>Send</span>
+                        </button>
+                    }
+
+                    <div class="record-stack">
+                        <button class="record-button @GetRecordClass()" type="button" @onclick="ToggleRecordAsync" disabled="@(_isSubmitting || _devices.Count == 0)">
+                            <span class="record-core"></span>
+                            <span class="record-label">@(_isRecording ? "Stop" : "Record")</span>
+                        </button>
+
+                        <label class="upload-fab @(_uploadedAudio is not null ? "active" : "")" title="Upload audio file" aria-label="Upload audio file">
+                            <span class="upload-icon" aria-hidden="true">
+                                <svg class="icon-svg" viewBox="0 0 24 24" aria-hidden="true">
+                                    <path d="M12 15V5" />
+                                    <path d="m8.5 8.5 3.5-3.5 3.5 3.5" />
+                                    <path d="M4 15.5v2a2.5 2.5 0 0 0 2.5 2.5h11a2.5 2.5 0 0 0 2.5-2.5v-2" />
+                                </svg>
+                            </span>
+                            <span class="upload-text">Upload</span>
+                            <InputFile class="upload-input" OnChange="HandleUploadAsync" accept="audio/*,.wav,.mp3,.m4a,.webm" disabled="@(_isRecording || _isSubmitting)" />
+                        </label>
+                    </div>
+
+                    <label class="mic-select-wrap">
+                        <span>Microphone</span>
+                        <select @bind="_selectedDeviceId" disabled="@(_devices.Count == 0 || _isRecording || _isSubmitting)">
+                            @if (_devices.Count == 0)
+                            {
+                                <option value="">No microphone devices detected</option>
+                            }
+                            else
+                            {
+                                @foreach (var device in _devices)
+                                {
+                                    <option value="@device.DeviceId">@device.Label</option>
+                                }
+                            }
+                        </select>
+                    </label>
+
+                    @if (!string.IsNullOrWhiteSpace(_sourceDescription))
+                    {
+                        <p class="subtext">@_sourceDescription</p>
+                    }
+                </div>
+            </section>
+        }
+    }
+    else
+    {
+        <section class="studio-grid">
+            <article class="studio-card control-card">
+                <header>
+                    <h2>Capture</h2>
+                    <p>Record, upload, send, and reset.</p>
+                </header>
+
+                <div class="control-row">
+                    <button class="solid-btn btn-with-icon" type="button" @onclick="ToggleRecordAsync" disabled="@(_isSubmitting || _devices.Count == 0)">
+                        <span class="btn-icon" aria-hidden="true">
+                            <svg class="icon-svg" viewBox="0 0 24 24">
+                                <path d="M12 15a4 4 0 0 0 4-4V7a4 4 0 0 0-8 0v4a4 4 0 0 0 4 4z" />
+                                <path d="M19 11a7 7 0 0 1-14 0" />
+                                <path d="M12 18v3" />
+                            </svg>
+                        </span>
+                        <span>@(_isRecording ? "Stop Recording" : "Start Recording")</span>
+                    </button>
+                    <label class="solid-btn ghost upload-inline btn-with-icon">
+                        <span class="btn-icon" aria-hidden="true">
+                            <svg class="icon-svg" viewBox="0 0 24 24">
+                                <path d="M12 15V5" />
+                                <path d="m8.5 8.5 3.5-3.5 3.5 3.5" />
+                                <path d="M4 15.5v2a2.5 2.5 0 0 0 2.5 2.5h11a2.5 2.5 0 0 0 2.5-2.5v-2" />
+                            </svg>
+                        </span>
+                        <span>Upload File</span>
+                        <InputFile class="upload-input-inline" OnChange="HandleUploadAsync" accept="audio/*,.wav,.mp3,.m4a,.webm" disabled="@(_isRecording || _isSubmitting)" />
+                    </label>
+                    <button class="solid-btn btn-with-icon" type="button" @onclick="SubmitAsync" disabled="@(!_hasAudio || _isSubmitting)">
+                        <span class="btn-icon" aria-hidden="true">
+                            <svg class="icon-svg" viewBox="0 0 24 24">
+                                <path d="M4 12h13" />
+                                <path d="m13 5 7 7-7 7" />
+                            </svg>
+                        </span>
+                        <span>Transcribe</span>
+                    </button>
+                    <button class="solid-btn ghost btn-with-icon" type="button" @onclick="ResetWorkflowAsync" disabled="@_isSubmitting">
+                        <span class="btn-icon" aria-hidden="true">
+                            <svg class="icon-svg" viewBox="0 0 24 24">
+                                <path d="M12 5v14" />
+                                <path d="M5 12h14" />
+                            </svg>
+                        </span>
+                        <span>New Project</span>
+                    </button>
+                </div>
+
+                @if (!string.IsNullOrWhiteSpace(_previewUrl))
+                {
+                    <audio controls preload="metadata" src="@_previewUrl"></audio>
+                }
+
+                @if (!string.IsNullOrWhiteSpace(_sourceDescription))
+                {
+                    <p class="subtext">@_sourceDescription</p>
+                }
+
+                @if (!string.IsNullOrWhiteSpace(_errorMessage))
+                {
+                    <div class="error-box">@_errorMessage</div>
+                }
+            </article>
+
+            <article class="studio-card settings-card">
+                <header>
+                    <h2>Settings</h2>
+                    <p>Model, language, formatting, and speaker controls.</p>
+                </header>
+
+                <div class="field-grid">
+                    <label>
+                        <span>Input Device</span>
+                        <select @bind="_selectedDeviceId" disabled="@(_devices.Count == 0 || _isRecording || _isSubmitting)">
+                            @foreach (var device in _devices)
+                            {
+                                <option value="@device.DeviceId">@device.Label</option>
+                            }
+                        </select>
+                    </label>
+
+                    <label>
+                        <span>Whisper Model</span>
+                        <select @bind="_model" disabled="@_isSubmitting">
+                            @foreach (var model in _models)
+                            {
+                                <option value="@model">@model</option>
+                            }
+                        </select>
+                    </label>
+
+                    <label>
+                        <span>Formatter</span>
+                        <select @bind="_formatProvider" disabled="@(_isSubmitting || _runInBrowser)">
+                            <option value="auto">auto</option>
+                            <option value="local">local</option>
+                            <option value="ollama">ollama</option>
+                            <option value="huggingface">huggingface</option>
+                        </select>
+                    </label>
+
+                    <label>
+                        <span>Ollama Endpoint</span>
+                        <input @bind="_ollamaUri" placeholder="http://localhost:11434" disabled="@(_isSubmitting || _runInBrowser)" />
+                    </label>
+
+                    <label>
+                        <span>Ollama Model (8B-20B)</span>
+                        <input list="ollama-model-presets" @bind="_ollamaModel" disabled="@(_isSubmitting || _runInBrowser)" />
+                        <datalist id="ollama-model-presets">
+                            @foreach (var model in _ollamaModelPresets)
+                            {
+                                <option value="@model"></option>
+                            }
+                        </datalist>
+                    </label>
+
+                    <label>
+                        <span>HF Endpoint</span>
+                        <input @bind="_hfEndpoint" placeholder="https://router.huggingface.co" disabled="@(_isSubmitting || _runInBrowser)" />
+                    </label>
+
+                    <label>
+                        <span>HF Model (8B-20B)</span>
+                        <input list="hf-model-presets" @bind="_hfModel" disabled="@(_isSubmitting || _runInBrowser)" />
+                        <datalist id="hf-model-presets">
+                            @foreach (var model in _hfModelPresets)
+                            {
+                                <option value="@model"></option>
+                            }
+                        </datalist>
+                    </label>
+
+                    <label>
+                        <span>HF API Key</span>
+                        <input type="password" @bind="_hfApiKey" placeholder="hf_..." disabled="@(_isSubmitting || _runInBrowser)" />
+                    </label>
+
+                    <label class="range-field">
+                        <span>Format Sensitivity (@_formatSensitivity)</span>
+                        <input type="range" min="0" max="100" step="1" @bind="_formatSensitivity" disabled="@_isSubmitting" />
+                    </label>
+
+                    <label class="toggle-row">
+                        <span>Strict Transcript Preservation</span>
+                        <input type="checkbox" @bind="_formatStrictTranscript" disabled="@_isSubmitting" />
+                    </label>
+
+                    <label class="toggle-row">
+                        <span>Include Action Items</span>
+                        <input type="checkbox" @bind="_formatIncludeActionItems" disabled="@_isSubmitting" />
+                    </label>
+
+                    <label class="toggle-row">
+                        <span>Advanced Format Tuning</span>
+                        <input type="checkbox" @bind="_useAdvancedFormatTuning" disabled="@_isSubmitting" />
+                    </label>
+
+                    @if (_useAdvancedFormatTuning)
+                    {
+                        <label>
+                            <span>Overlap Threshold</span>
+                            <input type="number" min="0.05" max="0.95" step="0.01" @bind="_formatOverlapThreshold" disabled="@_isSubmitting" />
+                        </label>
+
+                        <label>
+                            <span>Summary Min Bullets</span>
+                            <input type="number" min="1" max="12" step="1" @bind="_formatSummaryMinBullets" disabled="@_isSubmitting" />
+                        </label>
+
+                        <label>
+                            <span>Summary Max Bullets</span>
+                            <input type="number" min="1" max="20" step="1" @bind="_formatSummaryMaxBullets" disabled="@_isSubmitting" />
+                        </label>
+
+                        <label>
+                            <span>LLM Temperature</span>
+                            <input type="number" min="0" max="1.2" step="0.01" @bind="_formatTemperature" disabled="@_isSubmitting" />
+                        </label>
+
+                        <label>
+                            <span>LLM Max Tokens</span>
+                            <input type="number" min="200" max="6000" step="10" @bind="_formatMaxTokens" disabled="@_isSubmitting" />
+                        </label>
+
+                        <label>
+                            <span>Local Big Gap (s)</span>
+                            <input type="number" min="0.2" max="10" step="0.1" @bind="_formatLocalBigGapSeconds" disabled="@_isSubmitting" />
+                        </label>
+
+                        <label>
+                            <span>Local Small Gap (s)</span>
+                            <input type="number" min="0.1" max="6" step="0.1" @bind="_formatLocalSmallGapSeconds" disabled="@_isSubmitting" />
+                        </label>
+                    }
+
+                    <label>
+                        <span>Language</span>
+                        <input @bind="_language" placeholder="auto" disabled="@_isSubmitting" />
+                    </label>
+
+                    <label>
+                        <span>Max Segment Length (s)</span>
+                        <input type="number" min="0" max="120" step="1" @bind="_maxSegmentLength" disabled="@_isSubmitting" />
+                    </label>
+
+                    <label class="toggle-row">
+                        <span>Detect Speaker Swaps</span>
+                        <input type="checkbox" @bind="_enableSpeakerLabels" disabled="@_isSubmitting" />
+                    </label>
+
+                    <label class="range-field">
+                        <span>Speaker Sensitivity (@_speakerSensitivity)</span>
+                        <input type="range" min="0" max="100" step="1" @bind="_speakerSensitivity" disabled="@_isSubmitting" />
+                    </label>
+
+                    <label class="toggle-row">
+                        <span>Advanced Speaker Tuning</span>
+                        <input type="checkbox" @bind="_useAdvancedSpeakerTuning" disabled="@_isSubmitting" />
+                    </label>
+
+                    @if (_useAdvancedSpeakerTuning)
+                    {
+                        <label>
+                            <span>Min Score Gain</span>
+                            <input type="number" min="0" max="1" step="0.01" @bind="_speakerMinScoreGain" disabled="@_isSubmitting" />
+                        </label>
+
+                        <label>
+                            <span>Max Switch Rate</span>
+                            <input type="number" min="0" max="1" step="0.01" @bind="_speakerMaxSwitchRate" disabled="@_isSubmitting" />
+                        </label>
+
+                        <label>
+                            <span>Min Separation</span>
+                            <input type="number" min="0.1" max="5" step="0.05" @bind="_speakerMinSeparation" disabled="@_isSubmitting" />
+                        </label>
+
+                        <label>
+                            <span>Min Cluster Size</span>
+                            <input type="number" min="1" max="12" step="1" @bind="_speakerMinClusterSize" disabled="@_isSubmitting" />
+                        </label>
+
+                        <label>
+                            <span>Max Auto Speakers</span>
+                            <input type="number" min="1" max="12" step="1" @bind="_speakerMaxAutoSpeakers" disabled="@_isSubmitting" />
+                        </label>
+
+                        <label>
+                            <span>Variance Gate</span>
+                            <input type="number" min="0.05" max="4" step="0.01" @bind="_speakerGlobalVarianceGate" disabled="@_isSubmitting" />
+                        </label>
+
+                        <label>
+                            <span>Short Run Merge (s)</span>
+                            <input type="number" min="0.2" max="8" step="0.1" @bind="_speakerShortRunMergeSeconds" disabled="@_isSubmitting" />
+                        </label>
+                    }
+
+                    <label>
+                        <span>Browser Cleanup</span>
+                        <select @bind="_browserCleanupMode" disabled="@(!_runInBrowser || _isSubmitting)">
+                            <option value="webllm">webllm</option>
+                            <option value="local">local</option>
+                        </select>
+                    </label>
+
+                    <label>
+                        <span>WebLLM Model</span>
+                        <input list="webllm-model-presets" @bind="_webLlmModel" disabled="@(!_runInBrowser || !_isWebLlmCleanup || _isSubmitting)" />
+                        <datalist id="webllm-model-presets">
+                            @foreach (var model in _webLlmModelPresets)
+                            {
+                                <option value="@model"></option>
+                            }
+                        </datalist>
+                    </label>
+                </div>
+            </article>
+
+            <article class="studio-card progress-card">
+                <header>
+                    <h2>Progress</h2>
+                    <p>@_statusMessage</p>
+                </header>
+
+                <div class="meter">
+                    <div class="meter-fill" style="width:@($"{_percent}%")"></div>
+                </div>
+
+                <div class="log-scroll">
+                    @if (_timeline.Count == 0)
+                    {
+                        <div class="timeline-item idle">No logs yet.</div>
+                    }
+                    else
+                    {
+                        @foreach (var item in _timeline)
+                        {
+                            <div class="timeline-item @(item.IsError ? "error" : item.IsCompleted ? "complete" : "")">
+                                <span>@item.Percent%</span>
+                                <span>@item.Message</span>
+                            </div>
+                        }
+                    }
+                </div>
+            </article>
+
+            <article class="studio-card result-card">
+                <header class="result-head">
+                    <div>
+                        <h2>Output</h2>
+                        <p>Review final and intermediate steps.</p>
+                    </div>
+                    <button class="solid-btn ghost btn-with-icon" type="button" @onclick="SaveSnapshotAsync" disabled="@string.IsNullOrWhiteSpace(_markdownOutput)">
+                        <span class="btn-icon" aria-hidden="true">
+                            <svg class="icon-svg" viewBox="0 0 24 24">
+                                <path d="M5 4h11l3 3v13H5z" />
+                                <path d="M9 4v6h6V4" />
+                                <path d="M9 18h6" />
+                            </svg>
+                        </span>
+                        <span>Save Snapshot</span>
+                    </button>
+                </header>
+
+                <div class="tab-row">
+                    <button class="@GetTabClass(ResultTab.Input)" type="button" @onclick="() => SetResultTab(ResultTab.Input)">Input</button>
+                    <button class="@GetTabClass(ResultTab.Final)" type="button" @onclick="() => SetResultTab(ResultTab.Final)">Processed</button>
+                    <button class="@GetTabClass(ResultTab.Raw)" type="button" @onclick="() => SetResultTab(ResultTab.Raw)">Raw</button>
+                    <button class="@GetTabClass(ResultTab.Tagged)" type="button" @onclick="() => SetResultTab(ResultTab.Tagged)">Tagged</button>
+                    <button class="@GetTabClass(ResultTab.Formatter)" type="button" @onclick="() => SetResultTab(ResultTab.Formatter)">Formatter</button>
+                    <button class="@GetTabClass(ResultTab.Logs)" type="button" @onclick="() => SetResultTab(ResultTab.Logs)">Logs</button>
+                </div>
+
+                @if (IsEditableTab(_activeTab))
+                {
+                    <div class="result-edit-toolbar">
+                        @if (IsEditingActiveTab)
+                        {
+                            <button class="chip-btn" type="button" @onclick="ApplyActiveTabEdit" disabled="@_isSubmitting">Apply</button>
+                            <button class="chip-btn" type="button" @onclick="CancelActiveTabEdit" disabled="@_isSubmitting">Cancel</button>
+                        }
+                        else
+                        {
+                            <button class="chip-btn" type="button" @onclick="StartEditingActiveTab" disabled="@_isSubmitting">Edit</button>
+                        }
+                        <button class="chip-btn" type="button" @onclick="ExportActiveTabAsync" disabled="@_isSubmitting">Export Markdown</button>
+                    </div>
+                }
+
+                @if (ShouldShowSubtitlePlayer)
+                {
+                    <div class="subtitle-sync-card">
+                        <div class="subtitle-sync-head">
+                            <strong>Playback + Synced Subtitles</strong>
+                            <div class="subtitle-sync-meta">
+                                <span>@GetSubtitleStatusText()</span>
+                                <label class="subtitle-autoscroll">
+                                    <input type="checkbox" @bind="_subtitleAutoScroll" />
+                                    <span>Auto-scroll</span>
+                                </label>
+                            </div>
+                        </div>
+                        <audio @ref="_subtitleAudioRef" controls preload="metadata" src="@_inputDownloadHref"></audio>
+                        <div class="subtitle-now">
+                            @if (ActiveSubtitleSegment is { } now)
+                            {
+                                <div class="subtitle-now-meta">
+                                    <span>@FormatSubtitleTimestamp(now.StartSeconds)</span>
+                                    @if (!string.IsNullOrWhiteSpace(now.Speaker))
+                                    {
+                                        <span>@now.Speaker</span>
+                                    }
+                                </div>
+                                <p class="subtitle-live-line">@((MarkupString)BuildHighlightedSubtitleMarkup(now, _subtitleCurrentSeconds))</p>
+                            }
+                            else
+                            {
+                                <p class="subtext">Press play to start subtitle playback.</p>
+                            }
+                        </div>
+                        <div class="subtitle-list" @ref="_subtitleListRef">
+                            @for (var i = 0; i < _subtitleSegments.Count; i++)
+                            {
+                                var segment = _subtitleSegments[i];
+                                <button class="subtitle-line @(i == _activeSubtitleIndex ? "active" : "")" type="button" data-subtitle-index="@i" @onclick="() => SeekToSubtitleAsync(i)">
+                                    <span class="subtitle-time">@FormatSubtitleTimestamp(segment.StartSeconds)</span>
+                                    <span class="subtitle-copy">@segment.Text</span>
+                                </button>
+                            }
+                        </div>
+                    </div>
+                }
+
+                <div class="tab-panel fill">
+                    @switch (_activeTab)
+                    {
+                        case ResultTab.Input:
+                            if (!string.IsNullOrWhiteSpace(_inputDownloadHref) && !string.IsNullOrWhiteSpace(_inputDownloadFileName))
+                            {
+                                <a class="download-link" href="@_inputDownloadHref" download="@_inputDownloadFileName">Download input audio (@_inputDownloadFileName)</a>
+                            }
+                            else
+                            {
+                                <p class="subtext">Input audio is not available for this result snapshot.</p>
+                            }
+                            break;
+
+                        case ResultTab.Raw:
+                            if (IsEditingActiveTab)
+                            {
+                                <textarea class="text-editor" @bind="_activeTabDraft" @bind:event="oninput"></textarea>
+                            }
+                            else
+                            {
+                                <pre class="text-pane">@(_rawWhisperText ?? "(empty)")</pre>
+                            }
+                            break;
+
+                        case ResultTab.Tagged:
+                            if (IsEditingActiveTab)
+                            {
+                                <textarea class="text-editor" @bind="_activeTabDraft" @bind:event="oninput"></textarea>
+                            }
+                            else
+                            {
+                                <pre class="text-pane">@(_speakerLabeledText ?? "(empty)")</pre>
+                            }
+                            break;
+
+                        case ResultTab.Formatter:
+                            if (IsEditingActiveTab)
+                            {
+                                <textarea class="text-editor" @bind="_activeTabDraft" @bind:event="oninput"></textarea>
+                            }
+                            else
+                            {
+                                <pre class="text-pane">@(_formatterOutput ?? "(empty)")</pre>
+                            }
+                            break;
+
+                        case ResultTab.Logs:
+                            <div class="log-scroll">
+                                @foreach (var item in _timeline)
+                                {
+                                    <div class="timeline-item @(item.IsError ? "error" : item.IsCompleted ? "complete" : "")">
+                                        <span>@item.Percent%</span>
+                                        <span>@item.Message</span>
+                                    </div>
+                                }
+                            </div>
+                            break;
+
+                        default:
+                            if (IsEditingActiveTab)
+                            {
+                                <textarea class="text-editor" @bind="_activeTabDraft" @bind:event="oninput"></textarea>
+                            }
+                            else
+                            {
+                                <pre class="text-pane">@(_markdownOutput ?? "(empty)")</pre>
+                            }
+                            break;
+                    }
+                </div>
+            </article>
+
+            <article class="studio-card history-card">
+                <header class="result-head">
+                    <div>
+                        <h2>History</h2>
+                        <p>Saved in browser storage.</p>
+                    </div>
+                    <button class="solid-btn ghost btn-with-icon" type="button" @onclick="LoadHistoryAsync" disabled="@_isHistoryBusy">
+                        <span class="btn-icon" aria-hidden="true">
+                            <svg class="icon-svg" viewBox="0 0 24 24">
+                                <path d="M3 12a9 9 0 1 0 3-6.7" />
+                                <path d="M3 4v5h5" />
+                            </svg>
+                        </span>
+                        <span>Refresh</span>
+                    </button>
+                </header>
+
+                @if (!string.IsNullOrWhiteSpace(_historyNotice))
+                {
+                    <p class="notice">@_historyNotice</p>
+                }
+
+                @if (_history.Count == 0)
+                {
+                    <div class="empty-card">No saved sessions yet.</div>
+                }
+                else
+                {
+                    <div class="history-list compact">
+                        @foreach (var session in _history)
+                        {
+                            <article class="history-item">
+                                <header>
+                                    <strong>@(string.IsNullOrWhiteSpace(session.Source) ? "Saved Session" : session.Source)</strong>
+                                    <span>@FormatSessionTime(session.CreatedAt)</span>
+                                </header>
+                                <p>Model: @(session.Model ?? "unknown") | Formatter: @(session.FormatterUsed ?? "unknown")</p>
+                                <div class="item-actions">
+                                    <button class="chip-btn" type="button" @onclick="() => OpenHistorySessionAsync(session)">Open</button>
+                                    <button class="chip-btn danger" type="button" @onclick="() => DeleteHistorySessionAsync(session.Id)">Delete</button>
+                                </div>
+                            </article>
+                        }
+                    </div>
+                }
+            </article>
+        </section>
+    }
+</div>
+
+<div class="browser-dock">
+    <div class="dock-title">Browser-Only Mode</div>
+    <label class="dock-toggle">
+        <input type="checkbox" @bind="_runInBrowser" disabled="@(!_browserCapabilities.Supported || _isSubmitting)" />
+        <span>@(_runInBrowser ? "Enabled" : "Disabled")</span>
+    </label>
+    <p class="dock-note">@_browserCapabilities.Reason</p>
+</div>
+
+@code {
+    private static readonly string[] _models =
+    [
+        "Tiny", "TinyEn", "Base", "BaseEn", "Small", "SmallEn", "Medium", "MediumEn", "LargeV1", "LargeV2", "LargeV3", "LargeV3Turbo"
+    ];
+    private static readonly string[] _ollamaModelPresets =
+    [
+        "llama3.1:8b",
+        "mistral-nemo:12b",
+        "qwen2.5:14b",
+        "qwen2.5-coder:14b",
+        "gemma2:9b",
+        "phi4:14b",
+        "phi4-reasoning:14b",
+        "deepseek-r1:8b",
+        "deepseek-r1:14b"
+    ];
+    private static readonly string[] _hfModelPresets =
+    [
+        "meta-llama/Llama-3.1-8B-Instruct",
+        "mistralai/Mistral-Nemo-Instruct-2407",
+        "Qwen/Qwen2.5-14B-Instruct",
+        "Qwen/Qwen2.5-Coder-14B-Instruct",
+        "google/gemma-2-9b-it",
+        "microsoft/phi-4",
+        "deepseek-ai/DeepSeek-R1-Distill-Qwen-14B"
+    ];
+    private static readonly string[] _preferredWebLlmModels =
+    [
+        "Llama-3.1-8B-Instruct-q4f16_1-MLC",
+        "Llama-3.1-8B-Instruct-q4f32_1-MLC",
+        "Qwen2.5-7B-Instruct-q4f16_1-MLC",
+        "Qwen2.5-Coder-7B-Instruct-q4f16_1-MLC",
+        "Mistral-7B-Instruct-v0.3-q4f16_1-MLC",
+        "Phi-3.5-mini-instruct-q4f16_1-MLC"
+    ];
+
+    private HubConnection? _hub;
+    private DotNetObjectReference<Home>? _dotNetRef;
+    private readonly List<TranscriptionProgressMessage> _timeline = [];
+    private readonly List<AudioDevice> _devices = [];
+    private readonly List<HistorySession> _history = [];
+    private readonly HashSet<string> _savedSessionIds = [];
+    private readonly List<TranscriptionSubtitleSegment> _subtitleSegments = [];
+    private readonly List<string> _webLlmModelPresets = [];
+    private BrowserAudioPayload? _browserRecording;
+    private UploadedAudioPayload? _uploadedAudio;
+
+    private string? _selectedDeviceId;
+    private string _model = "SmallEn";
+    private string _language = "auto";
+    private string _formatProvider = "auto";
+    private string _ollamaUri = "http://localhost:11434";
+    private string _ollamaModel = "mistral-nemo:12b";
+    private string _hfEndpoint = "https://router.huggingface.co";
+    private string _hfModel = "Qwen/Qwen2.5-14B-Instruct";
+    private string _hfApiKey = Environment.GetEnvironmentVariable("HF_TOKEN") ?? string.Empty;
+    private int _formatSensitivity = 50;
+    private bool _formatStrictTranscript = true;
+    private bool _formatIncludeActionItems = true;
+    private bool _useAdvancedFormatTuning;
+    private double _formatOverlapThreshold = 0.28;
+    private int _formatSummaryMinBullets = 3;
+    private int _formatSummaryMaxBullets = 8;
+    private double _formatTemperature = 0.15;
+    private int _formatMaxTokens = 1200;
+    private double _formatLocalBigGapSeconds = 1.2;
+    private double _formatLocalSmallGapSeconds = 0.4;
+    private int _maxSegmentLength;
+    private bool _enableSpeakerLabels = true;
+    private int _speakerSensitivity = 25;
+    private bool _useAdvancedSpeakerTuning;
+    private double _speakerMinScoreGain = 0.12;
+    private double _speakerMaxSwitchRate = 0.42;
+    private double _speakerMinSeparation = 0.8;
+    private int _speakerMinClusterSize = 2;
+    private int _speakerMaxAutoSpeakers = 6;
+    private double _speakerGlobalVarianceGate = 0.58;
+    private double _speakerShortRunMergeSeconds = 1.6;
+
+    private bool _runInBrowser;
+    private string _browserCleanupMode = "webllm";
+    private string _webLlmModel = "Llama-3.1-8B-Instruct-q4f16_1-MLC";
+    private BrowserExecutionCapabilities _browserCapabilities = new(
+        Supported: false,
+        HasWebGpu: false,
+        HasAudioContext: false,
+        HasMediaRecorder: false,
+        Reason: "Checking browser capabilities...");
+
+    private bool _isRecording;
+    private bool _isSubmitting;
+    private bool _isHistoryBusy;
+    private bool _isLaunchAnimating;
+    private string? _activeJobId;
+    private string _statusMessage = "Idle";
+    private int _percent;
+    private string? _markdownOutput;
+    private string? _outputPath;
+    private int? _detectedSpeakerCount;
+    private string? _errorMessage;
+    private string? _rawWhisperText;
+    private string? _speakerLabeledText;
+    private string? _formatterOutput;
+    private string? _formatterUsed;
+    private string? _historyNotice;
+    private string? _inputDownloadHref;
+    private string? _inputDownloadFileName;
+    private ElementReference _subtitleAudioRef;
+    private ElementReference _subtitleListRef;
+    private bool _subtitleSyncBound;
+    private string? _subtitleSyncKey;
+    private int _activeSubtitleIndex = -1;
+    private double _subtitleCurrentSeconds;
+    private bool _subtitleIsPaused = true;
+    private bool _subtitleAutoScroll = true;
+    private int? _pendingSubtitleAutoScrollIndex;
+    private CancellationTokenSource? _jobStatusPollCts;
+    private bool _isDisposed;
+    private bool _isSnapshotSaveQueued;
+
+    private LayoutMode _layoutMode = LayoutMode.Minimal;
+    private MinimalStage _minimalStage = MinimalStage.Capture;
+    private ResultTab _activeTab = ResultTab.Final;
+    private bool _isEditingTab;
+    private ResultTab _editingTab = ResultTab.Final;
+    private string _activeTabDraft = string.Empty;
+
+    private string? _previewUrl => _browserRecording?.PreviewUrl;
+    private bool _hasAudio => _browserRecording is not null || _uploadedAudio is not null;
+    private bool _isStudioMode => _layoutMode == LayoutMode.Studio;
+    private bool _isWebLlmCleanup => string.Equals(_browserCleanupMode, "webllm", StringComparison.OrdinalIgnoreCase);
+    private bool ShouldShowSubtitlePlayer =>
+        !string.IsNullOrWhiteSpace(_inputDownloadHref) &&
+        _subtitleSegments.Count > 0 &&
+        (_isStudioMode || _minimalStage == MinimalStage.Results);
+    private TranscriptionSubtitleSegment? ActiveSubtitleSegment =>
+        _activeSubtitleIndex >= 0 && _activeSubtitleIndex < _subtitleSegments.Count
+            ? _subtitleSegments[_activeSubtitleIndex]
+            : null;
+    private bool IsEditingActiveTab => _isEditingTab && _editingTab == _activeTab;
+
+    private string? _sourceDescription
+    {
+        get
+        {
+            if (_browserRecording is not null)
+                return $"Recorded clip: {_browserRecording.FileName} ({FormatBytes(_browserRecording.Size)})";
+            if (_uploadedAudio is not null)
+                return $"Uploaded file: {_uploadedAudio.FileName} ({FormatBytes(_uploadedAudio.Bytes.Length)})";
+            return null;
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await EnsureHubConnectedAsync();
+        await RefreshDevicesAsync();
+    }
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _dotNetRef = DotNetObjectReference.Create(this);
+            await RefreshBrowserCapabilitiesAsync();
+            await RefreshWebLlmModelPresetsAsync();
+            await LoadHistoryAsync();
+            await InvokeAsync(StateHasChanged);
+        }
+
+        await EnsureSubtitleSyncAsync();
+        await EnsureSubtitleAutoScrollAsync();
+    }
+
+    private async Task EnsureHubConnectedAsync()
+    {
+        if (_hub is not null)
+            return;
+
+        _hub = new HubConnectionBuilder()
+            .WithUrl(Navigation.ToAbsoluteUri("/hubs/transcription"))
+            .WithAutomaticReconnect()
+            .Build();
+
+        _hub.On<TranscriptionProgressMessage>("JobProgress", async message =>
+        {
+            try
+            {
+                await ApplyProgressMessageAsync(message);
+            }
+            catch
+            {
+                // Keep circuit alive if one progress message fails to apply.
+            }
+        });
+
+        await _hub.StartAsync();
+    }
+
+    private async Task RefreshDevicesAsync()
+    {
+        try
+        {
+            var devices = await JS.InvokeAsync<AudioDevice[]>("localTranscriberRecorder.listInputDevices");
+            _devices.Clear();
+            _devices.AddRange(devices);
+
+            if (_devices.Count > 0 && string.IsNullOrWhiteSpace(_selectedDeviceId))
+                _selectedDeviceId = _devices[0].DeviceId;
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Could not enumerate recording devices: {ex.Message}";
+        }
+    }
+
+    private async Task RefreshBrowserCapabilitiesAsync()
+    {
+        try
+        {
+            var capabilities = await JS.InvokeAsync<BrowserExecutionCapabilities>("localTranscriberBrowser.getCapabilities");
+            _browserCapabilities = capabilities;
+
+            if (!_browserCapabilities.Supported)
+                _runInBrowser = false;
+        }
+        catch (Exception ex)
+        {
+            _browserCapabilities = new BrowserExecutionCapabilities(
+                Supported: false,
+                HasWebGpu: false,
+                HasAudioContext: false,
+                HasMediaRecorder: false,
+                Reason: $"Browser capability check failed: {ex.Message}");
+            _runInBrowser = false;
+        }
+    }
+
+    private async Task RefreshWebLlmModelPresetsAsync()
+    {
+        _webLlmModelPresets.Clear();
+
+        try
+        {
+            var available = await JS.InvokeAsync<string[]>("localTranscriberBrowser.listWebLlmModels");
+            if (available is { Length: > 0 })
+            {
+                var availableSet = available
+                    .Where(x => !string.IsNullOrWhiteSpace(x))
+                    .Select(x => x.Trim())
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+                foreach (var preferred in _preferredWebLlmModels)
+                {
+                    if (availableSet.Contains(preferred))
+                        _webLlmModelPresets.Add(preferred);
+                }
+
+                if (_webLlmModelPresets.Count < 6)
+                {
+                    var extras = available
+                        .Where(IsConsumerRangeModel)
+                        .Where(x => !_webLlmModelPresets.Contains(x, StringComparer.OrdinalIgnoreCase))
+                        .Take(10 - _webLlmModelPresets.Count);
+                    _webLlmModelPresets.AddRange(extras);
+                }
+            }
+        }
+        catch
+        {
+            // Fall back to static presets if WebLLM module enumeration fails.
+        }
+
+        if (_webLlmModelPresets.Count == 0)
+            _webLlmModelPresets.AddRange(_preferredWebLlmModels);
+
+        if (!_webLlmModelPresets.Contains(_webLlmModel, StringComparer.OrdinalIgnoreCase))
+            _webLlmModelPresets.Insert(0, _webLlmModel);
+    }
+
+    [JSInvokable]
+    public async Task OnBrowserProgress(BrowserProgressMessage message)
+    {
+        if (!string.Equals(message.JobId, _activeJobId, StringComparison.OrdinalIgnoreCase))
+            return;
+
+        try
+        {
+            await ApplyProgressMessageAsync(new TranscriptionProgressMessage(
+                message.JobId,
+                message.Percent,
+                message.Stage,
+                message.Message,
+                message.IsCompleted,
+                message.IsError,
+                message.RawWhisperText,
+                message.SpeakerLabeledText,
+                message.FormatterOutput,
+                message.FormatterUsed,
+                message.Markdown,
+                _outputPath,
+                message.DetectedSpeakerCount,
+                message.SubtitleSegments));
+        }
+        catch
+        {
+            // Ignore transient browser-progress apply failures.
+        }
+    }
+
+    private async Task ToggleRecordAsync()
+    {
+        var browserRecorderActive = await IsBrowserRecorderActiveAsync();
+        if (!browserRecorderActive && _isRecording)
+            _isRecording = false;
+
+        if (_isRecording)
+        {
+            await StopRecordingAsync();
+            return;
+        }
+
+        _errorMessage = null;
+        if (_uploadedAudio is not null)
+            await ClearUploadedAudioAsync();
+
+        await StartRecordingAsync();
+    }
+
+    private async Task StartRecordingAsync()
+    {
+        _errorMessage = null;
+
+        try
+        {
+            if (await IsBrowserRecorderActiveAsync())
+            {
+                _isRecording = true;
+                return;
+            }
+
+            await JS.InvokeVoidAsync("localTranscriberRecorder.startRecording", _selectedDeviceId);
+            _isRecording = true;
+            _minimalStage = MinimalStage.Capture;
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Unable to start recording: {ex.Message}";
+        }
+    }
+
+    private async Task StopRecordingAsync()
+    {
+        _errorMessage = null;
+        try
+        {
+            var stopTask = JS.InvokeAsync<BrowserAudioPayload?>("localTranscriberRecorder.stopRecording").AsTask();
+            var completedTask = await Task.WhenAny(stopTask, Task.Delay(TimeSpan.FromSeconds(20)));
+            if (completedTask != stopTask)
+            {
+                await JS.InvokeVoidAsync("localTranscriberRecorder.resetRecorderState");
+                _errorMessage = "Stopping the recorder timed out. Recorder state was reset.";
+                return;
+            }
+
+            var payload = await stopTask;
+            if (payload is not null)
+            {
+                _browserRecording = payload;
+                _uploadedAudio = null;
+                SetSubtitleSegments(null);
+                UpdateInputDownloadFromRecording();
+            }
+
+            _minimalStage = MinimalStage.Capture;
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Unable to stop recording: {ex.Message}";
+        }
+        finally
+        {
+            _isRecording = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task<bool> IsBrowserRecorderActiveAsync()
+    {
+        try
+        {
+            return await JS.InvokeAsync<bool>("localTranscriberRecorder.isRecording");
+        }
+        catch
+        {
+            return _isRecording;
+        }
+    }
+
+    private async Task ClearUploadedAudioAsync()
+    {
+        _uploadedAudio = null;
+        _inputDownloadHref = null;
+        _inputDownloadFileName = null;
+        await JS.InvokeVoidAsync("localTranscriberRecorder.clearPreview");
+    }
+
+    private async Task HandleUploadAsync(InputFileChangeEventArgs args)
+    {
+        _errorMessage = null;
+        try
+        {
+            var file = args.File;
+            if (file is null)
+                return;
+
+            await using var stream = file.OpenReadStream(250 * 1024 * 1024);
+            using var ms = new MemoryStream();
+            await stream.CopyToAsync(ms);
+
+            var mimeType = string.IsNullOrWhiteSpace(file.ContentType) ? "application/octet-stream" : file.ContentType;
+            _uploadedAudio = new UploadedAudioPayload(file.Name, mimeType, ms.ToArray());
+            _browserRecording = null;
+            SetSubtitleSegments(null);
+            _isRecording = false;
+            _minimalStage = MinimalStage.Capture;
+            UpdateInputDownloadFromUpload();
+            await JS.InvokeVoidAsync("localTranscriberRecorder.clearPreview");
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (Exception ex)
+        {
+            _uploadedAudio = null;
+            _errorMessage = $"Unable to load uploaded audio: {ex.Message}";
+        }
+    }
+
+    private async Task SubmitAsync()
+    {
+        if (!_hasAudio || _isSubmitting)
+            return;
+
+        NormalizeTunableInputs();
+        PrepareForSubmission();
+        _activeJobId = Guid.NewGuid().ToString("N");
+        _isSubmitting = true;
+        _minimalStage = MinimalStage.Processing;
+        StopJobStatusPolling();
+
+        try
+        {
+            if (_runInBrowser)
+            {
+                await SubmitInBrowserAsync();
+                return;
+            }
+
+            await EnsureHubConnectedAsync();
+            await _hub!.InvokeAsync("JoinJob", _activeJobId);
+
+            using var content = new MultipartFormDataContent();
+            content.Add(new StringContent(_activeJobId), "jobId");
+            content.Add(new StringContent(_model), "model");
+            content.Add(new StringContent(_language), "language");
+            content.Add(new StringContent(NormalizeTextInput(_ollamaUri, "http://localhost:11434")), "ollamaUri");
+            content.Add(new StringContent(NormalizeTextInput(_ollamaModel, "mistral-nemo:12b")), "ollamaModel");
+            content.Add(new StringContent(NormalizeTextInput(_hfEndpoint, "https://router.huggingface.co")), "hfEndpoint");
+            content.Add(new StringContent(NormalizeTextInput(_hfModel, "Qwen/Qwen2.5-14B-Instruct")), "hfModel");
+            content.Add(new StringContent(_hfApiKey ?? string.Empty), "hfApiKey");
+            content.Add(new StringContent(Inv(_maxSegmentLength)), "maxSegLength");
+            content.Add(new StringContent(_formatProvider), "formatProvider");
+            content.Add(new StringContent(Inv(_formatSensitivity)), "formatSensitivity");
+            content.Add(new StringContent(_formatStrictTranscript.ToString()), "formatStrictTranscript");
+            content.Add(new StringContent(_formatIncludeActionItems.ToString()), "formatIncludeActionItems");
+            content.Add(new StringContent(_enableSpeakerLabels.ToString()), "enableSpeakerLabels");
+            content.Add(new StringContent(Inv(_speakerSensitivity)), "speakerSensitivity");
+
+            if (_useAdvancedFormatTuning)
+            {
+                content.Add(new StringContent(Inv(_formatOverlapThreshold)), "formatOverlapThreshold");
+                content.Add(new StringContent(Inv(_formatSummaryMinBullets)), "formatSummaryMinBullets");
+                content.Add(new StringContent(Inv(_formatSummaryMaxBullets)), "formatSummaryMaxBullets");
+                content.Add(new StringContent(Inv(_formatTemperature)), "formatTemperature");
+                content.Add(new StringContent(Inv(_formatMaxTokens)), "formatMaxTokens");
+                content.Add(new StringContent(Inv(_formatLocalBigGapSeconds)), "formatLocalBigGapSeconds");
+                content.Add(new StringContent(Inv(_formatLocalSmallGapSeconds)), "formatLocalSmallGapSeconds");
+            }
+
+            if (_useAdvancedSpeakerTuning)
+            {
+                content.Add(new StringContent(Inv(_speakerMinScoreGain)), "speakerMinScoreGain");
+                content.Add(new StringContent(Inv(_speakerMaxSwitchRate)), "speakerMaxSwitchRate");
+                content.Add(new StringContent(Inv(_speakerMinSeparation)), "speakerMinSeparation");
+                content.Add(new StringContent(Inv(_speakerMinClusterSize)), "speakerMinClusterSize");
+                content.Add(new StringContent(Inv(_speakerMaxAutoSpeakers)), "speakerMaxAutoSpeakers");
+                content.Add(new StringContent(Inv(_speakerGlobalVarianceGate)), "speakerGlobalVarianceGate");
+                content.Add(new StringContent(Inv(_speakerShortRunMergeSeconds)), "speakerShortRunMergeSeconds");
+            }
+
+            if (_browserRecording is not null)
+            {
+                var bytes = Convert.FromBase64String(_browserRecording.Base64);
+                var body = new ByteArrayContent(bytes);
+                TrySetContentType(body, _browserRecording.MimeType);
+                content.Add(body, "audio", _browserRecording.FileName);
+            }
+            else if (_uploadedAudio is not null)
+            {
+                var body = new ByteArrayContent(_uploadedAudio.Bytes);
+                TrySetContentType(body, _uploadedAudio.MimeType);
+                content.Add(body, "audio", _uploadedAudio.FileName);
+            }
+            else
+            {
+                _errorMessage = "No audio is available to submit.";
+                _isSubmitting = false;
+                _minimalStage = MinimalStage.Capture;
+                return;
+            }
+
+            var client = HttpClientFactory.CreateClient();
+            client.BaseAddress = new Uri(Navigation.BaseUri);
+
+            var response = await client.PostAsync("api/transcriptions", content);
+            if (!response.IsSuccessStatusCode)
+            {
+                _errorMessage = $"Submission failed: {(int)response.StatusCode} {response.ReasonPhrase}";
+                _isSubmitting = false;
+                _minimalStage = MinimalStage.Capture;
+            }
+            else
+            {
+                _statusMessage = "Job accepted. Waiting for progress updates...";
+                StartJobStatusPolling(_activeJobId);
+            }
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Submission failed: {ex.Message}";
+            _isSubmitting = false;
+            _minimalStage = MinimalStage.Capture;
+            StopJobStatusPolling();
+        }
+    }
+    private async Task SubmitInBrowserAsync()
+    {
+        if (!_browserCapabilities.Supported)
+        {
+            _errorMessage = "Browser-only mode is unavailable in this browser.";
+            _isSubmitting = false;
+            _minimalStage = MinimalStage.Capture;
+            return;
+        }
+
+        if (_dotNetRef is null)
+            _dotNetRef = DotNetObjectReference.Create(this);
+
+        var input = BuildBrowserAudioInput();
+        if (input is null)
+        {
+            _errorMessage = "No audio is available to submit.";
+            _isSubmitting = false;
+            _minimalStage = MinimalStage.Capture;
+            return;
+        }
+
+        _statusMessage = "Running in-browser transcription...";
+        _outputPath = "In-browser result (not written to server output folder)";
+
+        var request = new BrowserTranscriptionRequest(
+            _activeJobId!,
+            input.FileName,
+            input.MimeType,
+            input.Base64,
+            _model,
+            _language,
+            _enableSpeakerLabels,
+            _browserCleanupMode == "webllm",
+            _webLlmModel);
+
+        try
+        {
+            var result = await JS.InvokeAsync<BrowserTranscriptionResult>(
+                "localTranscriberBrowser.transcribeInBrowser",
+                _dotNetRef,
+                request);
+
+            _rawWhisperText = result.RawWhisperText ?? _rawWhisperText;
+            _speakerLabeledText = result.SpeakerLabeledText ?? _speakerLabeledText;
+            _formatterOutput = result.FormatterOutput ?? _formatterOutput;
+            _formatterUsed = result.FormatterUsed ?? _formatterUsed;
+            _markdownOutput = result.Markdown ?? _markdownOutput;
+            _detectedSpeakerCount = result.DetectedSpeakerCount ?? _detectedSpeakerCount;
+            SetSubtitleSegments(result.SubtitleSegments);
+            _percent = 100;
+            _statusMessage = "Browser transcription complete.";
+            _minimalStage = MinimalStage.Results;
+            _isSubmitting = false;
+            await SaveSnapshotAsync();
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Browser transcription failed: {ex.Message}";
+            _isSubmitting = false;
+            _minimalStage = MinimalStage.Capture;
+        }
+    }
+
+    private void NormalizeTunableInputs()
+    {
+        _formatSensitivity = Math.Clamp(_formatSensitivity, 0, 100);
+        _speakerSensitivity = Math.Clamp(_speakerSensitivity, 0, 100);
+        _maxSegmentLength = Math.Clamp(_maxSegmentLength, 0, 120);
+
+        _formatSummaryMinBullets = Math.Clamp(_formatSummaryMinBullets, 1, 12);
+        _formatSummaryMaxBullets = Math.Clamp(_formatSummaryMaxBullets, _formatSummaryMinBullets, 20);
+        _formatMaxTokens = Math.Clamp(_formatMaxTokens, 200, 6000);
+        _formatOverlapThreshold = Math.Clamp(_formatOverlapThreshold, 0.05, 0.95);
+        _formatTemperature = Math.Clamp(_formatTemperature, 0.0, 1.2);
+        _formatLocalBigGapSeconds = Math.Clamp(_formatLocalBigGapSeconds, 0.2, 10.0);
+        _formatLocalSmallGapSeconds = Math.Clamp(_formatLocalSmallGapSeconds, 0.1, 6.0);
+
+        _speakerMinScoreGain = Math.Clamp(_speakerMinScoreGain, 0.0, 1.0);
+        _speakerMaxSwitchRate = Math.Clamp(_speakerMaxSwitchRate, 0.0, 1.0);
+        _speakerMinSeparation = Math.Clamp(_speakerMinSeparation, 0.1, 5.0);
+        _speakerMinClusterSize = Math.Clamp(_speakerMinClusterSize, 1, 12);
+        _speakerMaxAutoSpeakers = Math.Clamp(_speakerMaxAutoSpeakers, 1, 12);
+        _speakerGlobalVarianceGate = Math.Clamp(_speakerGlobalVarianceGate, 0.05, 4.0);
+        _speakerShortRunMergeSeconds = Math.Clamp(_speakerShortRunMergeSeconds, 0.2, 8.0);
+    }
+
+    private async Task LaunchAndSubmitAsync()
+    {
+        if (!_hasAudio || _isSubmitting || _isLaunchAnimating)
+            return;
+
+        _isLaunchAnimating = true;
+        await InvokeAsync(StateHasChanged);
+        await Task.Delay(720);
+
+        try
+        {
+            await SubmitAsync();
+        }
+        finally
+        {
+            _isLaunchAnimating = false;
+        }
+    }
+
+    private void PrepareForSubmission()
+    {
+        _errorMessage = null;
+        _timeline.Clear();
+        _outputPath = null;
+        _markdownOutput = null;
+        _detectedSpeakerCount = null;
+        _rawWhisperText = null;
+        _speakerLabeledText = null;
+        _formatterOutput = null;
+        _formatterUsed = null;
+        SetSubtitleSegments(null);
+        _percent = 0;
+        _statusMessage = "Submitting job...";
+        _activeTab = ResultTab.Final;
+        ClearActiveTabEditor();
+    }
+
+    private BrowserAudioInput? BuildBrowserAudioInput()
+    {
+        if (_browserRecording is not null)
+        {
+            return new BrowserAudioInput(
+                _browserRecording.FileName,
+                _browserRecording.MimeType,
+                _browserRecording.Base64);
+        }
+
+        if (_uploadedAudio is not null)
+        {
+            return new BrowserAudioInput(
+                _uploadedAudio.FileName,
+                _uploadedAudio.MimeType,
+                Convert.ToBase64String(_uploadedAudio.Bytes));
+        }
+
+        return null;
+    }
+
+    private void UpdateInputDownloadFromRecording()
+    {
+        if (_browserRecording is null)
+        {
+            _inputDownloadHref = null;
+            _inputDownloadFileName = null;
+            return;
+        }
+
+        _inputDownloadFileName = _browserRecording.FileName;
+        _inputDownloadHref = $"data:{_browserRecording.MimeType};base64,{_browserRecording.Base64}";
+    }
+
+    private void UpdateInputDownloadFromUpload()
+    {
+        if (_uploadedAudio is null)
+        {
+            _inputDownloadHref = null;
+            _inputDownloadFileName = null;
+            return;
+        }
+
+        _inputDownloadFileName = _uploadedAudio.FileName;
+        _inputDownloadHref = $"data:{_uploadedAudio.MimeType};base64,{Convert.ToBase64String(_uploadedAudio.Bytes)}";
+    }
+
+    private async Task SaveSnapshotAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_markdownOutput))
+            return;
+
+        var key = _activeJobId ?? $"manual-{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}";
+        if (_savedSessionIds.Contains(key))
+            return;
+
+        try
+        {
+            var session = new HistorySession(
+                key,
+                DateTimeOffset.UtcNow.ToString("O"),
+                _sourceDescription,
+                _model,
+                _formatterUsed,
+                _markdownOutput,
+                _rawWhisperText,
+                _speakerLabeledText,
+                _formatterOutput,
+                _detectedSpeakerCount,
+                _subtitleSegments.Count == 0 ? null : _subtitleSegments.ToArray());
+
+            await JS.InvokeVoidAsync("localTranscriberBrowser.saveSession", session);
+            _savedSessionIds.Add(key);
+            UpsertHistorySession(session);
+            _historyNotice = "Snapshot saved to browser history.";
+        }
+        catch (Exception ex)
+        {
+            _historyNotice = $"Unable to save history snapshot: {ex.Message}";
+        }
+    }
+
+    private void UpsertHistorySession(HistorySession session)
+    {
+        _history.RemoveAll(h => string.Equals(h.Id, session.Id, StringComparison.OrdinalIgnoreCase));
+        _history.Insert(0, session);
+        if (_history.Count > 80)
+            _history.RemoveRange(80, _history.Count - 80);
+    }
+
+    private async Task LoadHistoryAsync()
+    {
+        _isHistoryBusy = true;
+        try
+        {
+            var sessions = await JS.InvokeAsync<HistorySession[]>("localTranscriberBrowser.loadSessions");
+            _history.Clear();
+            _history.AddRange(sessions);
+        }
+        catch (Exception ex)
+        {
+            _historyNotice = $"Unable to load history: {ex.Message}";
+        }
+        finally
+        {
+            _isHistoryBusy = false;
+        }
+    }
+
+    private async Task OpenHistorySessionAsync(HistorySession session)
+    {
+        _rawWhisperText = session.RawWhisperText;
+        _speakerLabeledText = session.SpeakerLabeledText;
+        _formatterOutput = session.FormatterOutput;
+        _formatterUsed = session.FormatterUsed;
+        _markdownOutput = session.Markdown;
+        _detectedSpeakerCount = session.DetectedSpeakerCount;
+        SetSubtitleSegments(session.SubtitleSegments);
+        _outputPath = "Loaded from browser history";
+        _activeTab = ResultTab.Final;
+        _minimalStage = MinimalStage.Results;
+        _activeJobId = session.Id;
+        _statusMessage = "Loaded saved session.";
+        _percent = 100;
+        ClearActiveTabEditor();
+        await ClearActiveAudioAsync();
+    }
+
+    private async Task DeleteHistorySessionAsync(string id)
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("localTranscriberBrowser.deleteSession", id);
+            _history.RemoveAll(h => string.Equals(h.Id, id, StringComparison.OrdinalIgnoreCase));
+        }
+        catch (Exception ex)
+        {
+            _historyNotice = $"Unable to delete history item: {ex.Message}";
+        }
+    }
+
+    private async Task ResetWorkflowAsync()
+    {
+        _activeJobId = null;
+        _timeline.Clear();
+        _percent = 0;
+        _statusMessage = "Idle";
+        _markdownOutput = null;
+        _outputPath = null;
+        _detectedSpeakerCount = null;
+        _errorMessage = null;
+        _rawWhisperText = null;
+        _speakerLabeledText = null;
+        _formatterOutput = null;
+        _formatterUsed = null;
+        SetSubtitleSegments(null);
+        _historyNotice = null;
+        _activeTab = ResultTab.Final;
+        _minimalStage = MinimalStage.Capture;
+        _isSubmitting = false;
+        ClearActiveTabEditor();
+        StopJobStatusPolling();
+        await ClearActiveAudioAsync();
+    }
+
+    private async Task ClearActiveAudioAsync()
+    {
+        _browserRecording = null;
+        _uploadedAudio = null;
+        _inputDownloadHref = null;
+        _inputDownloadFileName = null;
+        await JS.InvokeVoidAsync("localTranscriberRecorder.clearPreview");
+    }
+
+    private async Task ToggleHistoryViewAsync()
+    {
+        if (_minimalStage == MinimalStage.History)
+        {
+            BackToCapture();
+            return;
+        }
+
+        await LoadHistoryAsync();
+        _minimalStage = MinimalStage.History;
+    }
+
+    private void BackToCapture()
+    {
+        _minimalStage = MinimalStage.Capture;
+    }
+
+    private void ToggleLayoutMode()
+    {
+        _layoutMode = _layoutMode == LayoutMode.Minimal ? LayoutMode.Studio : LayoutMode.Minimal;
+    }
+
+    private void SetResultTab(ResultTab tab)
+    {
+        if (_activeTab != tab)
+            ClearActiveTabEditor();
+
+        _activeTab = tab;
+    }
+
+    private string GetTabClass(ResultTab tab)
+        => tab == _activeTab ? "tab-btn active" : "tab-btn";
+
+    private bool IsEditableTab(ResultTab tab)
+        => tab is ResultTab.Final or ResultTab.Raw or ResultTab.Tagged or ResultTab.Formatter;
+
+    private void StartEditingActiveTab()
+    {
+        if (!IsEditableTab(_activeTab))
+            return;
+
+        _editingTab = _activeTab;
+        _activeTabDraft = GetResultTabContent(_activeTab);
+        _isEditingTab = true;
+    }
+
+    private void ApplyActiveTabEdit()
+    {
+        if (!IsEditingActiveTab)
+            return;
+
+        SetResultTabContent(_activeTab, _activeTabDraft);
+        _isEditingTab = false;
+        _activeTabDraft = string.Empty;
+        _historyNotice = $"{GetResultTabLabel(_activeTab)} updated. Export or save snapshot when ready.";
+    }
+
+    private void CancelActiveTabEdit()
+        => ClearActiveTabEditor();
+
+    private async Task ExportActiveTabAsync()
+    {
+        if (!IsEditableTab(_activeTab))
+            return;
+
+        try
+        {
+            var content = IsEditingActiveTab
+                ? _activeTabDraft
+                : GetResultTabContent(_activeTab);
+
+            if (string.IsNullOrWhiteSpace(content))
+            {
+                _historyNotice = "Nothing to export for this tab yet.";
+                return;
+            }
+
+            var stamp = DateTimeOffset.Now.ToString("yyyyMMdd-HHmmss");
+            var fileName = $"localtranscriber-{GetResultTabExportToken(_activeTab)}-{stamp}.md";
+            await JS.InvokeVoidAsync(
+                "localTranscriberBrowser.downloadText",
+                fileName,
+                content,
+                "text/markdown;charset=utf-8");
+
+            _historyNotice = $"Exported {fileName}.";
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Export failed: {ex.Message}";
+        }
+    }
+
+    private string GetResultTabContent(ResultTab tab)
+        => tab switch
+        {
+            ResultTab.Raw => _rawWhisperText ?? string.Empty,
+            ResultTab.Tagged => _speakerLabeledText ?? string.Empty,
+            ResultTab.Formatter => _formatterOutput ?? string.Empty,
+            _ => _markdownOutput ?? string.Empty
+        };
+
+    private void SetResultTabContent(ResultTab tab, string value)
+    {
+        var normalized = value.Replace("\r\n", "\n");
+        switch (tab)
+        {
+            case ResultTab.Raw:
+                _rawWhisperText = normalized;
+                break;
+            case ResultTab.Tagged:
+                _speakerLabeledText = normalized;
+                break;
+            case ResultTab.Formatter:
+                _formatterOutput = normalized;
+                break;
+            default:
+                _markdownOutput = normalized;
+                break;
+        }
+    }
+
+    private static string GetResultTabLabel(ResultTab tab)
+        => tab switch
+        {
+            ResultTab.Raw => "Raw transcript",
+            ResultTab.Tagged => "Tagged transcript",
+            ResultTab.Formatter => "Formatter output",
+            _ => "Processed transcript"
+        };
+
+    private static string GetResultTabExportToken(ResultTab tab)
+        => tab switch
+        {
+            ResultTab.Raw => "raw",
+            ResultTab.Tagged => "tagged",
+            ResultTab.Formatter => "formatter",
+            _ => "processed"
+        };
+
+    private void ClearActiveTabEditor()
+    {
+        _isEditingTab = false;
+        _activeTabDraft = string.Empty;
+    }
+
+    private string GetRecordClass()
+    {
+        if (_isRecording)
+            return "recording";
+
+        if (_uploadedAudio is not null)
+            return "muted";
+
+        return string.Empty;
+    }
+
+    private List<TranscriptionProgressMessage> GetLatestLogs(int count)
+        => _timeline.TakeLast(count).Reverse().ToList();
+
+    private void TrimTimeline()
+    {
+        const int max = 240;
+        if (_timeline.Count <= max)
+            return;
+
+        var remove = _timeline.Count - max;
+        _timeline.RemoveRange(0, remove);
+    }
+
+    [JSInvokable]
+    public Task OnSubtitleClock(double currentSeconds, bool isPaused, bool isEnded)
+    {
+        var normalized = Math.Max(0, currentSeconds);
+        var previousIndex = _activeSubtitleIndex;
+        var previousTime = _subtitleCurrentSeconds;
+        var previousPaused = _subtitleIsPaused;
+
+        _subtitleCurrentSeconds = normalized;
+        _subtitleIsPaused = isPaused;
+        UpdateActiveSubtitleIndex(normalized);
+
+        if (isEnded && _subtitleSegments.Count > 0)
+            _activeSubtitleIndex = _subtitleSegments.Count - 1;
+
+        if (_subtitleAutoScroll && previousIndex != _activeSubtitleIndex && _activeSubtitleIndex >= 0)
+            _pendingSubtitleAutoScrollIndex = _activeSubtitleIndex;
+
+        var shouldRender =
+            previousIndex != _activeSubtitleIndex ||
+            Math.Abs(previousTime - normalized) >= 0.02 ||
+            previousPaused != isPaused;
+
+        return shouldRender
+            ? InvokeAsync(StateHasChanged)
+            : Task.CompletedTask;
+    }
+
+    private async Task EnsureSubtitleSyncAsync()
+    {
+        if (_dotNetRef is null)
+            return;
+
+        try
+        {
+            if (ShouldShowSubtitlePlayer)
+            {
+                var syncKey = $"{_activeJobId}|{_inputDownloadFileName}|{_subtitleSegments.Count}|{_isStudioMode}";
+                if (_subtitleSyncBound && string.Equals(_subtitleSyncKey, syncKey, StringComparison.Ordinal))
+                    return;
+
+                if (_subtitleSyncBound)
+                    await JS.InvokeVoidAsync("localTranscriberSubtitleSync.dispose", _subtitleAudioRef);
+
+                var bound = await JS.InvokeAsync<bool?>(
+                    "localTranscriberSubtitleSync.bind",
+                    _subtitleAudioRef,
+                    _dotNetRef);
+
+                if (bound != true)
+                {
+                    _subtitleSyncBound = false;
+                    _subtitleSyncKey = null;
+                    return;
+                }
+
+                _subtitleSyncBound = true;
+                _subtitleSyncKey = syncKey;
+                return;
+            }
+
+            if (_subtitleSyncBound)
+                await JS.InvokeVoidAsync("localTranscriberSubtitleSync.dispose", _subtitleAudioRef);
+            _subtitleSyncBound = false;
+            _subtitleSyncKey = null;
+        }
+        catch
+        {
+            _subtitleSyncBound = false;
+            _subtitleSyncKey = null;
+        }
+    }
+
+    private async Task EnsureSubtitleAutoScrollAsync()
+    {
+        if (!_subtitleAutoScroll || !ShouldShowSubtitlePlayer || _pendingSubtitleAutoScrollIndex is null)
+            return;
+
+        if (_pendingSubtitleAutoScrollIndex < 0)
+        {
+            _pendingSubtitleAutoScrollIndex = null;
+            return;
+        }
+
+        try
+        {
+            await JS.InvokeVoidAsync(
+                "localTranscriberSubtitleSync.scrollToIndex",
+                _subtitleListRef,
+                _pendingSubtitleAutoScrollIndex.Value);
+        }
+        catch
+        {
+            // Ignore auto-scroll errors.
+        }
+        finally
+        {
+            _pendingSubtitleAutoScrollIndex = null;
+        }
+    }
+
+    private void SetSubtitleSegments(IReadOnlyList<TranscriptionSubtitleSegment>? segments)
+    {
+        _subtitleSegments.Clear();
+        if (segments is not null)
+        {
+            var ordered = segments
+                .Where(s => !string.IsNullOrWhiteSpace(s.Text))
+                .OrderBy(s => s.StartSeconds)
+                .ToArray();
+
+            for (var i = 0; i < ordered.Length; i++)
+            {
+                var segment = ordered[i];
+                var text = segment.Text.Trim();
+                var speaker = string.IsNullOrWhiteSpace(segment.Speaker) ? null : segment.Speaker.Trim();
+                var start = Math.Max(0, segment.StartSeconds);
+                var nextStart = i < ordered.Length - 1
+                    ? Math.Max(start, ordered[i + 1].StartSeconds)
+                    : double.PositiveInfinity;
+
+                var words = segment.Words?
+                    .Where(w => !string.IsNullOrWhiteSpace(w.Text))
+                    .Select(w =>
+                    {
+                        var wordStart = Math.Max(start, w.StartSeconds);
+                        var wordEnd = Math.Max(wordStart + 0.02, w.EndSeconds);
+                        return new TranscriptionSubtitleWord(
+                            w.Text.Trim(),
+                            wordStart,
+                            wordEnd);
+                    })
+                    .Where(w => !string.IsNullOrWhiteSpace(w.Text))
+                    .OrderBy(w => w.StartSeconds)
+                    .ToArray();
+
+                var maxWordEnd = words is { Length: > 0 } ? words[^1].EndSeconds : 0;
+                var rawEnd = Math.Max(start + 0.08, Math.Max(segment.EndSeconds, maxWordEnd));
+                var estimatedEnd = words is { Length: > 0 }
+                    ? rawEnd
+                    : start + EstimateSubtitleDurationSeconds(text);
+                var end = Math.Max(rawEnd, estimatedEnd);
+
+                if (!double.IsInfinity(nextStart))
+                    end = Math.Min(end, Math.Max(start + 0.08, nextStart - 0.02));
+
+                if (end <= start)
+                    end = start + 0.08;
+
+                if (words is { Length: > 0 })
+                {
+                    for (var w = 0; w < words.Length; w++)
+                    {
+                        var word = words[w];
+                        var normalizedStart = Math.Max(start, word.StartSeconds);
+                        var normalizedEnd = Math.Min(end, Math.Max(normalizedStart + 0.02, word.EndSeconds));
+                        words[w] = word with
+                        {
+                            StartSeconds = normalizedStart,
+                            EndSeconds = normalizedEnd
+                        };
+                    }
+                }
+
+                _subtitleSegments.Add(new TranscriptionSubtitleSegment(start, end, text, speaker, words));
+            }
+        }
+
+        _subtitleCurrentSeconds = 0;
+        _subtitleIsPaused = true;
+        _activeSubtitleIndex = -1;
+        _pendingSubtitleAutoScrollIndex = null;
+    }
+
+    private void UpdateActiveSubtitleIndex(double currentSeconds)
+    {
+        var index = -1;
+        for (var i = 0; i < _subtitleSegments.Count; i++)
+        {
+            var segment = _subtitleSegments[i];
+            if (currentSeconds + 0.02 < segment.StartSeconds)
+                break;
+
+            if (currentSeconds >= segment.StartSeconds - 0.02 &&
+                currentSeconds <= segment.EndSeconds + 0.08)
+            {
+                index = i;
+                break;
+            }
+        }
+
+        if (index < 0 && _subtitleSegments.Count > 0 && currentSeconds > _subtitleSegments[^1].EndSeconds)
+            index = _subtitleSegments.Count - 1;
+
+        _activeSubtitleIndex = index;
+    }
+
+    private async Task SeekToSubtitleAsync(int index)
+    {
+        if (index < 0 || index >= _subtitleSegments.Count)
+            return;
+
+        var target = Math.Max(0, _subtitleSegments[index].StartSeconds);
+        await JS.InvokeVoidAsync("localTranscriberSubtitleSync.seek", _subtitleAudioRef, target);
+        _subtitleCurrentSeconds = target;
+        _activeSubtitleIndex = index;
+        if (_subtitleAutoScroll)
+            _pendingSubtitleAutoScrollIndex = index;
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private string GetSubtitleStatusText()
+    {
+        if (_subtitleSegments.Count == 0)
+            return "No subtitle segments";
+
+        var state = _subtitleIsPaused ? "Paused" : "Playing";
+        return $"{state} @ {FormatSubtitleTimestamp(_subtitleCurrentSeconds)}";
+    }
+
+    private static string FormatSubtitleTimestamp(double seconds)
+    {
+        var ts = TimeSpan.FromSeconds(Math.Max(0, seconds));
+        return ts.TotalHours >= 1
+            ? ts.ToString(@"hh\:mm\:ss")
+            : ts.ToString(@"mm\:ss");
+    }
+
+    private static IReadOnlyList<TimedWord> BuildTimedWords(TranscriptionSubtitleSegment segment)
+    {
+        if (string.IsNullOrWhiteSpace(segment.Text))
+            return [];
+
+        if (segment.Words is { Count: > 0 })
+        {
+            var normalized = segment.Words
+                .Where(w => !string.IsNullOrWhiteSpace(w.Text))
+                .Select(w =>
+                {
+                    var text = w.Text.Trim();
+                    var start = Math.Max(segment.StartSeconds, w.StartSeconds);
+                    var end = Math.Min(
+                        segment.EndSeconds,
+                        Math.Max(start + 0.02, w.EndSeconds));
+                    return new TimedWord(text, start, end);
+                })
+                .Where(w => !string.IsNullOrWhiteSpace(w.Text))
+                .OrderBy(w => w.StartSeconds)
+                .ToArray();
+
+            if (normalized.Length > 0)
+                return normalized;
+        }
+
+        var tokens = segment.Text
+            .Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (tokens.Length == 0)
+            return [];
+
+        var start = Math.Max(0, segment.StartSeconds);
+        var end = Math.Max(start + 0.05, Math.Max(segment.EndSeconds, start + EstimateSubtitleDurationSeconds(segment.Text)));
+        var duration = end - start;
+
+        var weights = tokens.Select(EstimateWordWeight).ToArray();
+        var totalWeight = Math.Max(1, weights.Sum());
+
+        var words = new List<TimedWord>(tokens.Length);
+        var cursor = start;
+        for (var i = 0; i < tokens.Length; i++)
+        {
+            var isLast = i == tokens.Length - 1;
+            var slice = isLast
+                ? end - cursor
+                : duration * (weights[i] / (double)totalWeight);
+            var wordEnd = Math.Min(end, cursor + Math.Max(0.03, slice));
+            words.Add(new TimedWord(tokens[i], cursor, wordEnd));
+            cursor = wordEnd;
+        }
+
+        if (words.Count > 0 && words[^1].EndSeconds < end)
+            words[^1] = words[^1] with { EndSeconds = end };
+
+        return words;
+    }
+
+    private static int GetActiveWordIndex(IReadOnlyList<TimedWord> words, double currentSeconds)
+    {
+        if (words.Count == 0)
+            return -1;
+
+        var t = Math.Max(0, currentSeconds);
+        if (t <= words[0].StartSeconds)
+            return 0;
+
+        for (var i = 0; i < words.Count; i++)
+        {
+            var w = words[i];
+            if (t >= w.StartSeconds && t < w.EndSeconds)
+                return i;
+        }
+
+        return words.Count - 1;
+    }
+
+    private static int EstimateWordWeight(string token)
+    {
+        if (string.IsNullOrWhiteSpace(token))
+            return 1;
+
+        var alphaNumeric = token.Count(char.IsLetterOrDigit);
+        return Math.Clamp(alphaNumeric, 1, 14);
+    }
+
+    private static double EstimateSubtitleDurationSeconds(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return 0.8;
+
+        var words = text.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Length;
+        var byWords = words / 2.8; // ~168 wpm
+        var byChars = text.Length * 0.052;
+        return Math.Max(0.8, Math.Max(byWords, byChars));
+    }
+
+    private static string BuildHighlightedSubtitleMarkup(TranscriptionSubtitleSegment segment, double currentSeconds)
+    {
+        var words = BuildTimedWords(segment);
+        if (words.Count == 0)
+            return WebUtility.HtmlEncode(segment.Text ?? string.Empty);
+
+        var activeIndex = GetActiveWordIndex(words, currentSeconds);
+        var sb = new StringBuilder();
+
+        for (var i = 0; i < words.Count; i++)
+        {
+            if (i > 0 && ShouldRenderGapBefore(words[i].Text))
+                sb.Append("<span class=\"subtitle-gap\"> </span>");
+
+            var css = i == activeIndex ? "subtitle-word active" : "subtitle-word";
+            if (i == activeIndex)
+            {
+                sb.Append("<mark class=\"")
+                    .Append(css)
+                    .Append("\">")
+                    .Append(WebUtility.HtmlEncode(words[i].Text))
+                    .Append("</mark>");
+            }
+            else
+            {
+                sb.Append("<span class=\"")
+                    .Append(css)
+                    .Append("\">")
+                    .Append(WebUtility.HtmlEncode(words[i].Text))
+                    .Append("</span>");
+            }
+        }
+
+        return sb.ToString();
+    }
+
+    private static bool ShouldRenderGapBefore(string token)
+    {
+        if (string.IsNullOrWhiteSpace(token))
+            return false;
+
+        if (token[0] is '\'' or '’' or '-' or '–' or '—')
+            return false;
+
+        return !token.All(char.IsPunctuation);
+    }
+
+    private static string FormatSessionTime(string value)
+    {
+        if (!DateTimeOffset.TryParse(value, out var parsed))
+            return value;
+
+        return parsed.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss");
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        _isDisposed = true;
+        StopJobStatusPolling();
+        _dotNetRef?.Dispose();
+
+        if (_subtitleSyncBound)
+        {
+            try
+            {
+                await JS.InvokeVoidAsync("localTranscriberSubtitleSync.dispose", _subtitleAudioRef);
+            }
+            catch
+            {
+                // Ignore cleanup errors.
+            }
+            finally
+            {
+                _subtitleSyncBound = false;
+                _subtitleSyncKey = null;
+            }
+        }
+
+        if (_hub is not null)
+        {
+            try
+            {
+                if (!string.IsNullOrWhiteSpace(_activeJobId))
+                    await _hub.InvokeAsync("LeaveJob", _activeJobId);
+            }
+            catch
+            {
+                // Ignore cleanup errors.
+            }
+
+            await _hub.DisposeAsync();
+        }
+    }
+
+    private async Task ApplyProgressMessageAsync(TranscriptionProgressMessage message)
+    {
+        if (_isDisposed)
+            return;
+
+        await InvokeAsync(async () =>
+        {
+            if (_isDisposed)
+                return;
+
+            if (!string.Equals(message.JobId, _activeJobId, StringComparison.OrdinalIgnoreCase))
+                return;
+
+            if (ShouldAppendTimeline(message))
+            {
+                _timeline.Add(message);
+                TrimTimeline();
+            }
+
+            _percent = message.Percent;
+            _statusMessage = message.Message;
+            _detectedSpeakerCount = message.DetectedSpeakerCount ?? _detectedSpeakerCount;
+            _rawWhisperText = message.RawWhisperText ?? _rawWhisperText;
+            _speakerLabeledText = message.SpeakerLabeledText ?? _speakerLabeledText;
+            _formatterOutput = message.FormatterOutput ?? _formatterOutput;
+            _formatterUsed = message.FormatterUsed ?? _formatterUsed;
+
+            if (message.SubtitleSegments is not null)
+                SetSubtitleSegments(message.SubtitleSegments);
+
+            if (!string.IsNullOrWhiteSpace(message.Markdown))
+                _markdownOutput = message.Markdown;
+
+            if (!string.IsNullOrWhiteSpace(message.OutputPath))
+                _outputPath = message.OutputPath;
+
+            if (message.IsError)
+            {
+                _errorMessage = message.Message;
+                _isSubmitting = false;
+                StopJobStatusPolling();
+            }
+            else if (message.IsCompleted)
+            {
+                _isSubmitting = false;
+                _minimalStage = MinimalStage.Results;
+                StopJobStatusPolling();
+                QueueSnapshotSave();
+            }
+
+            StateHasChanged();
+        });
+    }
+
+    private void QueueSnapshotSave()
+    {
+        if (_isDisposed || _isSnapshotSaveQueued)
+            return;
+
+        _isSnapshotSaveQueued = true;
+        _ = InvokeAsync(async () =>
+        {
+            try
+            {
+                await SaveSnapshotAsync();
+            }
+            catch
+            {
+                // Snapshot persistence failure should never block completion UI.
+            }
+            finally
+            {
+                _isSnapshotSaveQueued = false;
+                if (!_isDisposed)
+                    StateHasChanged();
+            }
+        });
+    }
+
+    private bool ShouldAppendTimeline(TranscriptionProgressMessage message)
+    {
+        if (_timeline.Count == 0)
+            return true;
+
+        var last = _timeline[^1];
+        return !(
+            last.Percent == message.Percent &&
+            string.Equals(last.Stage, message.Stage, StringComparison.Ordinal) &&
+            string.Equals(last.Message, message.Message, StringComparison.Ordinal) &&
+            last.IsCompleted == message.IsCompleted &&
+            last.IsError == message.IsError);
+    }
+
+    private void StartJobStatusPolling(string? jobId)
+    {
+        if (string.IsNullOrWhiteSpace(jobId))
+            return;
+
+        StopJobStatusPolling();
+        _jobStatusPollCts = new CancellationTokenSource();
+        _ = Task.Run(() => PollJobStatusAsync(jobId, _jobStatusPollCts.Token));
+    }
+
+    private void StopJobStatusPolling()
+    {
+        try
+        {
+            _jobStatusPollCts?.Cancel();
+            _jobStatusPollCts?.Dispose();
+        }
+        catch
+        {
+            // Ignore disposal/poll cancellation errors.
+        }
+        finally
+        {
+            _jobStatusPollCts = null;
+        }
+    }
+
+    private async Task PollJobStatusAsync(string jobId, CancellationToken ct)
+    {
+        var client = HttpClientFactory.CreateClient();
+        client.BaseAddress = new Uri(Navigation.BaseUri);
+
+        var delayMs = 180;
+        while (!ct.IsCancellationRequested)
+        {
+            try
+            {
+                await Task.Delay(delayMs, ct);
+                delayMs = Math.Min(1000, delayMs + 50);
+
+                using var response = await client.GetAsync($"api/transcriptions/{jobId}", ct);
+                if (response.StatusCode == HttpStatusCode.NotFound || !response.IsSuccessStatusCode)
+                    continue;
+
+                var payload = await response.Content.ReadFromJsonAsync<TranscriptionProgressMessage>(cancellationToken: ct);
+                if (payload is null)
+                    continue;
+
+                await ApplyProgressMessageAsync(payload);
+                if (payload.IsCompleted || payload.IsError)
+                    return;
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+            catch
+            {
+                // Ignore transient polling errors and keep retrying.
+            }
+        }
+    }
+
+    private static string FormatBytes(long bytes)
+    {
+        string[] sizes = ["B", "KB", "MB", "GB"];
+        double len = bytes;
+        var order = 0;
+        while (len >= 1024 && order < sizes.Length - 1)
+        {
+            order++;
+            len /= 1024;
+        }
+
+        return $"{len:0.##} {sizes[order]}";
+    }
+
+    private static string Inv(int value)
+        => value.ToString(CultureInfo.InvariantCulture);
+
+    private static string Inv(double value)
+        => value.ToString(CultureInfo.InvariantCulture);
+
+    private static string NormalizeTextInput(string? value, string fallback)
+        => string.IsNullOrWhiteSpace(value) ? fallback : value.Trim();
+
+    private static bool IsConsumerRangeModel(string? modelId)
+    {
+        if (string.IsNullOrWhiteSpace(modelId))
+            return false;
+
+        var normalized = modelId.ToLowerInvariant();
+        if (normalized.Contains("70b") ||
+            normalized.Contains("72b") ||
+            normalized.Contains("120b") ||
+            normalized.Contains("405b") ||
+            normalized.Contains("671b") ||
+            normalized.Contains("32b") ||
+            normalized.Contains("27b") ||
+            normalized.Contains("24b") ||
+            normalized.Contains("22b"))
+        {
+            return false;
+        }
+
+        return normalized.Contains("8b") ||
+               normalized.Contains("9b") ||
+               normalized.Contains("10b") ||
+               normalized.Contains("11b") ||
+               normalized.Contains("12b") ||
+               normalized.Contains("13b") ||
+               normalized.Contains("14b") ||
+               normalized.Contains("15b") ||
+               normalized.Contains("16b") ||
+               normalized.Contains("17b") ||
+               normalized.Contains("18b") ||
+               normalized.Contains("19b") ||
+               normalized.Contains("20b");
+    }
+
+    private static void TrySetContentType(HttpContent content, string? mimeType)
+    {
+        if (!string.IsNullOrWhiteSpace(mimeType) && MediaTypeHeaderValue.TryParse(mimeType, out var mediaType))
+            content.Headers.ContentType = mediaType;
+    }
+
+    private enum LayoutMode
+    {
+        Minimal,
+        Studio
+    }
+
+    private enum MinimalStage
+    {
+        Capture,
+        Processing,
+        Results,
+        History
+    }
+
+    private enum ResultTab
+    {
+        Input,
+        Final,
+        Raw,
+        Tagged,
+        Formatter,
+        Logs
+    }
+
+    private sealed record AudioDevice(string DeviceId, string Label);
+
+    private sealed record BrowserAudioPayload(
+        string FileName,
+        string MimeType,
+        long Size,
+        string Base64,
+        string? PreviewUrl);
+
+    private sealed record TimedWord(
+        string Text,
+        double StartSeconds,
+        double EndSeconds);
+
+    private sealed record UploadedAudioPayload(
+        string FileName,
+        string MimeType,
+        byte[] Bytes);
+
+    private sealed record BrowserAudioInput(
+        string FileName,
+        string MimeType,
+        string Base64);
+
+    private sealed record BrowserExecutionCapabilities(
+        bool Supported,
+        bool HasWebGpu,
+        bool HasAudioContext,
+        bool HasMediaRecorder,
+        string Reason);
+
+    private sealed record BrowserTranscriptionRequest(
+        string JobId,
+        string FileName,
+        string MimeType,
+        string Base64,
+        string Model,
+        string Language,
+        bool EnableSpeakerLabels,
+        bool EnableWebLlmCleanup,
+        string WebLlmModel);
+
+    private sealed record BrowserTranscriptionResult(
+        string? RawWhisperText,
+        string? SpeakerLabeledText,
+        string? FormatterOutput,
+        string? FormatterUsed,
+        string? Markdown,
+        int? DetectedSpeakerCount,
+        IReadOnlyList<TranscriptionSubtitleSegment>? SubtitleSegments);
+
+    public sealed record BrowserProgressMessage(
+        string JobId,
+        int Percent,
+        string Stage,
+        string Message,
+        bool IsCompleted = false,
+        bool IsError = false,
+        string? RawWhisperText = null,
+        string? SpeakerLabeledText = null,
+        string? FormatterOutput = null,
+        string? FormatterUsed = null,
+        string? Markdown = null,
+        int? DetectedSpeakerCount = null,
+        IReadOnlyList<TranscriptionSubtitleSegment>? SubtitleSegments = null);
+
+    private sealed record HistorySession(
+        string Id,
+        string CreatedAt,
+        string? Source,
+        string? Model,
+        string? FormatterUsed,
+        string? Markdown,
+        string? RawWhisperText,
+        string? SpeakerLabeledText,
+        string? FormatterOutput,
+        int? DetectedSpeakerCount,
+        IReadOnlyList<TranscriptionSubtitleSegment>? SubtitleSegments);
+}
