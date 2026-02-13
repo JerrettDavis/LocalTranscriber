@@ -189,6 +189,16 @@
                             <span>Detect Speakers</span>
                             <input type="checkbox" @bind="_enableSpeakerLabels" disabled="@_isSubmitting" />
                         </label>
+
+                        <label>
+                            <span>Model Mirror @(_mirrorStatus)</span>
+                            <select @bind="_selectedMirror" @bind:after="OnMirrorChangedAsync" disabled="@_isSubmitting">
+                                @foreach (var mirror in _mirrors)
+                                {
+                                    <option value="@mirror.Url">@mirror.Name (@mirror.Region)</option>
+                                }
+                            </select>
+                        </label>
                     </div>
 
                     @if (!string.IsNullOrWhiteSpace(_sourceDescription))
@@ -221,6 +231,11 @@
     private string _model = "SmallEn";
     private string _webLlmModel = "Llama-3.1-8B-Instruct-q4f16_1-MLC";
     private bool _enableSpeakerLabels = true;
+    
+    // Mirror configuration
+    private readonly List<MirrorInfo> _mirrors = [];
+    private string _selectedMirror = "https://huggingface.co";
+    private string _mirrorStatus = "";
 
     private BrowserExecutionCapabilities _browserCapabilities = new(false, false, false, false, "Checking...");
 
@@ -257,6 +272,7 @@
             await RefreshBrowserCapabilitiesAsync();
             await RefreshDevicesAsync();
             await RefreshWebLlmModelsAsync();
+            await RefreshMirrorsAsync();
             StateHasChanged();
         }
     }
@@ -302,6 +318,57 @@
 
         if (_webLlmModelPresets.Count == 0)
             _webLlmModelPresets.AddRange(_defaultWebLlmModels);
+    }
+
+    private async Task RefreshMirrorsAsync()
+    {
+        _mirrors.Clear();
+        try
+        {
+            var mirrors = await JS.InvokeAsync<MirrorInfo[]>("localTranscriberBrowser.listMirrors");
+            if (mirrors?.Length > 0)
+                _mirrors.AddRange(mirrors);
+            
+            // Get current preference
+            var pref = await JS.InvokeAsync<string?>("localTranscriberBrowser.getMirrorPreference");
+            if (!string.IsNullOrEmpty(pref))
+                _selectedMirror = pref;
+            else if (_mirrors.Count > 0)
+                _selectedMirror = _mirrors[0].Url;
+        }
+        catch { }
+        
+        // Default fallback
+        if (_mirrors.Count == 0)
+        {
+            _mirrors.Add(new MirrorInfo("https://huggingface.co", "HuggingFace", "Global"));
+            _mirrors.Add(new MirrorInfo("https://hf-mirror.com", "HF-Mirror", "China-friendly"));
+        }
+    }
+
+    private async Task OnMirrorChangedAsync()
+    {
+        if (string.IsNullOrEmpty(_selectedMirror)) return;
+        
+        try
+        {
+            _mirrorStatus = "(setting...)";
+            StateHasChanged();
+            
+            await JS.InvokeAsync<string?>("localTranscriberBrowser.setMirrorPreference", _selectedMirror);
+            _mirrorStatus = "✓";
+        }
+        catch
+        {
+            _mirrorStatus = "✗";
+        }
+        
+        // Clear status after a moment
+        _ = Task.Delay(2000).ContinueWith(_ =>
+        {
+            _mirrorStatus = "";
+            InvokeAsync(StateHasChanged);
+        });
     }
 
     private async Task ToggleRecordAsync()
@@ -511,6 +578,7 @@
 
     private record ProgressItem(int Percent, string Message, bool IsCompleted, bool IsError);
     private record AudioDevice(string DeviceId, string Label);
+    private record MirrorInfo(string Url, string Name, string Region);
     private record BrowserExecutionCapabilities(bool Supported, bool HasWebGpu, bool HasAudioContext, bool HasMediaRecorder, string Reason);
     private record BrowserAudioPayload(string FileName, string MimeType, string Base64, long Size, string? PreviewUrl);
     private record UploadedAudioPayload(string FileName, string MimeType, byte[] Bytes);

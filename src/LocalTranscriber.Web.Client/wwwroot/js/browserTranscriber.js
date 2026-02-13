@@ -15,17 +15,17 @@ window.localTranscriberBrowser = (() => {
   };
 
   // Mirror configuration for model downloads
-  // Set window.TRANSFORMERS_MIRROR to override (e.g., "https://hf-mirror.com")
+  // Set via: setMirrorPreference('https://hf-mirror.com') or localStorage
   const defaultMirrors = [
-    "https://huggingface.co",          // Primary - HuggingFace CDN
-    "https://hf-mirror.com",           // Community mirror (China-friendly)
+    { url: "https://huggingface.co", name: "HuggingFace", region: "Global" },
+    { url: "https://hf-mirror.com", name: "HF-Mirror", region: "China-friendly" },
   ];
 
   let transformersModulePromise = null;
   let webLlmModulePromise = null;
   const asrPipelineCache = new Map();
   const webLlmEngineCache = new Map();
-  let currentMirrorIndex = 0;
+  let preferredMirror = null; // Set by user or auto-detected
 
   function getCapabilities() {
     const hasWebGpu = typeof navigator !== "undefined" && !!navigator.gpu;
@@ -290,16 +290,117 @@ window.localTranscriberBrowser = (() => {
     return transformersModulePromise;
   }
 
-  function getMirrors() {
-    // Allow custom mirror via window global or localStorage
-    const customMirror = window.TRANSFORMERS_MIRROR || localStorage.getItem("transformers_mirror");
-    if (customMirror) {
-      return [customMirror.replace(/\/$/, ""), ...defaultMirrors];
-    }
-    return defaultMirrors;
+  // === Mirror Management ===
+  
+  function listMirrors() {
+    // Return available mirrors with status
+    return defaultMirrors.map(m => ({ ...m }));
   }
 
-  function setMirror(transformers, mirrorUrl) {
+  function getMirrorPreference() {
+    // Check for user preference (localStorage > window global)
+    return localStorage.getItem("transformers_mirror") || 
+           window.TRANSFORMERS_MIRROR || 
+           preferredMirror;
+  }
+
+  function setMirrorPreference(mirrorUrl) {
+    // Set preferred mirror (persists to localStorage)
+    const cleaned = mirrorUrl?.replace(/\/$/, "") || null;
+    preferredMirror = cleaned;
+    if (cleaned) {
+      localStorage.setItem("transformers_mirror", cleaned);
+      console.log(`[LocalTranscriber] Mirror preference set: ${cleaned}`);
+    } else {
+      localStorage.removeItem("transformers_mirror");
+      console.log("[LocalTranscriber] Mirror preference cleared, using defaults");
+    }
+    // Clear pipeline cache so next load uses new mirror
+    asrPipelineCache.clear();
+    return cleaned;
+  }
+
+  function getOrderedMirrors() {
+    // Build ordered list: user preference first, then defaults
+    const pref = getMirrorPreference();
+    const urls = [];
+    
+    if (pref) {
+      urls.push(pref);
+    }
+    
+    for (const m of defaultMirrors) {
+      if (!urls.includes(m.url)) {
+        urls.push(m.url);
+      }
+    }
+    
+    return urls;
+  }
+
+  async function probeMirrors(timeoutMs = 5000) {
+    // Test which mirrors are reachable (CORS check via small file)
+    const results = [];
+    
+    for (const mirror of defaultMirrors) {
+      const testUrl = `${mirror.url}/Xenova/whisper-tiny/resolve/main/config.json`;
+      const start = performance.now();
+      
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+        
+        const response = await fetch(testUrl, { 
+          method: "HEAD",
+          mode: "cors",
+          signal: controller.signal 
+        });
+        
+        clearTimeout(timeoutId);
+        const latency = Math.round(performance.now() - start);
+        
+        results.push({
+          ...mirror,
+          reachable: response.ok || response.status === 302,
+          latency,
+          status: response.status
+        });
+      } catch (err) {
+        results.push({
+          ...mirror,
+          reachable: false,
+          latency: null,
+          error: err.name === "AbortError" ? "Timeout" : (err.message || "Network error")
+        });
+      }
+    }
+    
+    // Sort by reachable first, then by latency
+    results.sort((a, b) => {
+      if (a.reachable !== b.reachable) return b.reachable - a.reachable;
+      return (a.latency || 9999) - (b.latency || 9999);
+    });
+    
+    return results;
+  }
+
+  async function autoSelectMirror(timeoutMs = 5000) {
+    // Probe mirrors and select the best one
+    console.log("[LocalTranscriber] Auto-selecting best mirror...");
+    const results = await probeMirrors(timeoutMs);
+    
+    const best = results.find(r => r.reachable);
+    if (best) {
+      console.log(`[LocalTranscriber] Best mirror: ${best.name} (${best.url}) - ${best.latency}ms`);
+      setMirrorPreference(best.url);
+      return best;
+    }
+    
+    console.warn("[LocalTranscriber] No reachable mirrors found");
+    return null;
+  }
+
+  function applyMirrorToEnv(transformers, mirrorUrl) {
     if (transformers?.env) {
       transformers.env.remoteHost = mirrorUrl;
       // HuggingFace path template: /{model}/resolve/{revision}/{file}
@@ -314,15 +415,16 @@ window.localTranscriberBrowser = (() => {
       transformers.env.useBrowserCache = true;
     }
 
-    const mirrors = getMirrors();
+    const mirrors = getOrderedMirrors();
     let lastError = null;
+    let successMirror = null;
 
     // Try each mirror in order
-    for (let i = 0; i < mirrors.length; i++) {
-      const mirror = mirrors[i];
-      setMirror(transformers, mirror);
+    for (const mirrorUrl of mirrors) {
+      applyMirrorToEnv(transformers, mirrorUrl);
+      const mirrorName = defaultMirrors.find(m => m.url === mirrorUrl)?.name || mirrorUrl;
       
-      console.log(`[LocalTranscriber] Trying model mirror: ${mirror}`);
+      console.log(`[LocalTranscriber] Trying mirror: ${mirrorName} (${mirrorUrl})`);
 
       try {
         // Try WebGPU first
@@ -335,10 +437,15 @@ window.localTranscriberBrowser = (() => {
             onProgress(pct);
           },
         });
-        console.log(`[LocalTranscriber] Model loaded successfully from ${mirror}`);
+        console.log(`[LocalTranscriber] ✓ Model loaded from ${mirrorName} (WebGPU)`);
+        successMirror = mirrorUrl;
+        // Remember working mirror for next time
+        if (!getMirrorPreference()) {
+          preferredMirror = mirrorUrl;
+        }
         return pipeline;
       } catch (webGpuError) {
-        // If WebGPU failed, try without it (could be model loading or WebGPU issue)
+        // If WebGPU failed, try without it
         try {
           const pipeline = await transformers.pipeline("automatic-speech-recognition", modelId, {
             quantized: true,
@@ -348,34 +455,42 @@ window.localTranscriberBrowser = (() => {
               onProgress(pct);
             },
           });
-          console.log(`[LocalTranscriber] Model loaded (CPU fallback) from ${mirror}`);
+          console.log(`[LocalTranscriber] ✓ Model loaded from ${mirrorName} (CPU fallback)`);
+          successMirror = mirrorUrl;
+          if (!getMirrorPreference()) {
+            preferredMirror = mirrorUrl;
+          }
           return pipeline;
         } catch (cpuError) {
           lastError = cpuError;
           const errorMsg = cpuError?.message || String(cpuError);
           
-          // Check for network/CORS errors
+          // Check for network/CORS errors - try next mirror
           if (errorMsg.includes("CORS") || errorMsg.includes("NetworkError") || 
-              errorMsg.includes("Failed to fetch") || errorMsg.includes("blocked")) {
-            console.warn(`[LocalTranscriber] Mirror ${mirror} blocked (CORS/network), trying next...`);
-            continue; // Try next mirror
+              errorMsg.includes("Failed to fetch") || errorMsg.includes("blocked") ||
+              errorMsg.includes("TypeError")) {
+            console.warn(`[LocalTranscriber] ✗ ${mirrorName} blocked (CORS/network), trying next...`);
+            continue;
           }
           
           // For other errors, might not be mirror-related
-          console.error(`[LocalTranscriber] Mirror ${mirror} failed:`, cpuError);
+          console.error(`[LocalTranscriber] ✗ ${mirrorName} failed:`, cpuError);
         }
       }
     }
 
-    // All mirrors failed - provide helpful error message
+    // All mirrors failed
+    const mirrorList = mirrors.map(u => defaultMirrors.find(m => m.url === u)?.name || u).join(", ");
     const helpMessage = 
-      "Model download failed. This may be due to network policies blocking HuggingFace.\n\n" +
+      `Model download failed. Tried mirrors: ${mirrorList}\n\n` +
+      "This is likely due to network policies blocking model CDNs.\n\n" +
       "Options:\n" +
-      "1. Set a custom mirror: localStorage.setItem('transformers_mirror', 'https://your-mirror.com')\n" +
-      "2. Use a VPN or different network\n" +
-      "3. Use the server-side transcription mode instead";
+      "1. Run: localTranscriberBrowser.autoSelectMirror() to find a working mirror\n" +
+      "2. Set manually: localTranscriberBrowser.setMirrorPreference('https://hf-mirror.com')\n" +
+      "3. Use a VPN or different network\n" +
+      "4. Use server-side transcription mode instead";
     
-    throw new Error(helpMessage + "\n\nOriginal error: " + (lastError?.message || "Unknown"));
+    throw new Error(helpMessage + "\n\nLast error: " + (lastError?.message || "Unknown"));
   }
 
   async function formatWithWebLlm(webLlmModel, whisperModel, language, transcript, onProgress) {
@@ -943,12 +1058,24 @@ window.localTranscriberBrowser = (() => {
   }
 
   return {
-    deleteSession,
-    downloadText,
+    // Core functionality
     getCapabilities,
+    transcribeInBrowser,
+    
+    // Mirror management (for network issues)
+    listMirrors,
+    probeMirrors,
+    autoSelectMirror,
+    getMirrorPreference,
+    setMirrorPreference,
+    
+    // WebLLM
     listWebLlmModels,
+    
+    // Session storage
     loadSessions,
     saveSession,
-    transcribeInBrowser,
+    deleteSession,
+    downloadText,
   };
 })();
