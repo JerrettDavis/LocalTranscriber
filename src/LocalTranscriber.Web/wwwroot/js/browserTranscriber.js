@@ -395,9 +395,16 @@ window.localTranscriberBrowser = (() => {
     window.fetch = async function(input, init) {
       let url = typeof input === "string" ? input : input?.url;
       
+      // Log all fetch requests for debugging
+      const isHfUrl = url && url.includes("huggingface.co");
+      if (isHfUrl) {
+        console.log(`[LocalTranscriber] Intercepted fetch: ${url?.substring(0, 100)}...`);
+      }
+      
       if (url && url.includes("huggingface.co") && url.includes("Xenova/whisper-")) {
         const newUrl = rewriteUrlForJsDelivr(url);
         if (newUrl !== url) {
+          console.log(`[LocalTranscriber] Rewriting to: ${newUrl}`);
           if (typeof input === "string") {
             input = newUrl;
           } else if (input?.url) {
@@ -406,7 +413,12 @@ window.localTranscriberBrowser = (() => {
         }
       }
       
-      return originalFetch.call(this, input, init);
+      try {
+        return await originalFetch.call(this, input, init);
+      } catch (err) {
+        console.error(`[LocalTranscriber] Fetch failed for ${typeof input === "string" ? input : input?.url}:`, err.message);
+        throw err;
+      }
     };
     
     console.log("[LocalTranscriber] jsDelivr CDN fetch proxy enabled");
@@ -1186,5 +1198,64 @@ window.localTranscriberBrowser = (() => {
     saveSession,
     deleteSession,
     downloadText,
+    
+    // Diagnostics
+    async diagnose() {
+      console.log("=== LocalTranscriber Diagnostics ===\n");
+      
+      // 1. Check capabilities
+      const caps = getCapabilities();
+      console.log("Browser Capabilities:", caps);
+      
+      // 2. Test direct fetch to each CDN
+      const testUrls = [
+        { name: "HuggingFace", url: "https://huggingface.co/Xenova/whisper-tiny/resolve/main/config.json" },
+        { name: "jsDelivr CDN", url: `${JSDELIVR_BASE}/whisper-tiny/config.json` },
+        { name: "HF-Mirror", url: "https://hf-mirror.com/Xenova/whisper-tiny/resolve/main/config.json" },
+      ];
+      
+      console.log("\nTesting direct fetch to CDNs:");
+      for (const { name, url } of testUrls) {
+        try {
+          const start = performance.now();
+          const resp = await fetch(url, { mode: "cors" });
+          const ms = Math.round(performance.now() - start);
+          if (resp.ok) {
+            const data = await resp.json();
+            console.log(`  ✓ ${name}: ${ms}ms (model: ${data._name_or_path || "ok"})`);
+          } else {
+            console.log(`  ✗ ${name}: HTTP ${resp.status}`);
+          }
+        } catch (err) {
+          console.log(`  ✗ ${name}: ${err.name} - ${err.message}`);
+        }
+      }
+      
+      // 3. Check transformers.js import
+      console.log("\nTesting transformers.js import:");
+      try {
+        const start = performance.now();
+        const transformers = await getTransformersModule();
+        const ms = Math.round(performance.now() - start);
+        console.log(`  ✓ Loaded in ${ms}ms`);
+        console.log(`  env.remoteHost: ${transformers.env?.remoteHost || "(default)"}`);
+      } catch (err) {
+        console.log(`  ✗ Failed: ${err.message}`);
+      }
+      
+      // 4. Mirror probe
+      console.log("\nMirror probe results:");
+      const probeResults = await probeMirrors(5000);
+      for (const r of probeResults) {
+        if (r.reachable) {
+          console.log(`  ✓ ${r.name}: ${r.latency}ms`);
+        } else {
+          console.log(`  ✗ ${r.name}: ${r.error || `HTTP ${r.status}`}`);
+        }
+      }
+      
+      console.log("\n=== End Diagnostics ===");
+      return { capabilities: caps, mirrors: probeResults };
+    },
   };
 })();
