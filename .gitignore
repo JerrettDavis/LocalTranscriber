@@ -4,7 +4,9 @@ output/
 **/*.user
 **/*.suo
 **/*.cache
-models/
+# Whisper model cache (not source code Models/)
+**/models/*.bin
+**/models/*.ggml
 artifacts/
 src/**/.build-check/
 LocalTranscriber/
