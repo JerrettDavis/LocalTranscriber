@@ -1,12 +1,13 @@
 namespace LocalTranscriber.Cli.Services.Mirrors;
 
 /// <summary>
-/// GitHub Releases mirror - whisper.cpp official releases.
+/// GitHub Releases mirror - community-hosted whisper GGML models.
+/// Uses ddddwq2q/whisper-models which mirrors all standard GGML models.
 /// </summary>
 internal sealed class GitHubReleasesMirror : IModelMirror
 {
-    // whisper.cpp releases include GGML models
-    private const string BaseUrl = "https://github.com/ggerganov/whisper.cpp/releases/download/v1.7.3";
+    // Community mirror hosting all standard whisper GGML models
+    private const string BaseUrl = "https://github.com/ddddwq2q/whisper-models/releases/download/Models";
     
     public string Name => "GitHub";
     public int Priority => 25;
@@ -19,7 +20,7 @@ internal sealed class GitHubReleasesMirror : IModelMirror
         try
         {
             using var client = ResilientHttp.CreateClient(timeout: TimeSpan.FromSeconds(10));
-            // GitHub redirects, so we need to follow redirects for HEAD
+            // GitHub redirects releases to CDN, check with HEAD
             using var request = new HttpRequestMessage(HttpMethod.Head, GetDownloadUrl(modelFileName));
             using var response = await client.SendAsync(request, ct);
             // GitHub returns 302 redirect to the actual asset
