@@ -71,20 +71,22 @@ jobs:
             echo "Processing: ${MODEL_NAME}"
             echo "=========================================="
             
+            # Create temp directory for this model
+            WORK_DIR=$(mktemp -d)
+            
             # Download and upload config files
             for FILE in ${CONFIG_FILES}; do
               URL="https://huggingface.co/${HF_MODEL}/resolve/main/${FILE}"
               ASSET_NAME="${MODEL_NAME}__${FILE}"
+              ASSET_PATH="${WORK_DIR}/${ASSET_NAME}"
               
               if curl -fsSL --head "${URL}" 2>/dev/null | grep -q "200"; then
                 echo "  ↓ ${FILE}"
-                TEMP_FILE=$(mktemp)
-                curl -fsSL -o "${TEMP_FILE}" "${URL}"
+                curl -fsSL -o "${ASSET_PATH}" "${URL}"
                 
                 # Delete existing and upload
                 gh release delete-asset "${RELEASE_TAG}" "${ASSET_NAME}" --yes 2>/dev/null || true
-                gh release upload "${RELEASE_TAG}" "${TEMP_FILE}#${ASSET_NAME}" --clobber
-                rm -f "${TEMP_FILE}"
+                gh release upload "${RELEASE_TAG}" "${ASSET_PATH}" --clobber
               fi
             done
             
@@ -92,21 +94,23 @@ jobs:
             for FILE in ${ONNX_FILES}; do
               URL="https://huggingface.co/${HF_MODEL}/resolve/main/onnx/${FILE}"
               ASSET_NAME="${MODEL_NAME}__onnx__${FILE}"
+              ASSET_PATH="${WORK_DIR}/${ASSET_NAME}"
               
               if curl -fsSL --head "${URL}" 2>/dev/null | grep -q "200"; then
                 echo "  ↓ onnx/${FILE} (this may take a while...)"
-                TEMP_FILE=$(mktemp)
-                curl -fsSL -o "${TEMP_FILE}" "${URL}"
+                curl -fsSL -o "${ASSET_PATH}" "${URL}"
                 
-                SIZE=$(du -h "${TEMP_FILE}" | cut -f1)
+                SIZE=$(du -h "${ASSET_PATH}" | cut -f1)
                 echo "    Size: ${SIZE}"
                 
                 # Delete existing and upload
                 gh release delete-asset "${RELEASE_TAG}" "${ASSET_NAME}" --yes 2>/dev/null || true
-                gh release upload "${RELEASE_TAG}" "${TEMP_FILE}#${ASSET_NAME}" --clobber
-                rm -f "${TEMP_FILE}"
+                gh release upload "${RELEASE_TAG}" "${ASSET_PATH}" --clobber
               fi
             done
+            
+            # Cleanup
+            rm -rf "${WORK_DIR}"
             
             echo "  ✓ ${MODEL_NAME} complete"
           done
