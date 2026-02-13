@@ -49,7 +49,12 @@
     <script src="js/subtitleSync.js"></script>
     <script type="module" src="js/browserTranscriber.js"></script>
     <script type="module">
-        import './_framework/blazor.webassembly.js';
+        import('./_framework/blazor.webassembly.js').then(() => {
+            // Blazor auto-starts, but if it doesn't, this ensures it starts
+            if (window.Blazor && !window.Blazor._started) {
+                window.Blazor.start().catch(err => console.error('Blazor start failed:', err));
+            }
+        }).catch(err => console.error('Failed to load Blazor:', err));
     </script>
 </body>
 
