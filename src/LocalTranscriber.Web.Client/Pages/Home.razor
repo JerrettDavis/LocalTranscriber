@@ -1,0 +1,521 @@
+@page "/"
+@using System.Globalization
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+
+<PageTitle>LocalTranscriber - Browser Transcription</PageTitle>
+
+<div class="screen-root minimal">
+    <div class="top-left-brand">
+        <p class="eyebrow">LocalTranscriber</p>
+        <h1>Browser Transcription</h1>
+        <p class="subtext">100% client-side • No data leaves your browser</p>
+    </div>
+
+    @if (_minimalStage == MinimalStage.Processing)
+    {
+        <section class="minimal-processing">
+            <div class="orbit-loader"></div>
+            <h2>@_statusMessage</h2>
+            <p class="subtext">Processing audio locally in your browser.</p>
+
+            <div class="log-stream">
+                @if (_timeline.Count == 0)
+                {
+                    <div class="log-line">Waiting for first log event...</div>
+                }
+                else
+                {
+                    var logs = GetLatestLogs(9);
+                    @for (var i = 0; i < logs.Count; i++)
+                    {
+                        var item = logs[i];
+                        var opacity = 1 - (i * 0.12);
+                        <div class="log-line @(item.IsError ? "error" : item.IsCompleted ? "complete" : "")" style="opacity:@opacity">
+                            <span>@item.Percent%</span>
+                            <span>@item.Message</span>
+                        </div>
+                    }
+                }
+            </div>
+
+            @if (!string.IsNullOrWhiteSpace(_errorMessage))
+            {
+                <div class="error-box">@_errorMessage</div>
+                <button class="ghost-btn" type="button" @onclick="BackToCapture">Back</button>
+            }
+        </section>
+    }
+    else if (_minimalStage == MinimalStage.Results)
+    {
+        <section class="minimal-results">
+            <div class="panel-head">
+                <h2>Transcription Result</h2>
+                <button class="ghost-btn" type="button" @onclick="ResetWorkflowAsync">New Transcription</button>
+            </div>
+
+            @if (!string.IsNullOrWhiteSpace(_errorMessage))
+            {
+                <div class="error-box">@_errorMessage</div>
+            }
+
+            <div class="tab-row">
+                <button class="@GetTabClass(ResultTab.Final)" type="button" @onclick="() => SetResultTab(ResultTab.Final)">Processed</button>
+                <button class="@GetTabClass(ResultTab.Raw)" type="button" @onclick="() => SetResultTab(ResultTab.Raw)">Raw</button>
+                <button class="@GetTabClass(ResultTab.Logs)" type="button" @onclick="() => SetResultTab(ResultTab.Logs)">Logs</button>
+            </div>
+
+            <div class="result-edit-toolbar">
+                <button class="chip-btn" type="button" @onclick="CopyToClipboardAsync">Copy to Clipboard</button>
+                <button class="chip-btn" type="button" @onclick="ExportMarkdownAsync">Export Markdown</button>
+            </div>
+
+            <div class="tab-panel">
+                @switch (_activeTab)
+                {
+                    case ResultTab.Raw:
+                        <pre class="text-pane">@(_rawWhisperText ?? "(empty)")</pre>
+                        break;
+
+                    case ResultTab.Logs:
+                        <div class="log-scroll">
+                            @foreach (var item in _timeline)
+                            {
+                                <div class="timeline-item @(item.IsError ? "error" : item.IsCompleted ? "complete" : "")">
+                                    <span>@item.Percent%</span>
+                                    <span>@item.Message</span>
+                                </div>
+                            }
+                        </div>
+                        break;
+
+                    default:
+                        <pre class="text-pane">@(_markdownOutput ?? "(empty)")</pre>
+                        break;
+                }
+            </div>
+        </section>
+    }
+    else
+    {
+        <section class="minimal-capture">
+            @if (!_browserCapabilities.Supported)
+            {
+                <div class="error-box">
+                    <strong>Browser Not Supported</strong>
+                    <p>@_browserCapabilities.Reason</p>
+                    <p>Please use a modern browser with WebGPU support (Chrome 113+, Edge 113+).</p>
+                </div>
+            }
+            else
+            {
+                @if (!string.IsNullOrWhiteSpace(_errorMessage))
+                {
+                    <div class="error-box">@_errorMessage</div>
+                }
+
+                <div class="capture-hub">
+                    @if (_hasAudio && !_isRecording)
+                    {
+                        <button class="send-launch" type="button" title="Transcribe" @onclick="SubmitAsync" disabled="@_isSubmitting">
+                            <span class="rocket launch-icon" aria-hidden="true">
+                                <svg class="icon-svg" viewBox="0 0 24 24" aria-hidden="true">
+                                    <path d="M3 11.5 21 3l-8.5 18-1.9-7.6z" />
+                                    <path d="m12.6 13.4-3.7 3.7" />
+                                </svg>
+                            </span>
+                            <span>Transcribe</span>
+                        </button>
+                    }
+
+                    <div class="record-stack">
+                        <button class="record-button @GetRecordClass()" type="button" @onclick="ToggleRecordAsync" disabled="@(_isSubmitting || _devices.Count == 0)">
+                            <span class="record-core"></span>
+                            <span class="record-label">@(_isRecording ? "Stop" : "Record")</span>
+                        </button>
+
+                        <label class="upload-fab @(_uploadedAudio is not null ? "active" : "")" title="Upload audio file" aria-label="Upload audio file">
+                            <span class="upload-icon" aria-hidden="true">
+                                <svg class="icon-svg" viewBox="0 0 24 24" aria-hidden="true">
+                                    <path d="M12 15V5" />
+                                    <path d="m8.5 8.5 3.5-3.5 3.5 3.5" />
+                                    <path d="M4 15.5v2a2.5 2.5 0 0 0 2.5 2.5h11a2.5 2.5 0 0 0 2.5-2.5v-2" />
+                                </svg>
+                            </span>
+                            <span class="upload-text">Upload</span>
+                            <InputFile class="upload-input" OnChange="HandleUploadAsync" accept="audio/*,.wav,.mp3,.m4a,.webm" disabled="@(_isRecording || _isSubmitting)" />
+                        </label>
+                    </div>
+
+                    <label class="mic-select-wrap">
+                        <span>Microphone</span>
+                        <select @bind="_selectedDeviceId" disabled="@(_devices.Count == 0 || _isRecording || _isSubmitting)">
+                            @if (_devices.Count == 0)
+                            {
+                                <option value="">No microphone devices detected</option>
+                            }
+                            else
+                            {
+                                @foreach (var device in _devices)
+                                {
+                                    <option value="@device.DeviceId">@device.Label</option>
+                                }
+                            }
+                        </select>
+                    </label>
+
+                    <div class="settings-row">
+                        <label>
+                            <span>Model</span>
+                            <select @bind="_model" disabled="@_isSubmitting">
+                                @foreach (var model in _models)
+                                {
+                                    <option value="@model">@model</option>
+                                }
+                            </select>
+                        </label>
+
+                        <label>
+                            <span>WebLLM Model</span>
+                            <select @bind="_webLlmModel" disabled="@_isSubmitting">
+                                @foreach (var model in _webLlmModelPresets)
+                                {
+                                    <option value="@model">@model</option>
+                                }
+                            </select>
+                        </label>
+
+                        <label class="toggle-row">
+                            <span>Detect Speakers</span>
+                            <input type="checkbox" @bind="_enableSpeakerLabels" disabled="@_isSubmitting" />
+                        </label>
+                    </div>
+
+                    @if (!string.IsNullOrWhiteSpace(_sourceDescription))
+                    {
+                        <p class="subtext">@_sourceDescription</p>
+                    }
+                </div>
+            }
+        </section>
+    }
+</div>
+
+@code {
+    private static readonly string[] _models = ["Tiny", "TinyEn", "Base", "BaseEn", "Small", "SmallEn"];
+    private static readonly string[] _defaultWebLlmModels =
+    [
+        "Llama-3.1-8B-Instruct-q4f16_1-MLC",
+        "Qwen2.5-7B-Instruct-q4f16_1-MLC",
+        "Phi-3.5-mini-instruct-q4f16_1-MLC"
+    ];
+
+    private DotNetObjectReference<Home>? _dotNetRef;
+    private readonly List<ProgressItem> _timeline = [];
+    private readonly List<AudioDevice> _devices = [];
+    private readonly List<string> _webLlmModelPresets = [];
+    private BrowserAudioPayload? _browserRecording;
+    private UploadedAudioPayload? _uploadedAudio;
+
+    private string? _selectedDeviceId;
+    private string _model = "SmallEn";
+    private string _webLlmModel = "Llama-3.1-8B-Instruct-q4f16_1-MLC";
+    private bool _enableSpeakerLabels = true;
+
+    private BrowserExecutionCapabilities _browserCapabilities = new(false, false, false, false, "Checking...");
+
+    private bool _isRecording;
+    private bool _isSubmitting;
+    private string? _activeJobId;
+    private string _statusMessage = "Ready";
+    private string? _markdownOutput;
+    private string? _rawWhisperText;
+    private string? _errorMessage;
+
+    private MinimalStage _minimalStage = MinimalStage.Capture;
+    private ResultTab _activeTab = ResultTab.Final;
+
+    private bool _hasAudio => _browserRecording is not null || _uploadedAudio is not null;
+
+    private string? _sourceDescription
+    {
+        get
+        {
+            if (_browserRecording is not null)
+                return $"Recorded: {_browserRecording.FileName} ({FormatBytes(_browserRecording.Size)})";
+            if (_uploadedAudio is not null)
+                return $"Uploaded: {_uploadedAudio.FileName} ({FormatBytes(_uploadedAudio.Bytes.Length)})";
+            return null;
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _dotNetRef = DotNetObjectReference.Create(this);
+            await RefreshBrowserCapabilitiesAsync();
+            await RefreshDevicesAsync();
+            await RefreshWebLlmModelsAsync();
+            StateHasChanged();
+        }
+    }
+
+    private async Task RefreshBrowserCapabilitiesAsync()
+    {
+        try
+        {
+            _browserCapabilities = await JS.InvokeAsync<BrowserExecutionCapabilities>("localTranscriberBrowser.getCapabilities");
+        }
+        catch (Exception ex)
+        {
+            _browserCapabilities = new(false, false, false, false, $"Error: {ex.Message}");
+        }
+    }
+
+    private async Task RefreshDevicesAsync()
+    {
+        try
+        {
+            var devices = await JS.InvokeAsync<AudioDevice[]>("localTranscriberRecorder.listInputDevices");
+            _devices.Clear();
+            _devices.AddRange(devices);
+            if (_devices.Count > 0 && string.IsNullOrWhiteSpace(_selectedDeviceId))
+                _selectedDeviceId = _devices[0].DeviceId;
+        }
+        catch { }
+    }
+
+    private async Task RefreshWebLlmModelsAsync()
+    {
+        _webLlmModelPresets.Clear();
+        try
+        {
+            var available = await JS.InvokeAsync<string[]>("localTranscriberBrowser.listWebLlmModels");
+            if (available?.Length > 0)
+            {
+                var filtered = available.Where(m => m.Contains("7B") || m.Contains("8B") || m.Contains("mini")).Take(6);
+                _webLlmModelPresets.AddRange(filtered);
+            }
+        }
+        catch { }
+
+        if (_webLlmModelPresets.Count == 0)
+            _webLlmModelPresets.AddRange(_defaultWebLlmModels);
+    }
+
+    private async Task ToggleRecordAsync()
+    {
+        if (_isRecording)
+        {
+            await StopRecordingAsync();
+        }
+        else
+        {
+            await StartRecordingAsync();
+        }
+    }
+
+    private async Task StartRecordingAsync()
+    {
+        _errorMessage = null;
+        try
+        {
+            await JS.InvokeVoidAsync("localTranscriberRecorder.startRecording", _selectedDeviceId);
+            _isRecording = true;
+            _uploadedAudio = null;
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Recording failed: {ex.Message}";
+        }
+    }
+
+    private async Task StopRecordingAsync()
+    {
+        try
+        {
+            var payload = await JS.InvokeAsync<BrowserAudioPayload?>("localTranscriberRecorder.stopRecording");
+            if (payload is not null)
+            {
+                _browserRecording = payload;
+                _uploadedAudio = null;
+            }
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Stop failed: {ex.Message}";
+        }
+        finally
+        {
+            _isRecording = false;
+        }
+    }
+
+    private async Task HandleUploadAsync(InputFileChangeEventArgs args)
+    {
+        _errorMessage = null;
+        try
+        {
+            var file = args.File;
+            if (file is null) return;
+
+            await using var stream = file.OpenReadStream(250 * 1024 * 1024);
+            using var ms = new MemoryStream();
+            await stream.CopyToAsync(ms);
+
+            _uploadedAudio = new UploadedAudioPayload(file.Name, file.ContentType ?? "audio/wav", ms.ToArray());
+            _browserRecording = null;
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Upload failed: {ex.Message}";
+        }
+    }
+
+    private async Task SubmitAsync()
+    {
+        if (!_hasAudio || _isSubmitting) return;
+
+        _isSubmitting = true;
+        _errorMessage = null;
+        _timeline.Clear();
+        _markdownOutput = null;
+        _rawWhisperText = null;
+        _activeJobId = Guid.NewGuid().ToString("N");
+        _minimalStage = MinimalStage.Processing;
+        _statusMessage = "Starting transcription...";
+
+        try
+        {
+            var input = BuildAudioInput();
+            if (input is null)
+            {
+                _errorMessage = "No audio available.";
+                _minimalStage = MinimalStage.Capture;
+                return;
+            }
+
+            var request = new BrowserTranscriptionRequest(
+                _activeJobId,
+                input.FileName,
+                input.MimeType,
+                input.Base64,
+                _model,
+                "auto",
+                _enableSpeakerLabels,
+                true, // Always use WebLLM
+                _webLlmModel);
+
+            var result = await JS.InvokeAsync<BrowserTranscriptionResult>(
+                "localTranscriberBrowser.transcribeInBrowser",
+                _dotNetRef,
+                request);
+
+            _rawWhisperText = result.RawWhisperText;
+            _markdownOutput = result.Markdown;
+            _statusMessage = "Complete!";
+            _minimalStage = MinimalStage.Results;
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Transcription failed: {ex.Message}";
+            _minimalStage = MinimalStage.Capture;
+        }
+        finally
+        {
+            _isSubmitting = false;
+        }
+    }
+
+    [JSInvokable]
+    public async Task OnBrowserProgress(BrowserProgressMessage message)
+    {
+        if (message.JobId != _activeJobId) return;
+
+        _timeline.Insert(0, new ProgressItem(message.Percent, message.Message, message.IsCompleted, message.IsError));
+        _statusMessage = message.Message;
+
+        if (message.RawWhisperText is not null) _rawWhisperText = message.RawWhisperText;
+        if (message.Markdown is not null) _markdownOutput = message.Markdown;
+
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private BrowserAudioInput? BuildAudioInput()
+    {
+        if (_browserRecording is not null)
+            return new(_browserRecording.FileName, _browserRecording.MimeType, _browserRecording.Base64);
+        if (_uploadedAudio is not null)
+            return new(_uploadedAudio.FileName, _uploadedAudio.MimeType, Convert.ToBase64String(_uploadedAudio.Bytes));
+        return null;
+    }
+
+    private Task ResetWorkflowAsync()
+    {
+        _minimalStage = MinimalStage.Capture;
+        _timeline.Clear();
+        _markdownOutput = null;
+        _rawWhisperText = null;
+        _errorMessage = null;
+        _browserRecording = null;
+        _uploadedAudio = null;
+        return Task.CompletedTask;
+    }
+
+    private void BackToCapture() => _minimalStage = MinimalStage.Capture;
+    private void SetResultTab(ResultTab tab) => _activeTab = tab;
+    private string GetTabClass(ResultTab tab) => _activeTab == tab ? "tab active" : "tab";
+    private string GetRecordClass() => _isRecording ? "recording" : "";
+    private List<ProgressItem> GetLatestLogs(int count) => _timeline.Take(count).ToList();
+
+    private async Task CopyToClipboardAsync()
+    {
+        var text = _activeTab == ResultTab.Raw ? _rawWhisperText : _markdownOutput;
+        if (!string.IsNullOrEmpty(text))
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", text);
+    }
+
+    private async Task ExportMarkdownAsync()
+    {
+        var text = _activeTab == ResultTab.Raw ? _rawWhisperText : _markdownOutput;
+        if (string.IsNullOrEmpty(text)) return;
+
+        var filename = $"transcription-{DateTime.Now:yyyyMMdd-HHmmss}.md";
+        await JS.InvokeVoidAsync("eval", $@"
+            const blob = new Blob([{System.Text.Json.JsonSerializer.Serialize(text)}], {{ type: 'text/markdown' }});
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = '{filename}';
+            a.click();
+            URL.revokeObjectURL(url);
+        ");
+    }
+
+    private static string FormatBytes(long bytes)
+    {
+        if (bytes < 1024) return $"{bytes} B";
+        if (bytes < 1024 * 1024) return $"{bytes / 1024.0:F1} KB";
+        return $"{bytes / (1024.0 * 1024.0):F1} MB";
+    }
+
+    public ValueTask DisposeAsync()
+    {
+        _dotNetRef?.Dispose();
+        return ValueTask.CompletedTask;
+    }
+
+    private enum MinimalStage { Capture, Processing, Results }
+    private enum ResultTab { Final, Raw, Logs }
+
+    private record ProgressItem(int Percent, string Message, bool IsCompleted, bool IsError);
+    private record AudioDevice(string DeviceId, string Label);
+    private record BrowserExecutionCapabilities(bool Supported, bool HasWebGpu, bool HasAudioContext, bool HasMediaRecorder, string Reason);
+    private record BrowserAudioPayload(string FileName, string MimeType, string Base64, long Size, string? PreviewUrl);
+    private record UploadedAudioPayload(string FileName, string MimeType, byte[] Bytes);
+    private record BrowserAudioInput(string FileName, string MimeType, string Base64);
+    private record BrowserTranscriptionRequest(string JobId, string FileName, string MimeType, string Base64, string Model, string Language, bool EnableSpeakerLabels, bool UseWebLlm, string WebLlmModel);
+    private record BrowserTranscriptionResult(string? RawWhisperText, string? SpeakerLabeledText, string? FormatterOutput, string? FormatterUsed, string? Markdown, int? DetectedSpeakerCount, object? SubtitleSegments);
+    public record BrowserProgressMessage(string JobId, int Percent, string Stage, string Message, bool IsCompleted, bool IsError, string? RawWhisperText, string? SpeakerLabeledText, string? FormatterOutput, string? FormatterUsed, string? Markdown, int? DetectedSpeakerCount, object? SubtitleSegments);
+}
