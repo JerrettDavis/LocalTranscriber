@@ -10,7 +10,12 @@ window.localTranscriberRecorder = (() => {
   }
 
   async function listInputDevices() {
-    await ensureMicPermission();
+    try {
+      // Try to get permission first for proper device labels
+      await ensureMicPermission();
+    } catch {
+      // Permission denied or unavailable - continue with limited labels
+    }
     const devices = await navigator.mediaDevices.enumerateDevices();
     return devices
       .filter((d) => d.kind === "audioinput")

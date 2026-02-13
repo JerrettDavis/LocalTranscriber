@@ -26,8 +26,24 @@
     <div id="blazor-error-ui">
         An unhandled error has occurred.
         <a href="." class="reload">Reload</a>
-        <span class="dismiss">🗙</span>
+        <span class="dismiss" onclick="this.parentElement.style.display='none'">🗙</span>
     </div>
+    <script>
+        // Suppress non-critical errors from showing the Blazor error UI
+        window.addEventListener('error', function(e) {
+            // Only show for critical Blazor errors
+            if (e.message && e.message.includes('Blazor')) {
+                document.getElementById('blazor-error-ui').classList.add('visible');
+            }
+            // Don't show for API permission errors or missing features
+        });
+        window.addEventListener('unhandledrejection', function(e) {
+            // Suppress permission denied and NotAllowedError (microphone access)
+            if (e.reason && (e.reason.name === 'NotAllowedError' || e.reason.name === 'NotFoundError')) {
+                e.preventDefault();
+            }
+        });
+    </script>
     
     <script src="js/recorder.js"></script>
     <script src="js/subtitleSync.js"></script>
