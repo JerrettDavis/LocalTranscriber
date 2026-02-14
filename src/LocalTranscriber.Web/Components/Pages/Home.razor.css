@@ -121,6 +121,17 @@
     border: 1px solid color-mix(in srgb, #22c55e 40%, transparent);
 }
 
+button.phase-pill.completed {
+    cursor: pointer;
+    font-family: inherit;
+}
+
+button.phase-pill.completed:hover {
+    background: color-mix(in srgb, #22c55e 30%, transparent);
+    border-color: color-mix(in srgb, #22c55e 65%, transparent);
+    color: #4ade80;
+}
+
 .phase-pill-label {
     white-space: nowrap;
 }
@@ -1790,4 +1801,65 @@ audio {
     border-color: color-mix(in srgb, var(--accent) 58%, transparent);
     box-shadow: 0 0 0 0.14rem color-mix(in srgb, var(--accent) 18%, transparent);
     outline: none;
+}
+
+/* Orphaned recording styles */
+.orphan-section {
+    margin-top: 1rem;
+    width: 100%;
+}
+
+.orphan-section h4 {
+    color: var(--ink-muted);
+    font-size: 0.82rem;
+    margin-bottom: 0.5rem;
+}
+
+.orphan-item {
+    background: color-mix(in srgb, #f59e0b 8%, var(--surface-elevated));
+    border: 1px solid color-mix(in srgb, #f59e0b 35%, transparent);
+    border-radius: 10px;
+    margin-bottom: 0.5rem;
+    padding: 0.6rem 0.75rem;
+}
+
+.orphan-header {
+    align-items: center;
+    display: flex;
+    gap: 0.5rem;
+}
+
+.orphan-tag {
+    background: color-mix(in srgb, #f59e0b 22%, transparent);
+    border-radius: 4px;
+    color: #f59e0b;
+    flex-shrink: 0;
+    font-size: 0.65rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    padding: 0.15rem 0.4rem;
+    text-transform: uppercase;
+}
+
+.orphan-delete-btn {
+    background: none;
+    border: 1px solid color-mix(in srgb, var(--danger) 40%, transparent);
+    border-radius: 6px;
+    color: var(--danger);
+    cursor: pointer;
+    flex-shrink: 0;
+    font-size: 0.72rem;
+    margin-left: auto;
+    padding: 0.2rem 0.5rem;
+}
+
+.orphan-delete-btn:hover {
+    background: color-mix(in srgb, var(--danger) 12%, transparent);
+}
+
+.orphan-answer {
+    color: var(--ink-subtle);
+    font-size: 0.82rem;
+    line-height: 1.4;
+    margin-top: 0.35rem;
 }

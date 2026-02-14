@@ -740,6 +740,13 @@ window.localTranscriberWorkflow = (() => {
     return resolved;
   }
 
+  function normalizePrompt(prompt) {
+    return (prompt || "").trim().toLowerCase();
+  }
+
+  // Active execution tracking for navigation
+  let activeExecution = null;
+
   function buildV2Context(audioInput, workflowVariables) {
     return {
       audio: audioInput,
@@ -758,6 +765,8 @@ window.localTranscriberWorkflow = (() => {
       phaseOutputs: {},
       currentPhase: null,
       phaseHistory: [],
+      // Recording persistence across navigation
+      recordingStore: {},
     };
   }
 
@@ -773,26 +782,37 @@ window.localTranscriberWorkflow = (() => {
     return executeWorkflow(workflow, audioInput, dotNetRef, jobId);
   }
 
-  async function executeWorkflowV2(workflow, audioInput, dotNetRef, jobId) {
-    const context = buildV2Context(audioInput, workflow.variables);
+  async function executeWorkflowV2(workflow, audioInput, dotNetRef, jobId, startPhaseIndex = 0, existingContext = null) {
+    const context = existingContext || buildV2Context(audioInput, workflow.variables);
     const phases = workflow.phases || [];
     if (phases.length === 0) {
       await emitProgress(dotNetRef, jobId, 100, "done", "No phases to execute.", { isCompleted: true });
       return { rawWhisperText: null, speakerLabeledText: null, markdown: "", outputs: {} };
     }
 
+    // Set up active execution tracking
+    let aborted = false;
+    activeExecution = {
+      abort() { aborted = true; },
+      context,
+      dotNetRef,
+      jobId,
+      workflow,
+    };
+
     // Emit initial phase list for UI
     const phaseNames = phases.map(p => p.name);
     if (dotNetRef?.invokeMethodAsync) {
       try {
-        await dotNetRef.invokeMethodAsync("OnWorkflowPhaseProgress", { phaseNames, currentIndex: 0 });
+        await dotNetRef.invokeMethodAsync("OnWorkflowPhaseProgress", { phaseNames, currentIndex: startPhaseIndex });
       } catch (e) { /* callback not available */ }
     }
 
-    let currentPhaseIndex = 0;
+    let currentPhaseIndex = startPhaseIndex;
     let phaseExecutionCount = 0;
 
     while (currentPhaseIndex < phases.length && phaseExecutionCount < MAX_PHASE_EXECUTIONS) {
+      if (aborted) break;
       phaseExecutionCount++;
       const phase = phases[currentPhaseIndex];
       context.currentPhase = phase.id;
@@ -819,6 +839,7 @@ window.localTranscriberWorkflow = (() => {
       let stepIndex = 0;
 
       for (const step of enabledSteps) {
+        if (aborted) break;
         stepIndex++;
         const phaseProgress = phases.length > 0
           ? (currentPhaseIndex / phases.length) * 100
@@ -839,6 +860,9 @@ window.localTranscriberWorkflow = (() => {
               ...(extras || {}),
             });
           });
+
+          // Check if aborted during interactive step
+          if (aborted || result?.navigated) break;
 
           // Store outputs
           context.outputs[step.id] = result;
@@ -870,6 +894,7 @@ window.localTranscriberWorkflow = (() => {
             currentPhase: phase.id,
           });
         } catch (err) {
+          if (aborted) break;
           await emitProgress(dotNetRef, jobId, overallPercent, step.type, `Failed: ${step.name} - ${err.message}`, {
             isError: true,
             stepId: step.id,
@@ -878,6 +903,8 @@ window.localTranscriberWorkflow = (() => {
           throw err;
         }
       }
+
+      if (aborted) break;
 
       // Store phase output
       context.phaseOutputs[phase.id] = {
@@ -895,6 +922,11 @@ window.localTranscriberWorkflow = (() => {
       currentPhaseIndex = nextPhaseIndex;
     }
 
+    // If aborted by navigation, return navigated result
+    if (aborted) {
+      return { navigated: true };
+    }
+
     if (phaseExecutionCount >= MAX_PHASE_EXECUTIONS) {
       console.warn("[Workflow] Loop guard triggered: exceeded max phase executions");
       await emitProgress(dotNetRef, jobId, 100, "warning", "Loop guard: workflow exceeded maximum phase executions.", {
@@ -904,6 +936,8 @@ window.localTranscriberWorkflow = (() => {
 
     // Build final output
     const finalText = context.processedText || context.labeledText || context.rawText || "";
+
+    activeExecution = null;
 
     await emitProgress(dotNetRef, jobId, 100, "done", "Workflow complete.", {
       isCompleted: true,
@@ -1368,6 +1402,27 @@ window.localTranscriberWorkflow = (() => {
         return { processedText: "" };
       }
 
+      // Match current prompts against recordingStore for previous recordings
+      const store = context.recordingStore || {};
+      const previousRecordings = {};
+      const matchedKeys = new Set();
+
+      prompts.forEach((prompt, i) => {
+        const key = normalizePrompt(prompt);
+        if (store[key]) {
+          previousRecordings[i] = store[key];
+          matchedKeys.add(key);
+        }
+      });
+
+      // Find orphaned recordings (in store but not matching any current prompt)
+      const orphanedRecordings = {};
+      for (const [key, value] of Object.entries(store)) {
+        if (!matchedKeys.has(key)) {
+          orphanedRecordings[key] = value;
+        }
+      }
+
       return new Promise((resolve) => {
         const multiRecordId = `multiRecord-${step.id}-${Date.now()}`;
 
@@ -1385,6 +1440,8 @@ window.localTranscriberWorkflow = (() => {
           prompts,
           instructions: step.config.instructions,
           transcribeModel: step.config.transcribeModel,
+          previousRecordings,
+          orphanedRecordings,
         });
       });
     },
@@ -1491,7 +1548,7 @@ window.localTranscriberWorkflow = (() => {
     return true;
   }
 
-  function completeMultiRecord(multiRecordId, recordings) {
+  function completeMultiRecord(multiRecordId, recordings, deletedOrphanKeys) {
     const mr = pendingMultiRecords.get(multiRecordId);
     if (!mr) {
       console.warn(`[Workflow] MultiRecord not found: ${multiRecordId}`);
@@ -1501,28 +1558,52 @@ window.localTranscriberWorkflow = (() => {
     pendingMultiRecords.delete(multiRecordId);
     const { step, context, prompts } = mr;
 
-    // Build Q&A pairs
+    // Build Q&A pairs — handle both { text: ... } and { answer: ... } shapes
     const pairs = prompts.map((prompt, i) => ({
       question: prompt,
-      answer: recordings[i]?.text || "",
+      answer: recordings[i]?.text ?? recordings[i]?.answer ?? (typeof recordings[i] === "string" ? recordings[i] : ""),
     }));
+
+    // Update recordingStore with new recordings
+    const store = context.recordingStore || (context.recordingStore = {});
+    pairs.forEach(pair => {
+      const key = normalizePrompt(pair.question);
+      store[key] = { question: pair.question, answer: pair.answer };
+    });
+
+    // Remove explicitly deleted orphans from recordingStore
+    const deletedKeys = deletedOrphanKeys || [];
+    deletedKeys.forEach(key => {
+      delete store[key];
+    });
+
+    // Collect non-deleted orphans to include in output
+    const currentPromptKeys = new Set(prompts.map(p => normalizePrompt(p)));
+    const orphanPairs = [];
+    for (const [key, value] of Object.entries(store)) {
+      if (!currentPromptKeys.has(key)) {
+        orphanPairs.push(value);
+      }
+    }
+
+    const allPairs = [...pairs, ...orphanPairs];
 
     // Store in variables
     const outputVar = step.config.outputVariable || "answers";
     if (step.config.outputFormat === "qa-pairs") {
-      context.variables[outputVar] = pairs;
+      context.variables[outputVar] = allPairs;
     } else {
-      context.variables[outputVar] = pairs.map(p => p.answer);
+      context.variables[outputVar] = allPairs.map(p => p.answer);
     }
 
     // Build combined text
-    const combinedText = pairs.map(p =>
+    const combinedText = allPairs.map(p =>
       `**Q: ${p.question}**\n${p.answer}`
     ).join("\n\n");
 
     mr.resolve({
       processedText: combinedText,
-      pairs,
+      pairs: allPairs,
     });
 
     return true;
@@ -1900,6 +1981,96 @@ window.localTranscriberWorkflow = (() => {
   }
 
   // ═══════════════════════════════════════════════════════════════
+  // Phase Navigation
+  // ═══════════════════════════════════════════════════════════════
+
+  async function navigateToPhase(targetPhaseIndex) {
+    if (!activeExecution) {
+      console.warn("[Workflow] No active execution to navigate");
+      return false;
+    }
+
+    const { context, dotNetRef, jobId, workflow } = activeExecution;
+    const phases = workflow.phases || [];
+
+    if (targetPhaseIndex < 0 || targetPhaseIndex >= phases.length) {
+      console.warn(`[Workflow] Invalid phase index: ${targetPhaseIndex}`);
+      return false;
+    }
+
+    // Abort current execution
+    activeExecution.abort();
+
+    // Resolve all pending interactive promises so the execution loop unblocks
+    for (const [, review] of pendingReviews) {
+      review.resolve({ processedText: "", navigated: true });
+    }
+    pendingReviews.clear();
+
+    for (const [, choice] of pendingChoices) {
+      choice.resolve(null);
+    }
+    pendingChoices.clear();
+
+    for (const [, mr] of pendingMultiRecords) {
+      mr.resolve({ processedText: "", navigated: true });
+    }
+    pendingMultiRecords.clear();
+
+    // Build a new context, preserving recordingStore and replaying phase outputs up to target
+    const newContext = buildV2Context(context.audio, workflow.variables);
+    newContext.recordingStore = context.recordingStore;
+
+    // Replay step outputs and phase outputs for phases before the target
+    for (let i = 0; i < targetPhaseIndex; i++) {
+      const phase = phases[i];
+      const savedOutput = context.phaseOutputs[phase.id];
+      if (savedOutput) {
+        newContext.phaseOutputs[phase.id] = savedOutput;
+        Object.assign(newContext.variables, savedOutput.variables);
+        if (savedOutput.processedText) {
+          newContext.processedText = savedOutput.processedText;
+        }
+      }
+      // Restore individual step outputs
+      for (const step of (phase.steps || [])) {
+        if (context.outputs[step.id]) {
+          newContext.outputs[step.id] = context.outputs[step.id];
+          const result = context.outputs[step.id];
+          if (result.rawText !== undefined) {
+            newContext.rawText = result.rawText;
+            newContext.text.raw = result.rawText;
+          }
+          if (result.segments !== undefined) newContext.segments = result.segments;
+          if (result.labeledText !== undefined) {
+            newContext.labeledText = result.labeledText;
+            newContext.text.labeled = result.labeledText;
+          }
+          if (result.speakerCount !== undefined) newContext.speakerCount = result.speakerCount;
+          if (result.processedText !== undefined) {
+            newContext.processedText = result.processedText;
+            newContext.text.processed = result.processedText;
+          }
+        }
+      }
+    }
+
+    // Notify UI about navigation
+    if (dotNetRef?.invokeMethodAsync) {
+      try {
+        await dotNetRef.invokeMethodAsync("OnWorkflowPhaseNavigated", targetPhaseIndex);
+      } catch (e) { /* callback not available */ }
+    }
+
+    // Re-invoke workflow from target phase after current execution unwinds
+    setTimeout(() => {
+      executeWorkflowV2(workflow, newContext.audio, dotNetRef, jobId, targetPhaseIndex, newContext);
+    }, 0);
+
+    return true;
+  }
+
+  // ═══════════════════════════════════════════════════════════════
   // Public API
   // ═══════════════════════════════════════════════════════════════
 
@@ -1948,6 +2119,7 @@ window.localTranscriberWorkflow = (() => {
     completeCompare,
     completeChoice,
     completeMultiRecord,
+    navigateToPhase,
     getPendingReviews: () => Array.from(pendingReviews.keys()),
     getPendingChoices: () => Array.from(pendingChoices.keys()),
     getPendingMultiRecords: () => Array.from(pendingMultiRecords.keys()),

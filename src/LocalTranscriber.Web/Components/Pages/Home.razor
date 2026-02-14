@@ -98,10 +98,20 @@
                     <div class="phase-progress-bar">
                         @for (var i = 0; i < _phaseNames.Count; i++)
                         {
+                            var idx = i;
                             var pClass = i < _currentPhaseIndex ? "completed" : i == _currentPhaseIndex ? "active" : "pending";
-                            <div class="phase-pill @pClass" title="@_phaseNames[i]">
-                                <span class="phase-pill-label">@_phaseNames[i]</span>
-                            </div>
+                            @if (pClass == "completed")
+                            {
+                                <button class="phase-pill @pClass" type="button" title="Go back to @_phaseNames[idx]" @onclick="() => NavigateToPhaseAsync(idx)">
+                                    <span class="phase-pill-label">@_phaseNames[idx]</span>
+                                </button>
+                            }
+                            else
+                            {
+                                <div class="phase-pill @pClass" title="@_phaseNames[idx]">
+                                    <span class="phase-pill-label">@_phaseNames[idx]</span>
+                                </div>
+                            }
                         }
                     </div>
                 }
@@ -154,6 +164,29 @@
                                 </div>
                             }
                         </div>
+
+                        @if (_interactiveOrphanedRecordings is { Count: > 0 })
+                        {
+                            <div class="orphan-section">
+                                <h4>Previous answers (questions changed)</h4>
+                                @foreach (var orphan in _interactiveOrphanedRecordings)
+                                {
+                                    var key = orphan.Key;
+                                    @if (!_deletedOrphanKeys.Contains(key))
+                                    {
+                                        <div class="orphan-item">
+                                            <div class="orphan-header">
+                                                <span class="orphan-tag">Orphaned</span>
+                                                <strong>@orphan.Value.Question</strong>
+                                                <button class="orphan-delete-btn" type="button" @onclick="() => DeleteOrphan(key)">Delete</button>
+                                            </div>
+                                            <p class="orphan-answer">@orphan.Value.Answer</p>
+                                        </div>
+                                    }
+                                }
+                            </div>
+                        }
+
                         <button class="solid-btn" type="button" @onclick="HandleMultiRecordSubmitted">Submit Answers</button>
                     }
                     else
@@ -179,10 +212,20 @@
                     <div class="phase-progress-bar">
                         @for (var i = 0; i < _phaseNames.Count; i++)
                         {
+                            var idx = i;
                             var pClass = i < _currentPhaseIndex ? "completed" : i == _currentPhaseIndex ? "active" : "pending";
-                            <div class="phase-pill @pClass" title="@_phaseNames[i]">
-                                <span class="phase-pill-label">@_phaseNames[i]</span>
-                            </div>
+                            @if (pClass == "completed")
+                            {
+                                <button class="phase-pill @pClass" type="button" title="Go back to @_phaseNames[idx]" @onclick="() => NavigateToPhaseAsync(idx)">
+                                    <span class="phase-pill-label">@_phaseNames[idx]</span>
+                                </button>
+                            }
+                            else
+                            {
+                                <div class="phase-pill @pClass" title="@_phaseNames[idx]">
+                                    <span class="phase-pill-label">@_phaseNames[idx]</span>
+                                </div>
+                            }
                         }
                     </div>
                 }
@@ -1183,6 +1226,9 @@
     private string? _interactiveInputText;
     private string _interactiveReviewText = "";
     private List<string> _multiRecordAnswers = new();
+    private Dictionary<string, PreviousRecordingEntry>? _interactivePreviousRecordings;
+    private Dictionary<string, OrphanedRecordingEntry>? _interactiveOrphanedRecordings;
+    private HashSet<string> _deletedOrphanKeys = new();
     private List<string> _phaseNames = new();
     private int _currentPhaseIndex = -1;
 
@@ -1418,10 +1464,21 @@
                         _interactiveId = msg.MultiRecordId;
                         _interactiveChoices = null;
                         _interactivePrompts = msg.Prompts?.ToList();
-                        _multiRecordAnswers = _interactivePrompts != null
-                            ? Enumerable.Repeat("", _interactivePrompts.Count).ToList()
-                            : new();
                         _interactiveInputText = null;
+                        _interactivePreviousRecordings = msg.PreviousRecordings;
+                        _interactiveOrphanedRecordings = msg.OrphanedRecordings;
+                        _deletedOrphanKeys.Clear();
+                        // Pre-populate answers from previous recordings
+                        _multiRecordAnswers = _interactivePrompts != null
+                            ? _interactivePrompts.Select((p, i) =>
+                            {
+                                var key = i.ToString();
+                                if (_interactivePreviousRecordings != null &&
+                                    _interactivePreviousRecordings.TryGetValue(key, out var prev))
+                                    return prev.Answer;
+                                return "";
+                            }).ToList()
+                            : new();
                         _minimalStage = MinimalStage.Interactive;
                         break;
                 }
@@ -1502,10 +1559,18 @@
 
     private async Task HandleMultiRecordSubmitted()
     {
+        var id = _interactiveId;
+        var answers = _multiRecordAnswers.Select(a => new { text = a }).ToArray();
+        var deletedKeys = _deletedOrphanKeys.ToList();
         _minimalStage = MinimalStage.Processing;
         _statusMessage = "Continuing workflow...";
-        await JS.InvokeVoidAsync("localTranscriberWorkflow.completeMultiRecord", _interactiveId, _multiRecordAnswers.ToArray());
         ClearInteractiveState();
+        await JS.InvokeVoidAsync("localTranscriberWorkflow.completeMultiRecord", id, answers, deletedKeys);
+    }
+
+    private void DeleteOrphan(string key)
+    {
+        _deletedOrphanKeys.Add(key);
     }
 
     private async Task ApplyWorkflowPresetAsync()
@@ -1546,6 +1611,31 @@
         _multiRecordAnswers = new();
         _interactiveInputText = null;
         _interactiveReviewText = "";
+        _interactivePreviousRecordings = null;
+        _interactiveOrphanedRecordings = null;
+        _deletedOrphanKeys.Clear();
+    }
+
+    private async Task NavigateToPhaseAsync(int targetPhaseIndex)
+    {
+        ClearInteractiveState();
+        _minimalStage = MinimalStage.Processing;
+        _statusMessage = "Navigating...";
+        StateHasChanged();
+        await JS.InvokeVoidAsync("localTranscriberWorkflow.navigateToPhase", targetPhaseIndex);
+    }
+
+    [JSInvokable]
+    public async Task OnWorkflowPhaseNavigated(int targetPhaseIndex)
+    {
+        await InvokeAsync(() =>
+        {
+            ClearInteractiveState();
+            _currentPhaseIndex = targetPhaseIndex;
+            _minimalStage = MinimalStage.Processing;
+            _statusMessage = "Navigating...";
+            StateHasChanged();
+        });
     }
 
     private async Task ToggleRecordAsync()
@@ -1818,6 +1908,12 @@
                 audioInput,
                 _dotNetRef,
                 _activeJobId);
+
+            if (result.Navigated == true)
+            {
+                // Execution was aborted for backward navigation — new execution started independently
+                return;
+            }
 
             _rawWhisperText = result.RawWhisperText ?? _rawWhisperText;
             _speakerLabeledText = result.SpeakerLabeledText ?? _speakerLabeledText;
@@ -3007,7 +3103,8 @@
         string? RawWhisperText,
         string? SpeakerLabeledText,
         string? Markdown,
-        int? DetectedSpeakerCount);
+        int? DetectedSpeakerCount,
+        bool? Navigated);
 
     // Workflow progress message (from OnWorkflowProgress callback)
     public sealed record WorkflowProgressMessage(
@@ -3017,7 +3114,11 @@
         string? ReviewId, string? ChoiceId, string? MultiRecordId,
         string? InputText, string? Instructions,
         WorkflowChoiceOption[]? Choices, string[]? Prompts,
-        string? RawWhisperText, string? SpeakerLabeledText, string? Markdown, int? DetectedSpeakerCount);
+        string? RawWhisperText, string? SpeakerLabeledText, string? Markdown, int? DetectedSpeakerCount,
+        Dictionary<string, PreviousRecordingEntry>? PreviousRecordings,
+        Dictionary<string, OrphanedRecordingEntry>? OrphanedRecordings);
 
     public sealed record WorkflowChoiceOption(string Label, string? Target);
+    public sealed record PreviousRecordingEntry(string Question, string Answer);
+    public sealed record OrphanedRecordingEntry(string Question, string Answer);
 }
