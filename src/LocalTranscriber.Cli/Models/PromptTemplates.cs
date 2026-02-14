@@ -1,9 +1,11 @@
+using LocalTranscriber.Cli.Services;
+
 namespace LocalTranscriber.Cli.Models;
 
 /// <summary>
 /// Customizable prompt templates for transcript formatting.
 /// </summary>
-public record PromptTemplates
+internal record PromptTemplates
 {
     /// <summary>
     /// System message for the LLM (defines the role/behavior).
