@@ -214,9 +214,61 @@
                         </label>
                     </div>
 
+                    @* Advanced Settings Section *@
+                    <details class="settings-accordion">
+                        <summary class="settings-accordion-toggle">
+                            <span>⚙️ Advanced Settings</span>
+                        </summary>
+                        <div class="settings-accordion-content">
+                            <div class="settings-grid">
+                                <label>
+                                    <span>Strict Transcript</span>
+                                    <select @bind="_tuningStrictTranscript">
+                                        <option value="true">Preserve wording strictly</option>
+                                        <option value="false">Allow light smoothing</option>
+                                    </select>
+                                </label>
+                                
+                                <label>
+                                    <span>Include Action Items</span>
+                                    <select @bind="_tuningIncludeActionItems">
+                                        <option value="true">Yes - extract action items</option>
+                                        <option value="false">No - minimal actions</option>
+                                    </select>
+                                </label>
+                                
+                                <label>
+                                    <span>Summary Min Bullets</span>
+                                    <input type="number" @bind="_tuningSummaryMin" min="1" max="12" />
+                                </label>
+                                
+                                <label>
+                                    <span>Summary Max Bullets</span>
+                                    <input type="number" @bind="_tuningSummaryMax" min="1" max="20" />
+                                </label>
+                                
+                                <label>
+                                    <span>Temperature</span>
+                                    <input type="range" @bind="_tuningTemperature" min="0" max="1.0" step="0.05" />
+                                    <span class="range-value">@_tuningTemperature.ToString("F2")</span>
+                                </label>
+                                
+                                <label>
+                                    <span>Sensitivity</span>
+                                    <input type="range" @bind="_tuningSensitivity" min="0" max="100" step="5" />
+                                    <span class="range-value">@_tuningSensitivity%</span>
+                                </label>
+                            </div>
+                            <div class="settings-actions">
+                                <button class="chip-btn" type="button" @onclick="SaveTuningAsync">Save Settings</button>
+                                <button class="chip-btn ghost" type="button" @onclick="ResetTuningAsync">Reset to Defaults</button>
+                            </div>
+                        </div>
+                    </details>
+
                     @* Prompt Editor Section *@
-                    <details class="prompt-editor-section">
-                        <summary class="prompt-editor-toggle">
+                    <details class="settings-accordion">
+                        <summary class="settings-accordion-toggle">
                             <span>✏️ Edit Prompts</span>
                         </summary>
                         <div class="prompt-editor-layout">
@@ -310,6 +362,14 @@
     private string _promptCleanup = "";
     private string _promptOutputTemplate = "";
 
+    // Tuning options
+    private string _tuningStrictTranscript = "true";
+    private string _tuningIncludeActionItems = "true";
+    private int _tuningSummaryMin = 3;
+    private int _tuningSummaryMax = 8;
+    private double _tuningTemperature = 0.2;
+    private int _tuningSensitivity = 50;
+
     private BrowserExecutionCapabilities _browserCapabilities = new(false, false, false, false, false, 0, null, "Checking...");
 
     private bool _isRecording;
@@ -347,6 +407,7 @@
             await RefreshWebLlmModelsAsync();
             await RefreshMirrorsAsync();
             await LoadPromptsAsync();
+            await LoadTuningAsync();
             StateHasChanged();
         }
     }
@@ -490,6 +551,59 @@
                 _promptSystemMessage = defaults.SystemMessage ?? "";
                 _promptCleanup = defaults.CleanupPrompt ?? "";
                 _promptOutputTemplate = defaults.OutputTemplate ?? "";
+            }
+        }
+        catch { }
+    }
+
+    private async Task LoadTuningAsync()
+    {
+        try
+        {
+            var tuning = await JS.InvokeAsync<TuningOptionsJs>("localTranscriberBrowser.getTuningOptions");
+            if (tuning != null)
+            {
+                _tuningStrictTranscript = tuning.StrictTranscript ? "true" : "false";
+                _tuningIncludeActionItems = tuning.IncludeActionItems ? "true" : "false";
+                _tuningSummaryMin = tuning.SummaryMinBullets;
+                _tuningSummaryMax = tuning.SummaryMaxBullets;
+                _tuningTemperature = tuning.Temperature;
+                _tuningSensitivity = tuning.Sensitivity;
+            }
+        }
+        catch { }
+    }
+
+    private async Task SaveTuningAsync()
+    {
+        try
+        {
+            var tuning = new TuningOptionsJs(
+                _tuningStrictTranscript == "true",
+                _tuningIncludeActionItems == "true",
+                _tuningSummaryMin,
+                _tuningSummaryMax,
+                _tuningTemperature,
+                _tuningSensitivity
+            );
+            await JS.InvokeVoidAsync("localTranscriberBrowser.setTuningOptions", tuning);
+        }
+        catch { }
+    }
+
+    private async Task ResetTuningAsync()
+    {
+        try
+        {
+            var defaults = await JS.InvokeAsync<TuningOptionsJs>("localTranscriberBrowser.resetTuningOptions");
+            if (defaults != null)
+            {
+                _tuningStrictTranscript = defaults.StrictTranscript ? "true" : "false";
+                _tuningIncludeActionItems = defaults.IncludeActionItems ? "true" : "false";
+                _tuningSummaryMin = defaults.SummaryMinBullets;
+                _tuningSummaryMax = defaults.SummaryMaxBullets;
+                _tuningTemperature = defaults.Temperature;
+                _tuningSensitivity = defaults.Sensitivity;
             }
         }
         catch { }
@@ -704,6 +818,7 @@
     private record AudioDevice(string DeviceId, string Label);
     private record MirrorInfo(string Url, string Name, string Region);
     private record PromptTemplatesJs(string? SystemMessage, string? CleanupPrompt, string? OutputTemplate);
+    private record TuningOptionsJs(bool StrictTranscript, bool IncludeActionItems, int SummaryMinBullets, int SummaryMaxBullets, double Temperature, int Sensitivity);
     private record BrowserExecutionCapabilities(bool Supported, bool HasWebGpu, bool HasAudioContext, bool HasMediaRecorder, bool IsMobile, int EstimatedMemoryMB, string[]? RecommendedModels, string Reason);
     private record BrowserAudioPayload(string FileName, string MimeType, string Base64, long Size, string? PreviewUrl);
     private record UploadedAudioPayload(string FileName, string MimeType, byte[] Bytes);

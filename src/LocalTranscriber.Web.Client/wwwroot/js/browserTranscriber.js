@@ -131,6 +131,63 @@ Rules:
     ].join("\n");
   }
 
+  // === Tuning Options ===
+  const TUNING_STORAGE_KEY = "localTranscriber_tuningOptions";
+  
+  const defaultTuningOptions = {
+    strictTranscript: true,
+    includeActionItems: true,
+    summaryMinBullets: 3,
+    summaryMaxBullets: 8,
+    temperature: 0.2,
+    sensitivity: 50,
+  };
+
+  function getTuningOptions() {
+    try {
+      const stored = localStorage.getItem(TUNING_STORAGE_KEY);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        return {
+          strictTranscript: parsed.strictTranscript ?? defaultTuningOptions.strictTranscript,
+          includeActionItems: parsed.includeActionItems ?? defaultTuningOptions.includeActionItems,
+          summaryMinBullets: parsed.summaryMinBullets ?? defaultTuningOptions.summaryMinBullets,
+          summaryMaxBullets: parsed.summaryMaxBullets ?? defaultTuningOptions.summaryMaxBullets,
+          temperature: parsed.temperature ?? defaultTuningOptions.temperature,
+          sensitivity: parsed.sensitivity ?? defaultTuningOptions.sensitivity,
+        };
+      }
+    } catch (e) {
+      console.warn("[LocalTranscriber] Failed to load tuning options:", e);
+    }
+    return { ...defaultTuningOptions };
+  }
+
+  function setTuningOptions(options) {
+    try {
+      const toSave = {
+        strictTranscript: options.strictTranscript ?? defaultTuningOptions.strictTranscript,
+        includeActionItems: options.includeActionItems ?? defaultTuningOptions.includeActionItems,
+        summaryMinBullets: options.summaryMinBullets ?? defaultTuningOptions.summaryMinBullets,
+        summaryMaxBullets: options.summaryMaxBullets ?? defaultTuningOptions.summaryMaxBullets,
+        temperature: options.temperature ?? defaultTuningOptions.temperature,
+        sensitivity: options.sensitivity ?? defaultTuningOptions.sensitivity,
+      };
+      localStorage.setItem(TUNING_STORAGE_KEY, JSON.stringify(toSave));
+      console.log("[LocalTranscriber] Tuning options saved");
+      return true;
+    } catch (e) {
+      console.error("[LocalTranscriber] Failed to save tuning options:", e);
+      return false;
+    }
+  }
+
+  function resetTuningOptions() {
+    localStorage.removeItem(TUNING_STORAGE_KEY);
+    console.log("[LocalTranscriber] Tuning options reset to defaults");
+    return { ...defaultTuningOptions };
+  }
+
   let transformersModulePromise = null;
   let webLlmModulePromise = null;
   const asrPipelineCache = new Map();
@@ -848,13 +905,14 @@ Rules:
       onProgress?.(Math.min(94, Math.max(86, pct)), text);
     });
 
-    // Use customizable prompt templates
+    // Use customizable prompt templates and tuning options
     const templates = getPromptTemplates();
+    const tuning = getTuningOptions();
     const prompt = buildFormattingPrompt(transcript, whisperModel, language, {
-      strictTranscript: true,
-      includeActionItems: true,
-      summaryMinBullets: 3,
-      summaryMaxBullets: 8
+      strictTranscript: tuning.strictTranscript,
+      includeActionItems: tuning.includeActionItems,
+      summaryMinBullets: tuning.summaryMinBullets,
+      summaryMaxBullets: tuning.summaryMaxBullets
     });
 
     const completion = await engine.chat.completions.create({
@@ -862,7 +920,7 @@ Rules:
         { role: "system", content: templates.systemMessage },
         { role: "user", content: prompt }
       ],
-      temperature: 0.2,
+      temperature: tuning.temperature,
     });
 
     const text = normalizeCompletionText(completion);
@@ -1414,6 +1472,11 @@ Rules:
     resetPromptTemplates,
     getDefaultPromptTemplates,
     buildFormattingPrompt,
+    
+    // Tuning options (formatting behavior)
+    getTuningOptions,
+    setTuningOptions,
+    resetTuningOptions,
     
     // WebLLM
     listWebLlmModels,
