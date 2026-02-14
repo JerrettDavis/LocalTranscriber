@@ -469,10 +469,16 @@
 }
 
 .tab-row {
+    align-items: center;
     display: flex;
     flex-wrap: wrap;
     gap: 0.45rem;
     width: min(980px, 100%);
+}
+
+.toolbar-spacer {
+    flex-grow: 1;
+    min-width: 1rem;
 }
 
 .result-edit-toolbar {

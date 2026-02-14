@@ -63,9 +63,14 @@
                 <button class="@GetTabClass(ResultTab.Final)" type="button" @onclick="() => SetResultTab(ResultTab.Final)">Processed</button>
                 <button class="@GetTabClass(ResultTab.Raw)" type="button" @onclick="() => SetResultTab(ResultTab.Raw)">Raw</button>
                 <button class="@GetTabClass(ResultTab.Logs)" type="button" @onclick="() => SetResultTab(ResultTab.Logs)">Logs</button>
+                
+                <span class="toolbar-spacer"></span>
+                
+                <button class="chip-btn" type="button" @onclick="CopyToClipboardAsync">Copy to Clipboard</button>
+                <button class="chip-btn" type="button" @onclick="ExportMarkdownAsync">Export Markdown</button>
             </div>
 
-            <div class="result-edit-toolbar">
+            <div class="result-edit-toolbar" style="display:none">
                 <button class="chip-btn" type="button" @onclick="CopyToClipboardAsync">Copy to Clipboard</button>
                 <button class="chip-btn" type="button" @onclick="ExportMarkdownAsync">Export Markdown</button>
             </div>
@@ -532,7 +537,7 @@
 
     private void BackToCapture() => _minimalStage = MinimalStage.Capture;
     private void SetResultTab(ResultTab tab) => _activeTab = tab;
-    private string GetTabClass(ResultTab tab) => _activeTab == tab ? "tab active" : "tab";
+    private string GetTabClass(ResultTab tab) => _activeTab == tab ? "tab-btn active" : "tab-btn";
     private string GetRecordClass() => _isRecording ? "recording" : "";
     private List<ProgressItem> GetLatestLogs(int count) => _timeline.Take(count).ToList();
 
