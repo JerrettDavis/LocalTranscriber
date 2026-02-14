@@ -2367,3 +2367,14 @@ audio {
     border-color: color-mix(in srgb, var(--success) 48%, transparent);
     color: var(--ink-subtle);
 }
+
+button.phase-pill.completed {
+    cursor: pointer;
+    font-family: inherit;
+}
+
+button.phase-pill.completed:hover {
+    background: color-mix(in srgb, var(--success) 32%, var(--surface-elevated));
+    border-color: color-mix(in srgb, var(--success) 70%, transparent);
+    color: var(--ink-strong);
+}

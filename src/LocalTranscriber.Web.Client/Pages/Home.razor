@@ -20,8 +20,16 @@
                 <div class="phase-progress-bar">
                     @for (var i = 0; i < _phaseNames.Count; i++)
                     {
+                        var idx = i;
                         var status = i < _currentPhaseIndex ? "completed" : i == _currentPhaseIndex ? "active" : "pending";
-                        <div class="phase-pill @status" title="@_phaseNames[i]">@_phaseNames[i]</div>
+                        @if (status == "completed")
+                        {
+                            <button class="phase-pill @status" type="button" title="Go back to @_phaseNames[idx]" @onclick="() => NavigateToPhaseAsync(idx)">@_phaseNames[idx]</button>
+                        }
+                        else
+                        {
+                            <div class="phase-pill @status" title="@_phaseNames[idx]">@_phaseNames[idx]</div>
+                        }
                     }
                 </div>
             }
@@ -64,8 +72,16 @@
                 <div class="phase-progress-bar">
                     @for (var i = 0; i < _phaseNames.Count; i++)
                     {
+                        var idx = i;
                         var status = i < _currentPhaseIndex ? "completed" : i == _currentPhaseIndex ? "active" : "pending";
-                        <div class="phase-pill @status" title="@_phaseNames[i]">@_phaseNames[i]</div>
+                        @if (status == "completed")
+                        {
+                            <button class="phase-pill @status" type="button" title="Go back to @_phaseNames[idx]" @onclick="() => NavigateToPhaseAsync(idx)">@_phaseNames[idx]</button>
+                        }
+                        else
+                        {
+                            <div class="phase-pill @status" title="@_phaseNames[idx]">@_phaseNames[idx]</div>
+                        }
                     }
                 </div>
             }
@@ -78,6 +94,8 @@
                 Prompts="@_interactivePrompts"
                 InputText="@_interactiveInputText"
                 InteractionId="@_interactiveId"
+                PreviousRecordings="@_interactivePreviousRecordings"
+                OrphanedRecordings="@_interactiveOrphanedRecordings"
                 OnChoiceCompleted="HandleChoiceCompleted"
                 OnMultiRecordCompleted="HandleMultiRecordCompleted"
                 OnReviewCompleted="HandleReviewCompleted" />
@@ -544,6 +562,8 @@
     private List<LocalTranscriber.Web.Client.Components.InteractiveStepHost.ChoiceOption>? _interactiveChoices;
     private List<string>? _interactivePrompts;
     private string? _interactiveInputText;
+    private Dictionary<string, LocalTranscriber.Web.Client.Components.InteractiveStepHost.PreviousRecordingEntry>? _interactivePreviousRecordings;
+    private Dictionary<string, LocalTranscriber.Web.Client.Components.InteractiveStepHost.OrphanedRecordingEntry>? _interactiveOrphanedRecordings;
     private List<string> _phaseNames = new();
     private int _currentPhaseIndex = -1;
 
@@ -901,6 +921,12 @@
                 _dotNetRef,
                 _activeJobId);
 
+            if (result.Navigated == true)
+            {
+                // Execution was aborted for backward navigation — new execution started independently
+                return;
+            }
+
             _rawWhisperText = result.RawWhisperText;
             _markdownOutput = result.Markdown ?? result.SpeakerLabeledText ?? result.RawWhisperText;
             _statusMessage = "Complete!";
@@ -970,6 +996,8 @@
                     _interactiveChoices = null;
                     _interactivePrompts = msg.Prompts;
                     _interactiveInputText = null;
+                    _interactivePreviousRecordings = msg.PreviousRecordings;
+                    _interactiveOrphanedRecordings = msg.OrphanedRecordings;
                     _minimalStage = MinimalStage.Interactive;
                     break;
             }
@@ -1031,8 +1059,8 @@
         _minimalStage = MinimalStage.Processing;
         StateHasChanged();
 
-        var recordings = result.Pairs.Select(p => new { question = p.Question, answer = p.Answer }).ToArray();
-        await JS.InvokeVoidAsync("localTranscriberWorkflow.completeMultiRecord", id, recordings);
+        var recordings = result.Pairs.Select(p => new { text = p.Answer }).ToArray();
+        await JS.InvokeVoidAsync("localTranscriberWorkflow.completeMultiRecord", id, recordings, result.DeletedOrphanKeys ?? new List<string>());
     }
 
     private async Task HandleReviewCompleted(LocalTranscriber.Web.Client.Components.InteractiveStepHost.ReviewResult result)
@@ -1053,6 +1081,27 @@
         _interactiveChoices = null;
         _interactivePrompts = null;
         _interactiveInputText = null;
+        _interactivePreviousRecordings = null;
+        _interactiveOrphanedRecordings = null;
+    }
+
+    private async Task NavigateToPhaseAsync(int targetPhaseIndex)
+    {
+        ClearInteractiveState();
+        _minimalStage = MinimalStage.Processing;
+        _statusMessage = "Navigating...";
+        StateHasChanged();
+        await JS.InvokeVoidAsync("localTranscriberWorkflow.navigateToPhase", targetPhaseIndex);
+    }
+
+    [JSInvokable]
+    public async Task OnWorkflowPhaseNavigated(int targetPhaseIndex)
+    {
+        ClearInteractiveState();
+        _currentPhaseIndex = targetPhaseIndex;
+        _minimalStage = MinimalStage.Processing;
+        _statusMessage = "Navigating...";
+        await InvokeAsync(StateHasChanged);
     }
 
     private BrowserAudioInput? BuildAudioInput()
@@ -1242,7 +1291,7 @@
     private record ServiceWorkerStatsJs(bool Registered, string? Scope, string? State);
 
     // Workflow execution result (returned by executeActiveWorkflow)
-    private record WorkflowExecutionResult(string? RawWhisperText, string? SpeakerLabeledText, string? Markdown, int? DetectedSpeakerCount);
+    private record WorkflowExecutionResult(string? RawWhisperText, string? SpeakerLabeledText, string? Markdown, int? DetectedSpeakerCount, bool? Navigated);
 
     // Workflow progress message (from OnWorkflowProgress callback)
     public record WorkflowProgressMessage(
@@ -1254,7 +1303,10 @@
         string? InputText, string? Instructions,
         List<WorkflowChoiceOption>? Choices, List<string>? Prompts,
         // Result fields
-        string? RawWhisperText, string? SpeakerLabeledText, string? Markdown, int? DetectedSpeakerCount);
+        string? RawWhisperText, string? SpeakerLabeledText, string? Markdown, int? DetectedSpeakerCount,
+        // Recording navigation fields
+        Dictionary<string, LocalTranscriber.Web.Client.Components.InteractiveStepHost.PreviousRecordingEntry>? PreviousRecordings,
+        Dictionary<string, LocalTranscriber.Web.Client.Components.InteractiveStepHost.OrphanedRecordingEntry>? OrphanedRecordings);
     public record WorkflowChoiceOption(string Label, string? Target);
 
     // V2 workflow interactive event types

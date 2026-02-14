@@ -78,6 +78,28 @@
                     }
                 </div>
 
+                @if (OrphanedRecordings is { Count: > 0 })
+                {
+                    <div class="orphan-section">
+                        <h4>Previous answers (questions changed)</h4>
+                        @foreach (var orphan in OrphanedRecordings)
+                        {
+                            var key = orphan.Key;
+                            @if (!_deletedOrphanKeys.Contains(key))
+                            {
+                                <div class="orphan-item">
+                                    <div class="orphan-header">
+                                        <span class="orphan-tag">Orphaned</span>
+                                        <span class="orphan-question">@orphan.Value.Question</span>
+                                        <button class="orphan-delete-btn" type="button" @onclick="() => DeleteOrphan(key)">Delete</button>
+                                    </div>
+                                    <p class="orphan-answer">@orphan.Value.Answer</p>
+                                </div>
+                            }
+                        }
+                    </div>
+                }
+
                 @if (_completedCount == (Prompts?.Count ?? 0) && _completedCount > 0)
                 {
                     <button class="submit-all-btn" type="button" @onclick="SubmitAllRecordings">
@@ -122,13 +144,17 @@
     [Parameter] public string? InputText { get; set; }
     [Parameter] public bool ShowPlayback { get; set; }
     [Parameter] public string? InteractionId { get; set; }
+    [Parameter] public Dictionary<string, PreviousRecordingEntry>? PreviousRecordings { get; set; }
+    [Parameter] public Dictionary<string, OrphanedRecordingEntry>? OrphanedRecordings { get; set; }
     [Parameter] public EventCallback<ChoiceResult> OnChoiceCompleted { get; set; }
     [Parameter] public EventCallback<MultiRecordResult> OnMultiRecordCompleted { get; set; }
     [Parameter] public EventCallback<ReviewResult> OnReviewCompleted { get; set; }
 
     private Dictionary<int, RecordingEntry> _recordings = new();
+    private HashSet<string> _deletedOrphanKeys = new();
     private int _activeRecordingIndex = -1;
     private string _reviewText = "";
+    private string? _lastInteractionId;
     private int _completedCount => _recordings.Count;
     private double ProgressPercent => Prompts?.Count > 0 ? (double)_completedCount / Prompts.Count * 100 : 0;
 
@@ -138,6 +164,30 @@
         {
             _reviewText = InputText;
         }
+
+        // Pre-populate recordings from previous answers when interaction changes
+        if (StepType == "multiRecord" && InteractionId != _lastInteractionId)
+        {
+            _lastInteractionId = InteractionId;
+            _recordings.Clear();
+            _deletedOrphanKeys.Clear();
+
+            if (PreviousRecordings != null && Prompts != null)
+            {
+                foreach (var kvp in PreviousRecordings)
+                {
+                    if (int.TryParse(kvp.Key, out var index) && index >= 0 && index < Prompts.Count)
+                    {
+                        _recordings[index] = new RecordingEntry("", "", kvp.Value.Answer);
+                    }
+                }
+            }
+        }
+    }
+
+    private void DeleteOrphan(string key)
+    {
+        _deletedOrphanKeys.Add(key);
     }
 
     private async Task OnChoiceSelected(ChoiceOption choice)
@@ -208,7 +258,7 @@
             pairs.Add(new QAPair(Prompts[i], transcription));
         }
 
-        await OnMultiRecordCompleted.InvokeAsync(new MultiRecordResult(pairs));
+        await OnMultiRecordCompleted.InvokeAsync(new MultiRecordResult(pairs, _deletedOrphanKeys.ToList()));
     }
 
     private async Task ApproveReview()
@@ -219,9 +269,11 @@
     // Models
     public record ChoiceOption(string Label, string? Target);
     public record ChoiceResult(string SelectedLabel, string? SelectedTarget);
-    public record MultiRecordResult(List<QAPair> Pairs);
+    public record MultiRecordResult(List<QAPair> Pairs, List<string>? DeletedOrphanKeys = null);
     public record QAPair(string Question, string Answer);
     public record ReviewResult(string Text, bool Approved);
+    public record PreviousRecordingEntry(string Question, string Answer);
+    public record OrphanedRecordingEntry(string Question, string Answer);
     private record RecordingEntry(string Base64, string MimeType, string? Transcription);
     private record RecordingPayload(string Base64, string MimeType, string FileName);
     private record TranscriptionResult(string Text);
