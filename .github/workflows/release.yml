@@ -4,31 +4,73 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      force_release:
+        description: "Force a release even without conventional commit triggers"
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: write
-  pull-requests: write
   packages: write
 
 jobs:
-  release-please:
+  version:
+    name: Compute Version
     runs-on: ubuntu-latest
     outputs:
-      release_created: ${{ steps.release.outputs.release_created }}
-      tag_name: ${{ steps.release.outputs.tag_name }}
-      version: ${{ steps.release.outputs.version }}
+      version: ${{ steps.nbgv.outputs.Version }}
+      simple_version: ${{ steps.nbgv.outputs.SimpleVersion }}
+      semver2: ${{ steps.nbgv.outputs.SemVer2 }}
+      should_release: ${{ steps.check.outputs.should_release }}
     steps:
-      - name: Release Please
-        id: release
-        uses: googleapis/release-please-action@v4
+      - name: Checkout
+        uses: actions/checkout@v4
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          config-file: release-please-config.json
-          manifest-file: .release-please-manifest.json
+          fetch-depth: 0
 
-  build-and-publish:
-    needs: release-please
-    if: ${{ needs.release-please.outputs.release_created }}
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Install NBGV
+        run: dotnet tool install --global nbgv
+
+      - name: Get Version
+        id: nbgv
+        run: |
+          echo "Version=$(nbgv get-version -v Version)" >> "$GITHUB_OUTPUT"
+          echo "SimpleVersion=$(nbgv get-version -v SimpleVersion)" >> "$GITHUB_OUTPUT"
+          echo "SemVer2=$(nbgv get-version -v SemVer2)" >> "$GITHUB_OUTPUT"
+
+      - name: Check for release triggers
+        id: check
+        run: |
+          LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          
+          if [ -z "$LAST_TAG" ]; then
+            COMMITS=$(git log --oneline)
+          else
+            COMMITS=$(git log ${LAST_TAG}..HEAD --oneline)
+          fi
+          
+          FEAT=$(echo "$COMMITS" | grep -iE "^[a-f0-9]+ feat(\(.+\))?:" || true)
+          FIX=$(echo "$COMMITS" | grep -iE "^[a-f0-9]+ fix(\(.+\))?:" || true)
+          BREAKING=$(echo "$COMMITS" | grep -iE "^[a-f0-9]+ (feat|fix|refactor|perf)(\(.+\))?!:" || true)
+          
+          SHOULD_RELEASE="false"
+          if [ "${{ inputs.force_release }}" = "true" ] || [ -n "$BREAKING" ] || [ -n "$FEAT" ] || [ -n "$FIX" ]; then
+            SHOULD_RELEASE="true"
+          fi
+          
+          echo "should_release=$SHOULD_RELEASE" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Build Release Artifacts
+    needs: version
+    if: needs.version.outputs.should_release == 'true'
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -44,6 +86,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
@@ -59,26 +103,20 @@ jobs:
       - name: Publish CLI (${{ matrix.rid }})
         run: |
           dotnet publish src/LocalTranscriber.Cli/LocalTranscriber.Cli.csproj \
-            -c Release \
-            -r ${{ matrix.rid }} \
-            --self-contained true \
-            -p:PublishSingleFile=true \
-            -p:EnableCompressionInSingleFile=true \
+            -c Release -r ${{ matrix.rid }} --self-contained true \
+            -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true \
             -o artifacts/cli-${{ matrix.rid }}
 
       - name: Publish Web (${{ matrix.rid }})
         run: |
           dotnet publish src/LocalTranscriber.Web/LocalTranscriber.Web.csproj \
-            -c Release \
-            -r ${{ matrix.rid }} \
-            --self-contained true \
+            -c Release -r ${{ matrix.rid }} --self-contained true \
             -o artifacts/web-${{ matrix.rid }}
 
       - name: Package artifacts
         run: |
-          VERSION="${{ needs.release-please.outputs.version }}"
+          VERSION="${{ needs.version.outputs.semver2 }}"
           mkdir -p dist
-          
           if [[ "${{ matrix.rid }}" == win-* ]]; then
             cd artifacts/cli-${{ matrix.rid }} && zip -r ../../dist/${{ matrix.artifact }}-cli-${VERSION}.zip . && cd ../..
             cd artifacts/web-${{ matrix.rid }} && zip -r ../../dist/${{ matrix.artifact }}-web-${VERSION}.zip . && cd ../..
@@ -92,27 +130,45 @@ jobs:
         with:
           name: ${{ matrix.artifact }}
           path: dist/*
-          if-no-files-found: error
 
-  create-release:
-    needs: [release-please, build-and-publish]
+  release:
+    name: Create GitHub Release
+    needs: [version, build]
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
           path: dist
           merge-multiple: true
 
-      - name: Upload to GitHub Release
+      - name: Create tag
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          TAG="v${{ needs.version.outputs.semver2 }}"
+          if ! git rev-parse "$TAG" >/dev/null 2>&1; then
+            git tag "$TAG"
+            git push origin "$TAG"
+          fi
+
+      - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ needs.release-please.outputs.tag_name }}
+          tag_name: v${{ needs.version.outputs.semver2 }}
+          name: LocalTranscriber v${{ needs.version.outputs.semver2 }}
+          generate_release_notes: true
           files: dist/*
 
   docker-release:
-    needs: release-please
-    if: ${{ needs.release-please.outputs.release_created }}
+    name: Docker Release
+    needs: version
+    if: needs.version.outputs.should_release == 'true'
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -131,7 +187,7 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Log in to GitHub Container Registry
+      - name: Log in to GHCR
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -144,11 +200,10 @@ jobs:
           context: .
           platforms: ${{ matrix.variant == 'cuda' && 'linux/amd64' || 'linux/amd64,linux/arm64' }}
           target: ${{ matrix.target }}
-          build-args: |
-            VARIANT=${{ matrix.variant }}
+          build-args: VARIANT=${{ matrix.variant }}
           push: true
           tags: |
-            ghcr.io/${{ github.repository }}:${{ matrix.target }}-${{ matrix.variant }}-${{ needs.release-please.outputs.version }}
+            ghcr.io/${{ github.repository }}:${{ matrix.target }}-${{ matrix.variant }}-${{ needs.version.outputs.simple_version }}
             ghcr.io/${{ github.repository }}:${{ matrix.target }}-${{ matrix.variant }}-latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
