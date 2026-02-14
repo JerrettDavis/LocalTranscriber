@@ -507,9 +507,9 @@ window.localTranscriberBrowser = (() => {
 
   function applyMirrorToEnv(transformers, mirrorUrl) {
     if (transformers?.env) {
+      // Only set remoteHost - don't override remotePathTemplate
+      // transformers.js already has the correct HF path format built-in
       transformers.env.remoteHost = mirrorUrl;
-      // HuggingFace path template: /{model}/resolve/{revision}/{file}
-      transformers.env.remotePathTemplate = "{model}/resolve/{revision}/{file}";
     }
   }
 
