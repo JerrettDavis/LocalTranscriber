@@ -387,6 +387,18 @@
     opacity: 0.55;
 }
 
+.settings-row.compact {
+    grid-template-columns: 1fr;
+    max-width: 320px;
+}
+
+.settings-hint {
+    color: var(--ink-muted);
+    font-size: 0.8rem;
+    font-style: italic;
+    margin: 0.5rem 0 0;
+}
+
 /* Toggle row - checkbox with label above */
 .settings-row .toggle-row {
     display: grid;

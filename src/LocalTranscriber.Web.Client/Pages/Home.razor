@@ -183,35 +183,7 @@
                                 </select>
                             </label>
 
-                            <div class="settings-row">
-                                <label>
-                                    <span>Model</span>
-                                    <select @bind="_model" disabled="@_isSubmitting">
-                                        @foreach (var model in _models)
-                                        {
-                                            <option value="@model">@model</option>
-                                        }
-                                    </select>
-                                </label>
-
-                                <label>
-                                    <span>WebLLM Model</span>
-                                    <select @bind="_webLlmModel" disabled="@_isSubmitting">
-                                        @foreach (var model in _webLlmModelPresets)
-                                        {
-                                            <option value="@model">@model</option>
-                                        }
-                                    </select>
-                                </label>
-
-                                <label class="toggle-label">
-                                    <span>Detect Speakers</span>
-                                    <div class="toggle-switch">
-                                        <input type="checkbox" @bind="_enableSpeakerLabels" disabled="@_isSubmitting" />
-                                        <span class="toggle-slider"></span>
-                                    </div>
-                                </label>
-
+                            <div class="settings-row compact">
                                 <label>
                                     <span>Model Mirror @(_mirrorStatus)</span>
                                     <select @bind="_selectedMirror" @bind:after="OnMirrorChangedAsync" disabled="@_isSubmitting">
@@ -222,6 +194,8 @@
                                     </select>
                                 </label>
                             </div>
+
+                            <p class="settings-hint">Configure models and processing steps in the Workflow editor below.</p>
 
                     @* Advanced Settings Section *@
                     <details class="settings-accordion">
