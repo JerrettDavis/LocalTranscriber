@@ -190,6 +190,7 @@ Rules:
   let transformersModulePromise = null;
   let webLlmModulePromise = null;
   const asrPipelineCache = new Map();
+  let wasmRuntimeCorrupted = false;
   const webLlmEngineCache = new Map();
   let preferredMirror = null; // Set by user or auto-detected
   let originalFetch = null; // For GitHub Releases URL rewriting
@@ -588,15 +589,47 @@ Rules:
     await dotNetRef.invokeMethodAsync("OnBrowserProgress", payload);
   }
 
+  // Detect whether an inference error indicates the WASM runtime is
+  // irrecoverably corrupted (e.g. std::bad_alloc, table index OOB).
+  function isWasmFatalError(msg) {
+    return /std::bad_alloc|table index is out of bounds|out of memory|memory access out of bounds|unreachable/i.test(msg);
+  }
+
+  // Check if an error is an ONNX/WASM inference crash (recoverable or not).
+  function isInferenceError(msg) {
+    return msg.includes("OrtRun") || /table index|std::bad_alloc|out of memory|RuntimeError.*wasm/i.test(msg);
+  }
+
   // Run ASR inference with OrtRun error recovery.
   // If the ONNX runtime crashes (e.g. corrupted model cache), evict the
   // cached pipeline, reload the model, and retry once before giving up.
+  // WASM-fatal errors (std::bad_alloc, table OOB) are unrecoverable within
+  // the current session and require a page reload.
   async function runAsrWithRecovery(asr, audioData, options, modelName, onProgress) {
+    if (wasmRuntimeCorrupted) {
+      throw new Error(
+        "The WebAssembly runtime crashed during a previous transcription and cannot recover. " +
+        "Please reload the page to try again. If this keeps happening, try a smaller model (e.g. SmallEn)."
+      );
+    }
+
     try {
       return await asr(audioData, options);
     } catch (err) {
       const msg = String(err?.message || err);
-      if (!msg.includes("OrtRun")) throw err;
+
+      // Check for WASM-fatal errors that corrupt the runtime
+      if (isWasmFatalError(msg)) {
+        wasmRuntimeCorrupted = true;
+        console.error("[LocalTranscriber] WASM runtime crashed (unrecoverable). A page reload is required.", err);
+        throw new Error(
+          "The WebAssembly runtime ran out of memory and is in a corrupted state. " +
+          "Please reload the page and try a smaller model (e.g. SmallEn or TinyEn)."
+        );
+      }
+
+      // Only attempt recovery for inference-related errors
+      if (!isInferenceError(msg)) throw err;
 
       console.warn("[LocalTranscriber] OrtRun error detected — evicting cached pipeline and retrying...");
 
@@ -608,11 +641,38 @@ Rules:
       // Also clear the browser model cache in case files are corrupted
       try { await clearModelCache(); } catch { /* best-effort */ }
 
+      // Reset the transformers module in case internal state is corrupted
+      transformersModulePromise = null;
+
       // Reload pipeline from scratch
-      const freshAsr = await getWhisperPipeline(modelName, onProgress);
+      let freshAsr;
+      try {
+        freshAsr = await getWhisperPipeline(modelName, onProgress);
+      } catch (reloadErr) {
+        // Model reload failed — WASM runtime is likely corrupted
+        wasmRuntimeCorrupted = true;
+        console.error("[LocalTranscriber] Model reload failed after OrtRun error. WASM runtime may be corrupted.", reloadErr);
+        throw new Error(
+          "Model reload failed after a runtime error. The WebAssembly runtime may be corrupted. " +
+          "Please reload the page and try a smaller model (e.g. SmallEn or TinyEn)."
+        );
+      }
 
       // Retry once — if this also fails, let it propagate
-      return await freshAsr(audioData, options);
+      try {
+        return await freshAsr(audioData, options);
+      } catch (retryErr) {
+        const retryMsg = String(retryErr?.message || retryErr);
+        if (isWasmFatalError(retryMsg)) {
+          wasmRuntimeCorrupted = true;
+          console.error("[LocalTranscriber] WASM runtime crashed on retry. Page reload required.", retryErr);
+          throw new Error(
+            "The WebAssembly runtime crashed again on retry. " +
+            "Please reload the page and try a smaller model (e.g. SmallEn or TinyEn)."
+          );
+        }
+        throw retryErr;
+      }
     }
   }
 
@@ -1615,8 +1675,16 @@ Rules:
       }, resolvedModel, (pct) => {
         if (onProgress) onProgress(30 + pct * 0.2, "Reloading model...");
       });
-    } catch {
-      asrResult = await runAsrWithRecovery(asr, audioData, {
+    } catch (wordTsErr) {
+      // If the WASM runtime is corrupted, don't retry — let the error propagate
+      if (wasmRuntimeCorrupted) throw wordTsErr;
+
+      // Word-level timestamps failed — retry with segment timestamps.
+      // Get a fresh pipeline reference in case the old one was evicted.
+      const freshAsr = await getWhisperPipeline(resolvedModel, (pct) => {
+        if (onProgress) onProgress(30 + pct * 0.2, "Reloading model...");
+      });
+      asrResult = await runAsrWithRecovery(freshAsr, audioData, {
         chunk_length_s: 30,
         stride_length_s: 5,
         return_timestamps: true,
