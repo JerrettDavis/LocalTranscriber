@@ -65,7 +65,7 @@ window.localTranscriberWorkflow = (() => {
       icon: "🎤",
       category: "input",
       configSchema: {
-        model: { type: "select", label: "Model", options: ["TinyEn", "SmallEn", "MediumEn"], default: "SmallEn" },
+        model: { type: "select", label: "Model", options: ["TinyEn", "SmallEn", "MediumEn", "Large V2 (Server)", "Large V3 (Server)", "Large V3 Turbo (Server)"], default: "SmallEn" },
         language: { type: "select", label: "Language", options: ["auto", "en", "es", "fr", "de", "ja", "zh"], default: "auto" },
       },
       inputs: ["audio"],
@@ -300,7 +300,7 @@ window.localTranscriberWorkflow = (() => {
       configSchema: {
         promptsVariable: { type: "text", label: "Prompts Variable (context path to array)", default: "variables.questions" },
         instructions: { type: "textarea", label: "Instructions", default: "Record your answer for each question below." },
-        transcribeModel: { type: "select", label: "Transcribe Model", options: ["TinyEn", "SmallEn", "MediumEn"], default: "SmallEn" },
+        transcribeModel: { type: "select", label: "Transcribe Model", options: ["TinyEn", "SmallEn", "MediumEn", "Large V2 (Server)", "Large V3 (Server)", "Large V3 Turbo (Server)"], default: "SmallEn" },
         outputVariable: { type: "text", label: "Store Answers In Variable", default: "answers" },
         outputFormat: { type: "select", label: "Output Format", options: ["text-array", "qa-pairs"], default: "qa-pairs" },
       },
@@ -1088,7 +1088,8 @@ window.localTranscriberWorkflow = (() => {
 
       onProgress(30, "Transcribing audio...");
 
-      const result = await browser.transcribeAudio?.(context.audio, step.config.model, step.config.language, (p, m) => {
+      const modelName = (step.config.model || "SmallEn").replace(/\s*\(Server\)$/i, "");
+      const result = await browser.transcribeAudio?.(context.audio, modelName, step.config.language, (p, m) => {
         onProgress(30 + p * 0.6, m);
       });
 
@@ -1439,7 +1440,7 @@ window.localTranscriberWorkflow = (() => {
           multiRecordId,
           prompts,
           instructions: step.config.instructions,
-          transcribeModel: step.config.transcribeModel,
+          transcribeModel: (step.config.transcribeModel || "SmallEn").replace(/\s*\(Server\)$/i, ""),
           previousRecordings,
           orphanedRecordings,
         });

@@ -526,7 +526,13 @@
 </div>
 
 @code {
-    private static readonly string[] _models = ["Tiny", "TinyEn", "Base", "BaseEn", "Small", "SmallEn"];
+    private static readonly string[] _models = ["Tiny", "TinyEn", "Base", "BaseEn", "Small", "SmallEn", "Medium", "MediumEn", "LargeV2", "LargeV3", "LargeV3Turbo"];
+    private static readonly Dictionary<string, string> _serverOnlyModels = new()
+    {
+        ["LargeV2"] = "SERVER",
+        ["LargeV3"] = "SERVER",
+        ["LargeV3Turbo"] = "SERVER",
+    };
     private static readonly string[] _defaultWebLlmModels =
     [
         "Llama-3.1-8B-Instruct-q4f16_1-MLC",
@@ -1186,6 +1192,9 @@
     }
 
     private void BackToCapture() => _minimalStage = MinimalStage.Capture;
+
+    private static string GetModelTag(string model) => _serverOnlyModels.ContainsKey(model) ? " (Server)" : "";
+    private static bool IsModelDisabled(string model) => _serverOnlyModels.ContainsKey(model);
 
     private void OnActiveWorkflowChanged(LocalTranscriber.Web.Client.Components.WorkflowEditor.WorkflowModel? workflow)
     {

@@ -1,22 +1,16 @@
 window.localTranscriberBrowser = (() => {
-  const whisperModelMap = {
-    tiny: "Xenova/whisper-tiny",
-    tinyen: "Xenova/whisper-tiny.en",
-    base: "Xenova/whisper-base",
-    baseen: "Xenova/whisper-base.en",
-    small: "Xenova/whisper-small",
-    smallen: "Xenova/whisper-small.en",
-    medium: "Xenova/whisper-medium",
-    mediumen: "Xenova/whisper-medium.en",
-  };
-
-  // Models that are gated or incompatible with @xenova/transformers v2.
-  // Silently fall back to the best available alternative.
-  const deprecatedModelFallbacks = {
-    largev1: "smallen",
-    largev2: "smallen",
-    largev3: "smallen",
-    largev3turbo: "smallen",
+  const modelRegistry = {
+    tiny:          { id: "Xenova/whisper-tiny",      label: "Tiny",             memoryMB: 150,  targets: ["browser"], lang: "multi" },
+    tinyen:        { id: "Xenova/whisper-tiny.en",    label: "TinyEn",           memoryMB: 150,  targets: ["browser"], lang: "en" },
+    base:          { id: "Xenova/whisper-base",       label: "Base",             memoryMB: 250,  targets: ["browser"], lang: "multi" },
+    baseen:        { id: "Xenova/whisper-base.en",    label: "BaseEn",           memoryMB: 250,  targets: ["browser"], lang: "en" },
+    small:         { id: "Xenova/whisper-small",      label: "Small",            memoryMB: 500,  targets: ["browser"], lang: "multi" },
+    smallen:       { id: "Xenova/whisper-small.en",   label: "SmallEn",          memoryMB: 500,  targets: ["browser"], lang: "en" },
+    medium:        { id: "Xenova/whisper-medium",     label: "Medium",           memoryMB: 1500, targets: ["browser"], lang: "multi" },
+    mediumen:      { id: "Xenova/whisper-medium.en",  label: "MediumEn",         memoryMB: 1500, targets: ["browser"], lang: "en" },
+    largev2:       { id: "Systran/faster-whisper-large-v2",       label: "Large V2",       memoryMB: 3000, targets: ["server"], lang: "multi" },
+    largev3:       { id: "Systran/faster-whisper-large-v3",       label: "Large V3",       memoryMB: 3000, targets: ["server"], lang: "multi" },
+    largev3turbo:  { id: "Systran/faster-whisper-large-v3-turbo", label: "Large V3 Turbo", memoryMB: 2000, targets: ["server"], lang: "multi" },
   };
 
   // Mirror configuration for model downloads
@@ -266,6 +260,20 @@ Rules:
     };
   }
 
+  function getModelRegistry() {
+    const caps = getCapabilities();
+    return Object.entries(modelRegistry).map(([key, entry]) => ({
+      key,
+      label: entry.label,
+      browserAvailable: entry.targets.includes("browser"),
+      serverAvailable: entry.targets.includes("server"),
+      memoryMB: entry.memoryMB,
+      memoryBlocked: entry.targets.includes("browser") && caps.isMobile && caps.estimatedMemoryMB < entry.memoryMB,
+      lang: entry.lang,
+      tag: !entry.targets.includes("browser") ? "SERVER" : null,
+    }));
+  }
+
   function getRecommendedModels(isMobile, memoryMB) {
     // Model approximate memory requirements (MB):
     // tiny: ~150MB, base: ~250MB, small: ~500MB, medium: ~1500MB
@@ -282,14 +290,9 @@ Rules:
 
   function checkMemoryForModel(modelName) {
     const caps = getCapabilities();
-    const modelMemory = {
-      tiny: 150, tinyen: 150,
-      base: 250, baseen: 250,
-      small: 500, smallen: 500,
-      medium: 1500, mediumen: 1500,
-    };
-    const normalized = modelName.toLowerCase().replace(/[^a-z]/g, "");
-    const required = modelMemory[normalized] || 500;
+    const normalized = modelName.toLowerCase().replace(/[^a-z0-9]/g, "");
+    const entry = modelRegistry[normalized];
+    const required = entry ? entry.memoryMB : 500;
     const available = caps.estimatedMemoryMB;
     
     const blocked = caps.isMobile && available < required;
@@ -595,7 +598,7 @@ Rules:
       return instance;
     } catch (err) {
       // If the requested model failed and isn't already the default, silently fall back to SmallEn
-      const fallbackId = whisperModelMap.smallen;
+      const fallbackId = modelRegistry.smallen.id;
       if (modelId !== fallbackId) {
         console.warn(`[LocalTranscriber] Model "${modelId}" failed to load. Falling back to SmallEn.`);
         const fallbackKey = `webgpu:${fallbackId}`;
@@ -1393,14 +1396,17 @@ Rules:
   }
 
   function resolveWhisperModel(modelName) {
-    const key = normalizeText(modelName).toLowerCase().replace(/\s+/g, "");
-    if (whisperModelMap[key]) return whisperModelMap[key];
-    if (deprecatedModelFallbacks[key]) {
-      const fallbackKey = deprecatedModelFallbacks[key];
-      console.warn(`[LocalTranscriber] Model "${modelName}" is unavailable (gated/incompatible). Using ${fallbackKey} instead.`);
-      return whisperModelMap[fallbackKey];
+    const key = normalizeText(modelName).toLowerCase().replace(/[\s\-_.]/g, "");
+    const entry = modelRegistry[key];
+    if (entry && entry.targets.includes("browser")) return entry.id;
+    // Model exists but not for browser — silent fallback
+    if (entry) {
+      console.info(`[LocalTranscriber] Model "${modelName}" requires server target. Using SmallEn for browser execution.`);
+      return modelRegistry.smallen.id;
     }
-    return whisperModelMap.smallen;
+    // Unknown model — fallback
+    console.warn(`[LocalTranscriber] Unknown model "${modelName}". Using SmallEn.`);
+    return modelRegistry.smallen.id;
   }
 
   async function decodeToMono16kFloat32(base64) {
@@ -1671,6 +1677,9 @@ Rules:
     buildSpeakerLabeledTranscript,
     formatWithWebLlm,
     
+    // Model registry
+    getModelRegistry,
+
     // Mobile / Memory management
     checkMemoryForModel,
     getRecommendedModels: () => getCapabilities().recommendedModels,
