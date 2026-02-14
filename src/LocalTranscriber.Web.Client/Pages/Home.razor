@@ -6,10 +6,10 @@
 <PageTitle>LocalTranscriber - Browser Transcription</PageTitle>
 
 <div class="screen-root minimal">
-    <div class="top-left-brand">
-        <p class="eyebrow">LocalTranscriber</p>
-        <h1>Browser Transcription</h1>
-        <p class="subtext">100% client-side • No data leaves your browser</p>
+    <div class="top-left-brand" tabindex="-1">
+        <p class="eyebrow" tabindex="-1">LocalTranscriber</p>
+        <h1 tabindex="-1">Browser Transcription</h1>
+        <p class="subtext" tabindex="-1">100% client-side • No data leaves your browser</p>
     </div>
 
     @if (_minimalStage == MinimalStage.Processing)
@@ -134,7 +134,7 @@
                     }
 
                     <div class="record-stack">
-                        <button class="record-button @GetRecordClass()" type="button" @onclick="ToggleRecordAsync" disabled="@(_isSubmitting || _devices.Count == 0)">
+                        <button @ref="_recordButtonRef" class="record-button @GetRecordClass()" type="button" @onclick="ToggleRecordAsync" disabled="@(_isSubmitting || _devices.Count == 0)">
                             <span class="record-core"></span>
                             <span class="record-label">@(_isRecording ? "Stop" : "Record")</span>
                         </button>
@@ -351,6 +351,7 @@
         "Phi-3.5-mini-instruct-q4f16_1-MLC"
     ];
 
+    private ElementReference _recordButtonRef;
     private DotNetObjectReference<Home>? _dotNetRef;
     private readonly List<ProgressItem> _timeline = [];
     private readonly List<AudioDevice> _devices = [];
@@ -420,6 +421,13 @@
             await LoadPromptsAsync();
             await LoadTuningAsync();
             StateHasChanged();
+            
+            // Focus record button after initial render
+            try
+            {
+                await _recordButtonRef.FocusAsync();
+            }
+            catch { }
         }
     }
 
