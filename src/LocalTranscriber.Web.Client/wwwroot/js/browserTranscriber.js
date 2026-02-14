@@ -8,10 +8,15 @@ window.localTranscriberBrowser = (() => {
     smallen: "Xenova/whisper-small.en",
     medium: "Xenova/whisper-medium",
     mediumen: "Xenova/whisper-medium.en",
-    largev1: "Xenova/whisper-large-v1",
-    largev2: "Xenova/whisper-large-v2",
-    largev3: "onnx-community/whisper-large-v3",
-    largev3turbo: "onnx-community/whisper-large-v3-turbo",
+  };
+
+  // Models that are gated or incompatible with @xenova/transformers v2.
+  // Silently fall back to the best available alternative.
+  const deprecatedModelFallbacks = {
+    largev1: "smallen",
+    largev2: "smallen",
+    largev3: "smallen",
+    largev3turbo: "smallen",
   };
 
   // Mirror configuration for model downloads
@@ -584,9 +589,25 @@ Rules:
     }
 
     const transformers = await getTransformersModule();
-    const instance = await createAsrPipeline(transformers, modelId, onProgress);
-    asrPipelineCache.set(cacheKey, instance);
-    return instance;
+    try {
+      const instance = await createAsrPipeline(transformers, modelId, onProgress);
+      asrPipelineCache.set(cacheKey, instance);
+      return instance;
+    } catch (err) {
+      // If the requested model failed and isn't already the default, silently fall back to SmallEn
+      const fallbackId = whisperModelMap.smallen;
+      if (modelId !== fallbackId) {
+        console.warn(`[LocalTranscriber] Model "${modelId}" failed to load. Falling back to SmallEn.`);
+        const fallbackKey = `webgpu:${fallbackId}`;
+        if (asrPipelineCache.has(fallbackKey)) {
+          return asrPipelineCache.get(fallbackKey);
+        }
+        const instance = await createAsrPipeline(transformers, fallbackId, onProgress);
+        asrPipelineCache.set(fallbackKey, instance);
+        return instance;
+      }
+      throw err;
+    }
   }
 
   async function getTransformersModule() {
@@ -679,8 +700,8 @@ Rules:
       
       const [, org, model, filePath] = pathMatch;
       
-      // Only rewrite Xenova or onnx-community whisper models
-      if ((org !== "Xenova" && org !== "onnx-community") || !model.startsWith("whisper-")) {
+      // Only rewrite Xenova whisper models
+      if (org !== "Xenova" || !model.startsWith("whisper-")) {
         return url;
       }
       
@@ -710,7 +731,7 @@ Rules:
         console.log(`[LocalTranscriber] Intercepted fetch: ${url?.substring(0, 100)}...`);
       }
       
-      if (url && url.includes("huggingface.co") && (url.includes("Xenova/whisper-") || url.includes("onnx-community/whisper-"))) {
+      if (url && url.includes("huggingface.co") && url.includes("Xenova/whisper-")) {
         const newUrl = rewriteUrlForJsDelivr(url);
         if (newUrl !== url) {
           console.log(`[LocalTranscriber] Rewriting to: ${newUrl}`);
@@ -1373,7 +1394,13 @@ Rules:
 
   function resolveWhisperModel(modelName) {
     const key = normalizeText(modelName).toLowerCase().replace(/\s+/g, "");
-    return whisperModelMap[key] || whisperModelMap.smallen;
+    if (whisperModelMap[key]) return whisperModelMap[key];
+    if (deprecatedModelFallbacks[key]) {
+      const fallbackKey = deprecatedModelFallbacks[key];
+      console.warn(`[LocalTranscriber] Model "${modelName}" is unavailable (gated/incompatible). Using ${fallbackKey} instead.`);
+      return whisperModelMap[fallbackKey];
+    }
+    return whisperModelMap.smallen;
   }
 
   async function decodeToMono16kFloat32(base64) {
