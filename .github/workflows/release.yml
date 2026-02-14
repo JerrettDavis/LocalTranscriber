@@ -194,6 +194,10 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Lowercase repository name
+        id: repo
+        run: echo "name=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
+
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
@@ -203,7 +207,7 @@ jobs:
           build-args: VARIANT=${{ matrix.variant }}
           push: true
           tags: |
-            ghcr.io/${{ github.repository }}:${{ matrix.target }}-${{ matrix.variant }}-${{ needs.version.outputs.simple_version }}
-            ghcr.io/${{ github.repository }}:${{ matrix.target }}-${{ matrix.variant }}-latest
+            ghcr.io/${{ steps.repo.outputs.name }}:${{ matrix.target }}-${{ matrix.variant }}-${{ needs.version.outputs.simple_version }}
+            ghcr.io/${{ steps.repo.outputs.name }}:${{ matrix.target }}-${{ matrix.variant }}-latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
