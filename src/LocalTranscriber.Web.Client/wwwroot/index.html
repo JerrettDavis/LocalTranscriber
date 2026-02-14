@@ -11,6 +11,12 @@
     <link rel="stylesheet" href="lib/bootstrap/dist/css/bootstrap.min.css" />
     <link rel="stylesheet" href="css/app.css" />
     <link rel="icon" type="image/png" href="favicon.png" />
+    <link rel="manifest" href="manifest.json" />
+    <meta name="theme-color" content="#2563eb" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Transcriber" />
+    <link rel="apple-touch-icon" href="icon-192.png" />
     <link href="LocalTranscriber.Web.Client.styles.css" rel="stylesheet" />
     <script type="importmap"></script>
 </head>
@@ -56,6 +62,13 @@
                 window.Blazor.start().catch(err => console.error('Blazor start failed:', err));
             }
         }).catch(err => console.error('Failed to load Blazor:', err));
+        
+        // Register Service Worker for PWA / model caching
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('sw.js')
+                .then(reg => console.log('[PWA] Service Worker registered'))
+                .catch(err => console.warn('[PWA] Service Worker registration failed:', err));
+        }
     </script>
 </body>
 

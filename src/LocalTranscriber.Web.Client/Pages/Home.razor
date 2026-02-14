@@ -152,6 +152,14 @@
                         </label>
                     </div>
 
+                    @if (_browserCapabilities.IsMobile)
+                    {
+                        <div class="mobile-notice">
+                            <strong>📱 Mobile Mode</strong>
+                            <span>Using @_model model for best performance. Larger models may crash on mobile browsers.</span>
+                        </div>
+                    }
+
                     <label class="mic-select-wrap">
                         <span>Microphone</span>
                         <select @bind="_selectedDeviceId" disabled="@(_devices.Count == 0 || _isRecording || _isSubmitting)">
@@ -302,7 +310,7 @@
     private string _promptCleanup = "";
     private string _promptOutputTemplate = "";
 
-    private BrowserExecutionCapabilities _browserCapabilities = new(false, false, false, false, "Checking...");
+    private BrowserExecutionCapabilities _browserCapabilities = new(false, false, false, false, false, 0, null, "Checking...");
 
     private bool _isRecording;
     private bool _isSubmitting;
@@ -348,10 +356,20 @@
         try
         {
             _browserCapabilities = await JS.InvokeAsync<BrowserExecutionCapabilities>("localTranscriberBrowser.getCapabilities");
+            
+            // Auto-select recommended model on mobile
+            if (_browserCapabilities.IsMobile && _browserCapabilities.RecommendedModels?.Length > 0)
+            {
+                var recommended = _browserCapabilities.RecommendedModels[0];
+                if (_models.Contains(recommended))
+                {
+                    _model = recommended;
+                }
+            }
         }
         catch (Exception ex)
         {
-            _browserCapabilities = new(false, false, false, false, $"Error: {ex.Message}");
+            _browserCapabilities = new(false, false, false, false, false, 0, null, $"Error: {ex.Message}");
         }
     }
 
@@ -686,7 +704,7 @@
     private record AudioDevice(string DeviceId, string Label);
     private record MirrorInfo(string Url, string Name, string Region);
     private record PromptTemplatesJs(string? SystemMessage, string? CleanupPrompt, string? OutputTemplate);
-    private record BrowserExecutionCapabilities(bool Supported, bool HasWebGpu, bool HasAudioContext, bool HasMediaRecorder, string Reason);
+    private record BrowserExecutionCapabilities(bool Supported, bool HasWebGpu, bool HasAudioContext, bool HasMediaRecorder, bool IsMobile, int EstimatedMemoryMB, string[]? RecommendedModels, string Reason);
     private record BrowserAudioPayload(string FileName, string MimeType, string Base64, long Size, string? PreviewUrl);
     private record UploadedAudioPayload(string FileName, string MimeType, byte[] Bytes);
     private record BrowserAudioInput(string FileName, string MimeType, string Base64);

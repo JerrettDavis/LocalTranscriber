@@ -147,10 +147,25 @@ Rules:
     const hasMediaRecorder = typeof MediaRecorder !== "undefined";
     const supported = hasWebGpu && hasAudioContext && hasMediaRecorder;
 
+    // Mobile detection
+    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
+      navigator.userAgent
+    ) || (navigator.maxTouchPoints > 0 && window.innerWidth < 768);
+    
+    // Memory estimation (in MB)
+    const deviceMemory = navigator.deviceMemory || null; // GB, Chrome only
+    const estimatedMemoryMB = deviceMemory ? deviceMemory * 1024 : (isMobile ? 200 : 2000);
+    
+    // Model recommendations based on device
+    const recommendedModels = getRecommendedModels(isMobile, estimatedMemoryMB);
+
     let reason = "Browser-only mode unavailable.";
     if (supported) {
-      reason =
-        "Browser-only mode available. WebGPU detected, transcription can run fully in-browser.";
+      if (isMobile) {
+        reason = `Browser mode available (mobile). Recommended: ${recommendedModels[0] || "Tiny"} model for best performance.`;
+      } else {
+        reason = "Browser-only mode available. WebGPU detected, transcription can run fully in-browser.";
+      }
     } else {
       const missing = [];
       if (!hasWebGpu) missing.push("WebGPU");
@@ -164,14 +179,112 @@ Rules:
       hasWebGpu,
       hasAudioContext,
       hasMediaRecorder,
+      isMobile,
+      estimatedMemoryMB,
+      recommendedModels,
       reason,
     };
+  }
+
+  function getRecommendedModels(isMobile, memoryMB) {
+    // Model approximate memory requirements (MB):
+    // tiny: ~150MB, base: ~250MB, small: ~500MB, medium: ~1500MB
+    if (isMobile || memoryMB < 300) {
+      return ["Tiny", "TinyEn"];
+    } else if (memoryMB < 600) {
+      return ["Tiny", "TinyEn", "Base", "BaseEn"];
+    } else if (memoryMB < 1500) {
+      return ["Base", "BaseEn", "Small", "SmallEn"];
+    } else {
+      return ["Small", "SmallEn", "Base", "BaseEn"];
+    }
+  }
+
+  function checkMemoryForModel(modelName) {
+    const caps = getCapabilities();
+    const modelMemory = {
+      tiny: 150, tinyen: 150,
+      base: 250, baseen: 250,
+      small: 500, smallen: 500,
+      medium: 1500, mediumen: 1500,
+    };
+    const normalized = modelName.toLowerCase().replace(/[^a-z]/g, "");
+    const required = modelMemory[normalized] || 500;
+    const available = caps.estimatedMemoryMB;
+    
+    return {
+      modelName,
+      requiredMB: required,
+      availableMB: available,
+      isSafe: available >= required * 1.2, // 20% headroom
+      warning: available < required * 1.2 
+        ? `⚠️ ${modelName} needs ~${required}MB but device may only have ~${available}MB available. Consider using a smaller model.`
+        : null,
+    };
+  }
+
+  // PWA / Service Worker helpers
+  async function registerServiceWorker() {
+    if ('serviceWorker' in navigator) {
+      try {
+        const registration = await navigator.serviceWorker.register('/LocalTranscriber/sw.js');
+        console.log('[LocalTranscriber] Service Worker registered:', registration.scope);
+        return registration;
+      } catch (err) {
+        console.warn('[LocalTranscriber] Service Worker registration failed:', err);
+        return null;
+      }
+    }
+    return null;
+  }
+
+  async function clearModelCache() {
+    if (!navigator.serviceWorker?.controller) {
+      console.warn('[LocalTranscriber] No active Service Worker');
+      return false;
+    }
+    return new Promise((resolve) => {
+      const channel = new MessageChannel();
+      channel.port1.onmessage = (event) => resolve(event.data?.success || false);
+      navigator.serviceWorker.controller.postMessage(
+        { type: 'CLEAR_MODEL_CACHE' },
+        [channel.port2]
+      );
+    });
+  }
+
+  async function getModelCacheSize() {
+    if (!navigator.serviceWorker?.controller) {
+      return 0;
+    }
+    return new Promise((resolve) => {
+      const channel = new MessageChannel();
+      channel.port1.onmessage = (event) => resolve(event.data?.size || 0);
+      navigator.serviceWorker.controller.postMessage(
+        { type: 'GET_CACHE_SIZE' },
+        [channel.port2]
+      );
+    });
+  }
+
+  function isPWAInstalled() {
+    return window.matchMedia('(display-mode: standalone)').matches ||
+           window.navigator.standalone === true;
   }
 
   async function transcribeInBrowser(dotNetRef, request) {
     const capabilities = getCapabilities();
     if (!capabilities.supported) {
       throw new Error(capabilities.reason);
+    }
+
+    // Check memory before loading model
+    const memCheck = checkMemoryForModel(request.model);
+    if (memCheck.warning && capabilities.isMobile) {
+      console.warn(memCheck.warning);
+      await emitProgress(dotNetRef, request, 2, "prepare", memCheck.warning);
+      // Give user a moment to see the warning
+      await new Promise(r => setTimeout(r, 1500));
     }
 
     await emitProgress(dotNetRef, request, 5, "prepare", "Browser mode enabled.");
@@ -1277,6 +1390,16 @@ Rules:
     // Core functionality
     getCapabilities,
     transcribeInBrowser,
+    
+    // Mobile / Memory management
+    checkMemoryForModel,
+    getRecommendedModels: () => getCapabilities().recommendedModels,
+    
+    // PWA / Service Worker
+    registerServiceWorker,
+    clearModelCache,
+    getModelCacheSize,
+    isPWAInstalled,
     
     // Mirror management (for network issues)
     listMirrors,
