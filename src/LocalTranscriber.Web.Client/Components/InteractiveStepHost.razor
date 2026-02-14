@@ -47,27 +47,59 @@
                         {
                             var idx = i;
                             var prompt = Prompts[i];
+                            var mode = GetInputMode(idx);
                             var hasRecording = _recordings.ContainsKey(idx);
-                            <div class="prompt-card @(hasRecording ? "completed" : "") @(_activeRecordingIndex == idx ? "recording" : "")">
+                            var hasTypedText = _typedTexts.TryGetValue(idx, out var typed) && !string.IsNullOrWhiteSpace(typed);
+                            var isCompleted = (mode == InputMode.Type && hasTypedText) || ((mode == InputMode.Record || mode == InputMode.Upload) && hasRecording);
+                            <div class="prompt-card @(isCompleted ? "completed" : "") @(_activeRecordingIndex == idx ? "recording" : "")">
                                 <div class="prompt-header">
                                     <span class="prompt-number">@(idx + 1)</span>
                                     <span class="prompt-text">@prompt</span>
                                 </div>
                                 <div class="prompt-actions">
-                                    @if (_activeRecordingIndex == idx)
+                                    <div class="input-mode-switcher">
+                                        <button class="mode-btn @(mode == InputMode.Record ? "active" : "")" type="button"
+                                                @onclick="() => SetInputMode(idx, InputMode.Record)">Record</button>
+                                        <button class="mode-btn @(mode == InputMode.Type ? "active" : "")" type="button"
+                                                @onclick="() => SetInputMode(idx, InputMode.Type)">Type</button>
+                                        <button class="mode-btn @(mode == InputMode.Upload ? "active" : "")" type="button"
+                                                @onclick="() => SetInputMode(idx, InputMode.Upload)">Upload</button>
+                                    </div>
+
+                                    @switch (mode)
                                     {
-                                        <button class="record-action stop" type="button" @onclick="() => StopRecordingAsync(idx)">
-                                            Stop
-                                        </button>
-                                    }
-                                    else
-                                    {
-                                        <button class="record-action @(hasRecording ? "re-record" : "record")" type="button" @onclick="() => StartRecordingAsync(idx)">
-                                            @(hasRecording ? "Re-record" : "Record")
-                                        </button>
+                                        case InputMode.Record:
+                                            @if (_activeRecordingIndex == idx)
+                                            {
+                                                <button class="record-action stop" type="button" @onclick="() => StopRecordingAsync(idx)">
+                                                    Stop
+                                                </button>
+                                            }
+                                            else
+                                            {
+                                                <button class="record-action @(hasRecording ? "re-record" : "record")" type="button" @onclick="() => StartRecordingAsync(idx)">
+                                                    @(hasRecording ? "Re-record" : "Record")
+                                                </button>
+                                            }
+                                            break;
+
+                                        case InputMode.Upload:
+                                            <label class="prompt-upload-input">
+                                                <span>@(hasRecording ? "Replace file" : "Choose audio file")</span>
+                                                <InputFile accept="audio/*,.wav,.mp3,.m4a,.webm" OnChange="@(e => HandlePromptUploadAsync(idx, e))" />
+                                            </label>
+                                            break;
                                     }
                                 </div>
-                                @if (hasRecording && _recordings[idx].Transcription != null)
+
+                                @if (mode == InputMode.Type)
+                                {
+                                    <textarea class="prompt-type-input" placeholder="Type your answer..."
+                                              value="@(GetTypedText(idx))"
+                                              @oninput="@(e => HandleTypedInput(idx, e))"></textarea>
+                                }
+
+                                @if ((mode == InputMode.Record || mode == InputMode.Upload) && hasRecording && _recordings[idx].Transcription != null)
                                 {
                                     <div class="prompt-transcription">
                                         <p>@_recordings[idx].Transcription</p>
@@ -150,12 +182,34 @@
     [Parameter] public EventCallback<MultiRecordResult> OnMultiRecordCompleted { get; set; }
     [Parameter] public EventCallback<ReviewResult> OnReviewCompleted { get; set; }
 
+    private enum InputMode { Record, Type, Upload }
+
     private Dictionary<int, RecordingEntry> _recordings = new();
+    private Dictionary<int, InputMode> _inputModes = new();
+    private Dictionary<int, string> _typedTexts = new();
     private HashSet<string> _deletedOrphanKeys = new();
     private int _activeRecordingIndex = -1;
     private string _reviewText = "";
     private string? _lastInteractionId;
-    private int _completedCount => _recordings.Count;
+
+    private int _completedCount
+    {
+        get
+        {
+            if (Prompts == null) return 0;
+            var count = 0;
+            for (var i = 0; i < Prompts.Count; i++)
+            {
+                var mode = GetInputMode(i);
+                if (mode == InputMode.Type && _typedTexts.TryGetValue(i, out var text) && !string.IsNullOrWhiteSpace(text))
+                    count++;
+                else if ((mode == InputMode.Record || mode == InputMode.Upload) && _recordings.ContainsKey(i))
+                    count++;
+            }
+            return count;
+        }
+    }
+
     private double ProgressPercent => Prompts?.Count > 0 ? (double)_completedCount / Prompts.Count * 100 : 0;
 
     protected override void OnParametersSet()
@@ -170,6 +224,8 @@
         {
             _lastInteractionId = InteractionId;
             _recordings.Clear();
+            _inputModes.Clear();
+            _typedTexts.Clear();
             _deletedOrphanKeys.Clear();
 
             if (PreviousRecordings != null && Prompts != null)
@@ -247,6 +303,66 @@
         }
     }
 
+    private InputMode GetInputMode(int index) =>
+        _inputModes.TryGetValue(index, out var mode) ? mode : InputMode.Record;
+
+    private void SetInputMode(int index, InputMode mode)
+    {
+        _inputModes[index] = mode;
+    }
+
+    private string GetTypedText(int index) =>
+        _typedTexts.TryGetValue(index, out var text) ? text : "";
+
+    private void SetTypedText(int index, string text)
+    {
+        _typedTexts[index] = text;
+    }
+
+    private void HandleTypedInput(int index, ChangeEventArgs e)
+    {
+        _typedTexts[index] = e.Value?.ToString() ?? "";
+    }
+
+    private async Task HandlePromptUploadAsync(int index, InputFileChangeEventArgs args)
+    {
+        var file = args.File;
+        if (file == null) return;
+
+        try
+        {
+            const long maxSize = 50 * 1024 * 1024; // 50 MB
+            using var stream = file.OpenReadStream(maxSize);
+            using var ms = new System.IO.MemoryStream();
+            await stream.CopyToAsync(ms);
+            var base64 = Convert.ToBase64String(ms.ToArray());
+            var mimeType = file.ContentType;
+
+            _recordings[index] = new RecordingEntry(base64, mimeType, null);
+
+            try
+            {
+                var result = await JS.InvokeAsync<TranscriptionResult?>(
+                    "localTranscriberBrowser.transcribeAudioBase64",
+                    base64, mimeType);
+                if (result != null)
+                {
+                    _recordings[index] = _recordings[index] with { Transcription = result.Text };
+                }
+            }
+            catch
+            {
+                // Transcription is optional - upload still captured
+            }
+        }
+        catch
+        {
+            // File read failed
+        }
+
+        await InvokeAsync(StateHasChanged);
+    }
+
     private async Task SubmitAllRecordings()
     {
         if (Prompts == null) return;
@@ -254,8 +370,17 @@
         var pairs = new List<QAPair>();
         for (var i = 0; i < Prompts.Count; i++)
         {
-            var transcription = _recordings.ContainsKey(i) ? _recordings[i].Transcription ?? "" : "";
-            pairs.Add(new QAPair(Prompts[i], transcription));
+            var mode = GetInputMode(i);
+            string answer;
+            if (mode == InputMode.Type)
+            {
+                answer = _typedTexts.TryGetValue(i, out var text) ? text ?? "" : "";
+            }
+            else
+            {
+                answer = _recordings.ContainsKey(i) ? _recordings[i].Transcription ?? "" : "";
+            }
+            pairs.Add(new QAPair(Prompts[i], answer));
         }
 
         await OnMultiRecordCompleted.InvokeAsync(new MultiRecordResult(pairs, _deletedOrphanKeys.ToList()));

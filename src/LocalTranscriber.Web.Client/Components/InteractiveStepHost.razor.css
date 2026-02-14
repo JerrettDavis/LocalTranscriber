@@ -130,7 +130,38 @@
 
 .prompt-actions {
     display: flex;
+    flex-wrap: wrap;
+    align-items: center;
     gap: 0.5rem;
+}
+
+.input-mode-switcher {
+    display: flex;
+    gap: 0.25rem;
+}
+
+.mode-btn {
+    background: transparent;
+    border: 1px solid var(--border-soft);
+    border-radius: 999px;
+    color: var(--ink-subtle);
+    cursor: pointer;
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    padding: 0.22rem 0.6rem;
+    transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.mode-btn:hover {
+    border-color: color-mix(in srgb, var(--accent) 50%, transparent);
+    color: var(--ink-strong);
+}
+
+.mode-btn.active {
+    background: color-mix(in srgb, var(--accent) 20%, var(--surface-elevated));
+    border-color: color-mix(in srgb, var(--accent) 60%, transparent);
+    color: var(--accent);
 }
 
 .record-action {
@@ -179,6 +210,51 @@
     font-size: 0.84rem;
     line-height: 1.5;
     margin: 0;
+}
+
+.prompt-type-input {
+    background: color-mix(in srgb, var(--surface) 80%, transparent);
+    border: 1px solid var(--border-soft);
+    border-radius: 8px;
+    color: var(--ink-strong);
+    font-family: inherit;
+    font-size: 0.84rem;
+    line-height: 1.5;
+    margin-top: 0.6rem;
+    min-height: 4.5rem;
+    padding: 0.6rem 0.8rem;
+    resize: vertical;
+    width: 100%;
+}
+
+.prompt-type-input:focus {
+    border-color: color-mix(in srgb, var(--accent) 60%, transparent);
+    outline: none;
+}
+
+.prompt-upload-input {
+    align-items: center;
+    background: transparent;
+    border: 1.5px dashed var(--border-soft);
+    border-radius: 8px;
+    color: var(--ink-subtle);
+    cursor: pointer;
+    display: inline-flex;
+    font-size: 0.78rem;
+    font-weight: 600;
+    gap: 0.4rem;
+    padding: 0.3rem 0.8rem;
+    transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.prompt-upload-input:hover {
+    border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+    color: var(--accent);
+}
+
+.prompt-upload-input input[type="file"],
+::deep .prompt-upload-input input[type="file"] {
+    display: none;
 }
 
 .submit-all-btn {

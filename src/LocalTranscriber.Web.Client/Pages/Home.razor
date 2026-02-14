@@ -1003,7 +1003,8 @@
     {
         if (message.JobId != _activeJobId) return;
 
-        _timeline.Insert(0, new ProgressItem(message.Percent, message.Message, message.IsCompleted, message.IsError));
+        if (_timeline.Count == 0 || _timeline[0].Message != message.Message)
+            _timeline.Insert(0, new ProgressItem(message.Percent, message.Message, message.IsCompleted, message.IsError));
         _statusMessage = message.Message;
 
         if (message.RawWhisperText is not null) _rawWhisperText = message.RawWhisperText;
@@ -1060,8 +1061,9 @@
             return;
         }
 
-        // Regular progress
-        _timeline.Insert(0, new ProgressItem(msg.Percent, msg.Message, msg.IsCompleted, msg.IsError));
+        // Regular progress — skip duplicate consecutive messages
+        if (_timeline.Count == 0 || _timeline[0].Message != msg.Message)
+            _timeline.Insert(0, new ProgressItem(msg.Percent, msg.Message, msg.IsCompleted, msg.IsError));
         _statusMessage = msg.Message;
 
         if (msg.RawWhisperText is not null) _rawWhisperText = msg.RawWhisperText;
