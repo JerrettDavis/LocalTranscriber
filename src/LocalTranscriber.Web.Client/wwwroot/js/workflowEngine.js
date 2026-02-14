@@ -1676,8 +1676,16 @@ window.localTranscriberWorkflow = (() => {
     return null;
   }
 
+  let _lastEmittedMessage = null;
+
   async function emitProgress(dotNetRef, jobId, percent, stage, message, extras = {}) {
     if (!dotNetRef?.invokeMethodAsync) return;
+
+    // Skip duplicate consecutive non-interactive messages
+    if (!extras.isInteractive && !extras.isCompleted && !extras.isError && message === _lastEmittedMessage) {
+      return;
+    }
+    _lastEmittedMessage = message;
 
     await dotNetRef.invokeMethodAsync("OnWorkflowProgress", {
       jobId,
@@ -1818,7 +1826,7 @@ window.localTranscriberWorkflow = (() => {
           steps: [
             { id: "s-topic-1", type: "transcribe", name: "Transcribe Topic", config: { model: "SmallEn", language: "auto" }, enabled: true, target: "browser" },
             { id: "s-topic-2", type: "llmFormat", name: "Format Intro", config: { model: "Llama-3.1-8B-Instruct-q4f16_1-MLC", systemPrompt: "You are a transcription editor.", userPrompt: "Clean up this transcript into clear sentences.", temperature: 0.2 }, enabled: true, target: "browser" },
-            { id: "s-topic-3", type: "userReview", name: "Review Topic", config: { title: "Review Your Topic", instructions: "Review and edit your topic introduction.", showPlayback: "yes", showHighlighting: "no", requireApproval: "yes" }, enabled: true, target: "browser" },
+            { id: "s-topic-3", type: "userReview", name: "Review Topic", config: { title: "Review Your Topic", instructions: "Review and edit your topic introduction.", showPlayback: "yes", showHighlighting: "no", requireApproval: "yes", outputTo: "variables.topicIntro" }, enabled: true, target: "browser" },
           ],
           transitions: [{ id: "t-topic-1", target: "phase-questions", condition: "auto" }],
         },
@@ -1828,7 +1836,7 @@ window.localTranscriberWorkflow = (() => {
           description: "AI generates interview questions, then you review them before recording",
           steps: [
             { id: "s-q-1", type: "agentGenerate", name: "Generate Questions", config: { model: "Llama-3.1-8B-Instruct-q4f16_1-MLC", systemPrompt: "You are an expert interviewer. Generate insightful, open-ended questions that will help the user elaborate on their topic for a blog post. Output as a JSON array of strings.", userPromptTemplate: "Generate 5 interview questions about the following topic:\n\n{text.processed}", outputFormat: "json-array", outputVariable: "questions", temperature: 0.5 }, enabled: true, target: "browser" },
-            { id: "s-q-2", type: "userReview", name: "Review Questions", config: { title: "Review Interview Questions", instructions: "Review the generated questions. Edit or remove any that don't fit before recording your answers.", showPlayback: "no", showHighlighting: "no", requireApproval: "yes" }, enabled: true, target: "browser" },
+            { id: "s-q-2", type: "userReview", name: "Review Questions", config: { title: "Review Interview Questions", instructions: "Review the generated questions. Edit or remove any that don't fit before recording your answers.", showPlayback: "no", showHighlighting: "no", requireApproval: "yes", outputTo: "variables.questions" }, enabled: true, target: "browser" },
           ],
           transitions: [{ id: "t-q-1", target: "phase-answers", condition: "auto" }],
         },
@@ -1847,7 +1855,7 @@ window.localTranscriberWorkflow = (() => {
           name: "Review Q&A",
           description: "Review your Q&A pairs and decide what to do next",
           steps: [
-            { id: "s-rqa-1", type: "userReview", name: "Review Answers", config: { title: "Review Q&A Pairs", instructions: "Review your answers. Edit any responses that need correction.", showPlayback: "no", showHighlighting: "no", requireApproval: "yes" }, enabled: true, target: "browser" },
+            { id: "s-rqa-1", type: "userReview", name: "Review Answers", config: { title: "Review Q&A Pairs", instructions: "Review your answers. Edit any responses that need correction.", showPlayback: "no", showHighlighting: "no", requireApproval: "yes", outputTo: "variables.formattedQA" }, enabled: true, target: "browser" },
           ],
           transitions: [
             { id: "t-rqa-1", target: "phase-questions", condition: "userChoice", label: "More Questions" },
@@ -1859,7 +1867,7 @@ window.localTranscriberWorkflow = (() => {
           name: "Write Blog Post",
           description: "AI writes a blog post from your accumulated Q&A content",
           steps: [
-            { id: "s-w-1", type: "agentGenerate", name: "Write Blog Post", config: { model: "Llama-3.1-8B-Instruct-q4f16_1-MLC", systemPrompt: "You are an expert blog writer. Write engaging, well-structured blog posts based on interview-style Q&A content. Use a conversational but informative tone.", userPromptTemplate: "Write a comprehensive blog post based on the following interview Q&A content. Create a compelling title, introduction, well-organized sections, and conclusion.\n\nTopic Introduction:\n{text.processed}\n\nQ&A Content:\n{variables.formattedQA}", outputFormat: "text", outputVariable: "blogPost", temperature: 0.6 }, enabled: true, target: "browser" },
+            { id: "s-w-1", type: "agentGenerate", name: "Write Blog Post", config: { model: "Llama-3.1-8B-Instruct-q4f16_1-MLC", systemPrompt: "You are an expert blog writer. Write engaging, well-structured blog posts based on interview-style Q&A content. Use a conversational but informative tone.", userPromptTemplate: "Write a comprehensive blog post based on the following interview Q&A content. Create a compelling title, introduction, well-organized sections, and conclusion.\n\nTopic Introduction:\n{variables.topicIntro}\n\nQ&A Content:\n{variables.formattedQA}", outputFormat: "text", outputVariable: "blogPost", temperature: 0.6 }, enabled: true, target: "browser" },
           ],
           transitions: [{ id: "t-w-1", target: "phase-final-review", condition: "auto" }],
         },
@@ -2054,6 +2062,14 @@ window.localTranscriberWorkflow = (() => {
         }
       }
     }
+
+    // Ensure text object stays in sync with flat fields after replay
+    newContext.text.raw = newContext.rawText;
+    newContext.text.labeled = newContext.labeledText;
+    newContext.text.processed = newContext.processedText;
+
+    // Reset progress dedup so navigated phase gets fresh messages
+    _lastEmittedMessage = null;
 
     // Notify UI about navigation
     if (dotNetRef?.invokeMethodAsync) {
