@@ -72,8 +72,8 @@ FROM mcr.microsoft.com/dotnet/aspnet:${DOTNET_VERSION} AS runtime-cpu
 
 # Install audio dependencies for NAudio on Linux
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libasound2 \
-    libpulse0 \
+    libasound2t64 \
+    libpulse0t64 \
     ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
@@ -84,8 +84,8 @@ FROM mcr.microsoft.com/dotnet/aspnet:${DOTNET_VERSION} AS runtime-cuda
 
 # Install CUDA runtime + audio dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libasound2 \
-    libpulse0 \
+    libasound2t64 \
+    libpulse0t64 \
     ffmpeg \
     wget \
     gnupg \
