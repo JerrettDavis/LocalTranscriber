@@ -1,0 +1,340 @@
+.workflow-editor {
+    background: var(--surface);
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius-md);
+    margin-bottom: 1rem;
+    overflow: hidden;
+}
+
+.workflow-header {
+    align-items: center;
+    cursor: pointer;
+    display: flex;
+    gap: 0.75rem;
+    padding: 0.875rem 1rem;
+    transition: background 0.15s ease;
+}
+
+.workflow-header:hover {
+    background: var(--surface-elevated);
+}
+
+.workflow-toggle {
+    color: var(--ink-muted);
+    font-size: 0.75rem;
+}
+
+.workflow-header h3 {
+    flex: 1;
+    font-size: 0.95rem;
+    font-weight: 600;
+    margin: 0;
+}
+
+.workflow-steps-count {
+    background: var(--accent);
+    border-radius: 10px;
+    color: white;
+    font-size: 0.7rem;
+    font-weight: 600;
+    padding: 0.2rem 0.5rem;
+}
+
+.workflow-toolbar {
+    align-items: center;
+    border-bottom: 1px solid var(--border-soft);
+    display: flex;
+    gap: 0.5rem;
+    padding: 0.5rem 1rem;
+}
+
+.workflow-select {
+    background: var(--surface-elevated);
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius-sm);
+    color: var(--ink-strong);
+    flex: 1;
+    font-size: 0.85rem;
+    padding: 0.4rem 0.6rem;
+}
+
+.workflow-steps {
+    max-height: 400px;
+    overflow-y: auto;
+    padding: 0.75rem;
+}
+
+.workflow-step {
+    background: var(--surface-elevated);
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius-sm);
+    margin-bottom: 0.5rem;
+    overflow: hidden;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.workflow-step:hover {
+    border-color: var(--accent);
+}
+
+.workflow-step.disabled {
+    opacity: 0.5;
+}
+
+.workflow-step.editing {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 20%, transparent);
+}
+
+.step-header {
+    align-items: center;
+    cursor: pointer;
+    display: flex;
+    gap: 0.6rem;
+    padding: 0.65rem 0.75rem;
+}
+
+.step-icon {
+    font-size: 1.1rem;
+}
+
+.step-name {
+    flex: 1;
+    font-size: 0.85rem;
+    font-weight: 500;
+}
+
+.step-type {
+    background: var(--surface);
+    border-radius: 6px;
+    color: var(--ink-muted);
+    font-size: 0.7rem;
+    padding: 0.15rem 0.4rem;
+}
+
+.step-actions {
+    display: flex;
+    gap: 0.25rem;
+}
+
+.icon-btn {
+    align-items: center;
+    background: transparent;
+    border: none;
+    border-radius: 6px;
+    color: var(--ink-muted);
+    cursor: pointer;
+    display: flex;
+    font-size: 0.8rem;
+    height: 1.6rem;
+    justify-content: center;
+    transition: background 0.15s ease, color 0.15s ease;
+    width: 1.6rem;
+}
+
+.icon-btn:hover {
+    background: var(--surface);
+    color: var(--ink-strong);
+}
+
+.icon-btn.danger:hover {
+    background: color-mix(in srgb, var(--danger) 20%, transparent);
+    color: var(--danger);
+}
+
+.icon-btn:disabled {
+    cursor: not-allowed;
+    opacity: 0.3;
+}
+
+.step-config {
+    background: var(--surface);
+    border-top: 1px solid var(--border-soft);
+    padding: 0.75rem;
+}
+
+.config-field {
+    margin-bottom: 0.75rem;
+}
+
+.config-field:last-child {
+    margin-bottom: 0;
+}
+
+.config-field label {
+    color: var(--ink-muted);
+    display: block;
+    font-size: 0.75rem;
+    font-weight: 500;
+    margin-bottom: 0.35rem;
+}
+
+.config-field select,
+.config-field input[type="text"],
+.config-field input[type="number"],
+.config-field textarea {
+    background: var(--surface-elevated);
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius-sm);
+    color: var(--ink-strong);
+    font-size: 0.85rem;
+    padding: 0.45rem 0.6rem;
+    width: 100%;
+}
+
+.config-field textarea {
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    min-height: 60px;
+    resize: vertical;
+}
+
+.range-input {
+    align-items: center;
+    display: flex;
+    gap: 0.75rem;
+}
+
+.range-input input[type="range"] {
+    flex: 1;
+}
+
+.range-input span {
+    background: var(--surface-elevated);
+    border-radius: 6px;
+    font-size: 0.8rem;
+    min-width: 2.5rem;
+    padding: 0.2rem 0.4rem;
+    text-align: center;
+}
+
+.add-step-section {
+    margin-top: 0.5rem;
+    position: relative;
+}
+
+.add-step-btn {
+    align-items: center;
+    background: transparent;
+    border: 2px dashed var(--border-soft);
+    border-radius: var(--radius-sm);
+    color: var(--ink-muted);
+    cursor: pointer;
+    display: flex;
+    gap: 0.5rem;
+    justify-content: center;
+    padding: 0.75rem;
+    transition: border-color 0.15s ease, color 0.15s ease;
+    width: 100%;
+}
+
+.add-step-btn:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+}
+
+.add-step-menu {
+    animation: menuFadeIn 0.2s ease;
+    background: var(--surface-elevated);
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-soft);
+    left: 0;
+    margin-top: 0.5rem;
+    max-height: 300px;
+    overflow-y: auto;
+    padding: 0.5rem;
+    position: absolute;
+    right: 0;
+    z-index: 10;
+}
+
+@keyframes menuFadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(-8px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.step-category {
+    margin-bottom: 0.5rem;
+}
+
+.step-category:last-child {
+    margin-bottom: 0;
+}
+
+.category-label {
+    color: var(--ink-subtle);
+    font-size: 0.65rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    margin-bottom: 0.35rem;
+    padding: 0.25rem 0.5rem;
+    text-transform: uppercase;
+}
+
+.step-type-option {
+    align-items: flex-start;
+    background: transparent;
+    border: none;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    display: flex;
+    gap: 0.6rem;
+    padding: 0.5rem;
+    text-align: left;
+    transition: background 0.15s ease;
+    width: 100%;
+}
+
+.step-type-option:hover {
+    background: var(--surface);
+}
+
+.step-type-option .step-icon {
+    font-size: 1.25rem;
+    padding-top: 0.1rem;
+}
+
+.step-type-option .step-info {
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+}
+
+.step-type-option .step-name {
+    color: var(--ink-strong);
+    font-size: 0.85rem;
+    font-weight: 500;
+}
+
+.step-type-option .step-desc {
+    color: var(--ink-muted);
+    font-size: 0.75rem;
+}
+
+.chip-btn {
+    background: var(--surface-elevated);
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius-sm);
+    color: var(--ink-strong);
+    cursor: pointer;
+    font-size: 0.8rem;
+    padding: 0.35rem 0.6rem;
+    transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.chip-btn:hover {
+    background: var(--surface);
+    border-color: var(--accent);
+}
+
+.chip-btn.danger:hover {
+    border-color: var(--danger);
+    color: var(--danger);
+}

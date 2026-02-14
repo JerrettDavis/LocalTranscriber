@@ -119,6 +119,10 @@
                     <div class="error-box">@_errorMessage</div>
                 }
 
+                <LocalTranscriber.Web.Client.Components.WorkflowEditor 
+                    @bind-IsExpanded="_workflowEditorExpanded" 
+                    OnWorkflowChanged="OnActiveWorkflowChanged" />
+
                 <div class="capture-hub">
                     @if (_hasAudio && !_isRecording)
                     {
@@ -386,6 +390,7 @@
 
     private bool _isRecording;
     private bool _isSubmitting;
+    private bool _workflowEditorExpanded;
     private string? _activeJobId;
     private string _statusMessage = "Ready";
     private string? _markdownOutput;
@@ -788,6 +793,12 @@
     }
 
     private void BackToCapture() => _minimalStage = MinimalStage.Capture;
+
+    private void OnActiveWorkflowChanged(LocalTranscriber.Web.Client.Components.WorkflowEditor.WorkflowModel? workflow)
+    {
+        // Workflow changed - could update UI or settings based on active workflow
+        StateHasChanged();
+    }
     private void SetResultTab(ResultTab tab) => _activeTab = tab;
     private string GetTabClass(ResultTab tab) => _activeTab == tab ? "tab-btn active" : "tab-btn";
     private string GetRecordClass() => _isRecording ? "recording" : "";
