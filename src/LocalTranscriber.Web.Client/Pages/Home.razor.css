@@ -74,6 +74,7 @@
 .minimal-history {
     animation: stageMaterialize 0.42s cubic-bezier(0.21, 0.86, 0.25, 1) both;
     align-items: center;
+    box-sizing: border-box;
     display: flex;
     flex-direction: column;
     justify-content: center;
@@ -81,13 +82,26 @@
     max-width: 900px;
     min-height: calc(100vh - 1.5rem);
     padding: 4.8rem 1rem 2.6rem;
+    width: 100%;
+}
+
+@media (max-width: 480px) {
+    .minimal-capture,
+    .minimal-processing,
+    .minimal-results,
+    .minimal-history {
+        padding: 4rem 0.65rem 2rem;
+    }
 }
 
 .capture-hub {
     align-items: center;
+    box-sizing: border-box;
     display: grid;
     gap: 1.35rem;
     justify-items: center;
+    max-width: 100%;
+    width: 100%;
 }
 
 .record-stack {
@@ -287,7 +301,8 @@
 .mic-select-wrap {
     display: grid;
     gap: 0.36rem;
-    min-width: min(420px, 92vw);
+    width: 100%;
+    max-width: 420px;
 }
 
 .mic-select-wrap span,
@@ -317,9 +332,21 @@
 /* Settings row - horizontal layout for model/speaker controls */
 .settings-row {
     display: grid;
-    gap: 0.85rem;
-    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-    min-width: min(420px, 92vw);
+    gap: 0.75rem;
+    grid-template-columns: repeat(2, 1fr);
+    width: 100%;
+}
+
+@media (min-width: 560px) {
+    .settings-row {
+        grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    }
+}
+
+@media (max-width: 559px) {
+    .settings-row {
+        grid-template-columns: 1fr;
+    }
 }
 
 .settings-row label {
@@ -478,7 +505,32 @@
 
 .toolbar-spacer {
     flex-grow: 1;
-    min-width: 1rem;
+    min-width: 0.5rem;
+}
+
+@media (max-width: 480px) {
+    .tab-row {
+        gap: 0.35rem;
+    }
+    
+    .tab-row .tab-btn {
+        flex: 1 1 auto;
+        font-size: 0.72rem;
+        min-height: 1.85rem;
+        padding: 0.25rem 0.5rem;
+    }
+    
+    .tab-row .chip-btn {
+        flex: 1 1 45%;
+        font-size: 0.7rem;
+        justify-content: center;
+        min-height: 1.85rem;
+        padding: 0.25rem 0.45rem;
+    }
+    
+    .toolbar-spacer {
+        display: none;
+    }
 }
 
 /* Prompt Editor */
@@ -487,7 +539,7 @@
     border: 1px solid var(--border-soft);
     border-radius: 12px;
     margin-top: 1rem;
-    min-width: min(420px, 92vw);
+    width: 100%;
 }
 
 .prompt-editor-toggle {
@@ -1366,7 +1418,7 @@ audio {
     }
 
     .mic-select-wrap {
-        min-width: min(340px, 92vw);
+        max-width: 100%;
     }
 
     .top-left-brand {
@@ -1388,6 +1440,71 @@ audio {
 
     .upload-text {
         right: 2.5rem;
+    }
+    
+    .tab-panel,
+    .log-stream,
+    .log-scroll,
+    .history-list {
+        width: 100%;
+    }
+}
+
+@media (max-width: 480px) {
+    .top-left-brand {
+        left: 0.5rem;
+        padding: 0.3rem 0.45rem;
+    }
+    
+    .top-left-brand h1 {
+        font-size: 0.9rem;
+    }
+    
+    .eyebrow {
+        font-size: 0.65rem;
+    }
+
+    .top-right-actions {
+        gap: 0.35rem;
+        right: 0.5rem;
+    }
+    
+    .icon-action {
+        height: 2rem;
+        width: 2rem;
+    }
+
+    .record-button {
+        height: 6.5rem;
+        width: 6.5rem;
+    }
+    
+    .record-label {
+        font-size: 0.72rem;
+    }
+
+    .upload-fab {
+        height: 2rem;
+        right: -2.4rem;
+        width: 2rem;
+    }
+
+    .send-launch {
+        font-size: 0.78rem;
+        min-height: 2.2rem;
+        min-width: 5.5rem;
+        padding: 0.35rem 0.7rem;
+    }
+    
+    .log-line,
+    .timeline-item {
+        font-size: 0.78rem;
+        grid-template-columns: 48px 1fr;
+        padding: 0.35rem 0.45rem;
+    }
+    
+    .subtitle-line {
+        grid-template-columns: 48px 1fr;
     }
 }
 
