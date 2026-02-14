@@ -65,7 +65,7 @@ window.localTranscriberWorkflow = (() => {
       icon: "🎤",
       category: "input",
       configSchema: {
-        model: { type: "select", label: "Model", options: ["TinyEn", "SmallEn", "MediumEn", "LargeV3", "LargeV3Turbo"], default: "SmallEn" },
+        model: { type: "select", label: "Model", options: ["TinyEn", "SmallEn", "MediumEn"], default: "SmallEn" },
         language: { type: "select", label: "Language", options: ["auto", "en", "es", "fr", "de", "ja", "zh"], default: "auto" },
       },
       inputs: ["audio"],
