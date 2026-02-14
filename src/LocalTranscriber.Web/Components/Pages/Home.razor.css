@@ -1863,3 +1863,496 @@ audio {
     line-height: 1.4;
     margin-top: 0.35rem;
 }
+
+/* YouTube Circle Button */
+.youtube-fab {
+    align-items: center;
+    animation: controlMaterialize 0.5s cubic-bezier(0.2, 0.88, 0.28, 1) both;
+    background: var(--surface-elevated);
+    border: 1px solid var(--border-soft);
+    border-radius: 999px;
+    color: var(--ink-strong);
+    cursor: pointer;
+    display: inline-flex;
+    font-size: 0.73rem;
+    height: 2.25rem;
+    justify-content: center;
+    letter-spacing: 0.04em;
+    left: -3.75rem;
+    position: absolute;
+    text-transform: uppercase;
+    top: 1.1rem;
+    transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+    width: 2.25rem;
+}
+
+.youtube-fab.active {
+    border-color: #ff4444;
+    box-shadow: 0 0 0 0.16rem color-mix(in srgb, #ff4444 28%, transparent);
+}
+
+.youtube-fab:hover,
+.youtube-fab:focus-visible {
+    background: color-mix(in srgb, var(--surface-elevated) 60%, #ff4444 40%);
+    border-color: color-mix(in srgb, #ff4444 65%, transparent);
+    transform: translateY(-1px);
+}
+
+.youtube-fab:disabled {
+    cursor: not-allowed;
+    opacity: 0.45;
+}
+
+.youtube-fab:disabled:hover {
+    background: var(--surface-elevated);
+    border-color: var(--border-soft);
+    transform: none;
+}
+
+.youtube-icon {
+    align-items: center;
+    display: flex;
+    height: 1.1rem;
+    justify-content: center;
+    width: 1.1rem;
+}
+
+.youtube-icon .icon-svg {
+    fill: currentColor;
+    height: 100%;
+    stroke: none;
+    width: 100%;
+}
+
+.youtube-icon .icon-svg rect {
+    fill: none;
+    stroke: currentColor;
+}
+
+.youtube-text {
+    font-size: 0.62rem;
+    font-weight: 700;
+    left: 2.85rem;
+    opacity: 0;
+    pointer-events: none;
+    position: absolute;
+    top: 0.2rem;
+    transform: translateX(-6px);
+    transition: opacity 0.2s ease, transform 0.2s ease;
+    white-space: nowrap;
+}
+
+.youtube-fab:hover .youtube-text,
+.youtube-fab:focus-visible .youtube-text {
+    opacity: 1;
+    transform: translateX(0);
+}
+
+/* YouTube URL Panel */
+.youtube-url-panel {
+    align-items: center;
+    animation: youtubeSlideIn 0.32s cubic-bezier(0.2, 0.88, 0.28, 1) both;
+    display: flex;
+    gap: 0.5rem;
+    max-width: 420px;
+    width: 100%;
+}
+
+@keyframes youtubeSlideIn {
+    from {
+        opacity: 0;
+        transform: translateY(-8px) scale(0.97);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+.youtube-url-panel input[type="url"] {
+    background: color-mix(in srgb, var(--surface-elevated) 90%, transparent);
+    border: 1px solid color-mix(in srgb, #ff4444 30%, var(--border-soft));
+    border-radius: 10px;
+    color: var(--ink-strong);
+    flex: 1;
+    font-size: 0.82rem;
+    min-height: 2.05rem;
+    padding: 0.3rem 0.62rem;
+    transition: border-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.youtube-url-panel input[type="url"]:focus {
+    border-color: #ff4444;
+    box-shadow: 0 0 0 0.14rem color-mix(in srgb, #ff4444 20%, transparent);
+    outline: none;
+}
+
+.youtube-url-panel input[type="url"]::placeholder {
+    color: var(--ink-muted);
+}
+
+.youtube-url-panel input[type="url"]:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+}
+
+/* Minimal screen overrides for YouTube fab */
+.screen-root.minimal .youtube-fab {
+    background: color-mix(in srgb, var(--surface-elevated) 97%, transparent);
+    border-color: color-mix(in srgb, var(--border-strong) 72%, transparent);
+    height: 2.45rem;
+    left: -4.1rem;
+    top: 1.05rem;
+    width: 2.45rem;
+}
+
+.screen-root.minimal .youtube-fab:focus-visible {
+    box-shadow: 0 0 0 0.2rem color-mix(in srgb, #ff4444 22%, transparent), var(--shadow-soft);
+    outline: none;
+}
+
+/* Settings Accordions */
+.settings-accordion {
+    background: color-mix(in srgb, var(--surface-elevated) 85%, transparent);
+    border: 1px solid var(--border-soft);
+    border-radius: 12px;
+    margin-top: 0.75rem;
+    width: 100%;
+}
+
+.settings-accordion-toggle {
+    color: var(--ink-muted);
+    cursor: pointer;
+    font-size: 0.82rem;
+    font-weight: 600;
+    padding: 0.65rem 0.85rem;
+    transition: color 0.2s ease;
+    user-select: none;
+}
+
+.settings-accordion-toggle:hover {
+    color: var(--ink-strong);
+}
+
+.settings-accordion[open] .settings-accordion-toggle {
+    border-bottom: 1px solid var(--border-soft);
+    color: var(--ink-strong);
+}
+
+.settings-accordion-content {
+    display: grid;
+    gap: 0.85rem;
+    padding: 0.85rem;
+}
+
+/* Settings grid additions for accordion context */
+.settings-grid input[type="range"] {
+    accent-color: var(--accent);
+    width: 100%;
+}
+
+.settings-grid .range-value {
+    color: var(--ink-muted);
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    text-align: right;
+}
+
+/* Settings actions */
+.settings-actions {
+    display: flex;
+    gap: 0.55rem;
+    justify-content: flex-end;
+}
+
+/* Prompt Editor */
+.prompt-editor-layout {
+    display: grid;
+    gap: 1rem;
+    grid-template-columns: 1fr auto;
+    padding: 0.85rem;
+}
+
+@media (max-width: 720px) {
+    .prompt-editor-layout {
+        grid-template-columns: 1fr;
+    }
+
+    .prompt-placeholders {
+        order: -1;
+    }
+}
+
+.prompt-editor-content {
+    display: grid;
+    gap: 0.85rem;
+    min-width: 0;
+}
+
+.prompt-placeholders {
+    background: color-mix(in srgb, var(--surface) 80%, transparent);
+    border: 1px solid var(--border-soft);
+    border-radius: 10px;
+    font-size: 0.78rem;
+    max-width: 220px;
+    padding: 0.7rem 0.85rem;
+}
+
+.prompt-placeholders strong {
+    color: var(--ink-strong);
+    display: block;
+    font-size: 0.72rem;
+    letter-spacing: 0.06em;
+    margin-bottom: 0.55rem;
+    text-transform: uppercase;
+}
+
+.prompt-placeholders dl {
+    display: grid;
+    gap: 0.5rem;
+    margin: 0;
+}
+
+.prompt-placeholders dt {
+    margin: 0;
+}
+
+.prompt-placeholders dt code {
+    background: color-mix(in srgb, var(--accent) 15%, var(--surface-elevated));
+    border-radius: 4px;
+    color: var(--accent);
+    font-family: var(--font-mono);
+    font-size: 0.74rem;
+    padding: 0.12rem 0.32rem;
+}
+
+.prompt-placeholders dd {
+    color: var(--ink-muted);
+    font-size: 0.72rem;
+    line-height: 1.35;
+    margin: 0.1rem 0 0;
+}
+
+.prompt-field label {
+    display: grid;
+    gap: 0.35rem;
+}
+
+.prompt-field span {
+    color: var(--ink-subtle);
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.prompt-field textarea {
+    background: color-mix(in srgb, var(--surface) 90%, transparent);
+    border: 1px solid var(--border-soft);
+    border-radius: 10px;
+    color: var(--ink-strong);
+    font-family: var(--font-mono);
+    font-size: 0.82rem;
+    line-height: 1.45;
+    min-height: 80px;
+    padding: 0.55rem 0.7rem;
+    resize: vertical;
+    width: 100%;
+}
+
+.prompt-field textarea:focus {
+    border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+    box-shadow: 0 0 0 0.12rem color-mix(in srgb, var(--accent) 16%, transparent);
+    outline: none;
+}
+
+.prompt-actions {
+    display: flex;
+    gap: 0.55rem;
+    justify-content: flex-end;
+}
+
+/* ---------------------------------------------------------------
+   Diagnostics & Stats Section
+   --------------------------------------------------------------- */
+
+.diagnostics-loading {
+    color: var(--ink-muted);
+    padding: 1rem;
+    text-align: center;
+}
+
+.diagnostics-grid {
+    display: grid;
+    gap: 0.75rem;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    margin-bottom: 1rem;
+}
+
+.stat-card {
+    align-items: center;
+    background: var(--surface);
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius-sm);
+    display: flex;
+    gap: 0.75rem;
+    padding: 0.75rem;
+}
+
+.stat-icon {
+    font-size: 1.5rem;
+    line-height: 1;
+}
+
+.stat-content {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    min-width: 0;
+}
+
+.stat-value {
+    color: var(--ink-strong);
+    font-size: 1.1rem;
+    font-weight: 600;
+}
+
+.stat-label {
+    color: var(--ink-muted);
+    font-size: 0.75rem;
+    font-weight: 500;
+}
+
+.stat-detail {
+    color: var(--ink-subtle);
+    font-size: 0.7rem;
+}
+
+.nested-details {
+    background: var(--surface);
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius-sm);
+    margin-bottom: 0.75rem;
+}
+
+.nested-details summary {
+    cursor: pointer;
+    font-size: 0.85rem;
+    font-weight: 500;
+    padding: 0.6rem 0.75rem;
+}
+
+.nested-details summary:hover {
+    background: var(--surface-elevated);
+}
+
+.capabilities-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    padding: 0 0.75rem 0.75rem;
+}
+
+.cap-item {
+    align-items: center;
+    background: var(--surface-elevated);
+    border-radius: 6px;
+    display: flex;
+    font-size: 0.8rem;
+    gap: 0.4rem;
+    padding: 0.35rem 0.6rem;
+}
+
+.cap-item.supported {
+    color: var(--success);
+}
+
+.cap-item.unsupported {
+    color: var(--ink-subtle);
+}
+
+.cap-item.info {
+    color: var(--accent);
+}
+
+.cap-icon {
+    font-weight: 600;
+}
+
+.cached-models-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    max-height: 200px;
+    overflow-y: auto;
+    padding: 0 0.75rem 0.75rem;
+}
+
+.cached-model-item {
+    align-items: center;
+    background: var(--surface-elevated);
+    border-radius: 6px;
+    display: flex;
+    font-size: 0.8rem;
+    gap: 0.5rem;
+    padding: 0.4rem 0.6rem;
+}
+
+.model-name {
+    color: var(--ink-strong);
+    flex: 1;
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.model-host {
+    color: var(--ink-subtle);
+    font-size: 0.7rem;
+}
+
+.history-date {
+    color: var(--ink-muted);
+    font-size: 0.75rem;
+    min-width: 90px;
+}
+
+.history-model {
+    color: var(--accent);
+    flex: 1;
+    font-size: 0.75rem;
+}
+
+.history-words {
+    color: var(--ink-subtle);
+    font-size: 0.75rem;
+}
+
+.more-items {
+    color: var(--ink-subtle);
+    font-size: 0.75rem;
+    font-style: italic;
+    padding: 0.25rem 0;
+}
+
+.diagnostics-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+}
+
+.diagnostics-actions .chip-btn {
+    font-size: 0.8rem;
+}
+
+.diagnostics-actions .chip-btn.danger {
+    color: var(--danger);
+}
+
+.diagnostics-actions .chip-btn.danger:hover {
+    background: color-mix(in srgb, var(--danger) 15%, var(--surface));
+    border-color: var(--danger);
+}
