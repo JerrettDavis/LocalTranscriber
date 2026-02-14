@@ -1,0 +1,39 @@
+# Build outputs
+**/bin/
+**/obj/
+**/out/
+
+# IDE
+.vs/
+.vscode/
+*.user
+*.suo
+.idea/
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# Test results
+**/TestResults/
+**/*.trx
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Project files we don't need in Docker
+*.md
+!README.md
+LICENSE
+CODEOWNERS
+.editorconfig
+.github/
+
+# Models are mounted as volumes
+models/
+output/
+
+# Nested LocalTranscriber folder (if present)
+LocalTranscriber/

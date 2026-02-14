@@ -106,6 +106,55 @@ Then open the app URL (for example `http://localhost:5078`) and use the recordin
   - Matching submissions are served from persisted cache instead of re-running normalization/transcription/formatting.
   - Cache entries are stored under `src/LocalTranscriber.Web/output/cache`.
 
+## Docker (Cross-Platform)
+
+Run LocalTranscriber anywhere with Docker:
+
+### Quick Start
+
+```bash
+# Start web UI with Ollama
+docker compose up web
+
+# Or use GPU acceleration (requires NVIDIA Docker runtime)
+docker compose --profile cuda up web-cuda
+```
+
+### CLI Batch Processing
+
+```bash
+# Transcribe a file
+docker compose run --rm cli transcribe --in /app/input/meeting.wav --out /app/output/meeting.md
+
+# With GPU
+docker compose --profile cli-cuda run --rm cli-cuda transcribe --in /app/input/meeting.wav --out /app/output/meeting.md
+```
+
+### Available Images
+
+| Image | Description |
+|-------|-------------|
+| `local-transcriber:web` | Web UI, CPU-only |
+| `local-transcriber:web-cuda` | Web UI with CUDA GPU support |
+| `local-transcriber:cli` | CLI, CPU-only |
+| `local-transcriber:cli-cuda` | CLI with CUDA GPU support |
+
+### Volumes
+
+- `./models` → `/app/models` — Whisper model cache
+- `./output` → `/app/output` — Transcription output
+- `./input` → `/app/input` — Input files (CLI only)
+
+### Building Manually
+
+```bash
+# CPU version
+docker build --target web -t local-transcriber:web .
+
+# CUDA version
+docker build --target web --build-arg VARIANT=cuda -t local-transcriber:web-cuda .
+```
+
 ## Why Whisper.net?
 
 Whisper.net is a .NET wrapper around `whisper.cpp` and supports multiple runtimes (CPU, CUDA, etc.) and a built-in GGML model downloader.

@@ -2,98 +2,33 @@ name: Release
 
 on:
   push:
-    branches: ["main"]
+    branches: [main]
   workflow_dispatch:
-    inputs:
-      force_release:
-        description: "Force a release even without conventional commit triggers"
-        required: false
-        type: boolean
-        default: false
 
 permissions:
   contents: write
+  pull-requests: write
+  packages: write
 
 jobs:
-  version:
-    name: Compute Version
+  release-please:
     runs-on: ubuntu-latest
     outputs:
-      version: ${{ steps.nbgv.outputs.Version }}
-      simple_version: ${{ steps.nbgv.outputs.SimpleVersion }}
-      semver2: ${{ steps.nbgv.outputs.SemVer2 }}
-      should_release: ${{ steps.check.outputs.should_release }}
-      release_type: ${{ steps.check.outputs.release_type }}
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+      version: ${{ steps.release.outputs.version }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v6
+      - name: Release Please
+        id: release
+        uses: googleapis/release-please-action@v4
         with:
-          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
 
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v5
-        with:
-          dotnet-version: "10.0.x"
-
-      - name: Install NBGV
-        run: dotnet tool install --global nbgv
-
-      - name: Get Version
-        id: nbgv
-        run: |
-          VERSION=$(nbgv get-version -v Version)
-          SIMPLE=$(nbgv get-version -v SimpleVersion)
-          SEMVER2=$(nbgv get-version -v SemVer2)
-          echo "Version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "SimpleVersion=$SIMPLE" >> "$GITHUB_OUTPUT"
-          echo "SemVer2=$SEMVER2" >> "$GITHUB_OUTPUT"
-          echo "Computed version: $SEMVER2"
-
-      - name: Check for release triggers
-        id: check
-        run: |
-          # Get commits since last tag
-          LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
-          
-          if [ -z "$LAST_TAG" ]; then
-            COMMITS=$(git log --oneline)
-          else
-            COMMITS=$(git log ${LAST_TAG}..HEAD --oneline)
-          fi
-          
-          echo "Commits since last release:"
-          echo "$COMMITS"
-          
-          # Check for conventional commit types
-          BREAKING=$(echo "$COMMITS" | grep -iE "^[a-f0-9]+ (feat|fix|refactor|perf)(\(.+\))?!:" || true)
-          FEAT=$(echo "$COMMITS" | grep -iE "^[a-f0-9]+ feat(\(.+\))?:" || true)
-          FIX=$(echo "$COMMITS" | grep -iE "^[a-f0-9]+ fix(\(.+\))?:" || true)
-          
-          SHOULD_RELEASE="false"
-          RELEASE_TYPE="none"
-          
-          if [ "${{ inputs.force_release }}" = "true" ]; then
-            SHOULD_RELEASE="true"
-            RELEASE_TYPE="patch"
-          elif [ -n "$BREAKING" ]; then
-            SHOULD_RELEASE="true"
-            RELEASE_TYPE="major"
-          elif [ -n "$FEAT" ]; then
-            SHOULD_RELEASE="true"
-            RELEASE_TYPE="minor"
-          elif [ -n "$FIX" ]; then
-            SHOULD_RELEASE="true"
-            RELEASE_TYPE="patch"
-          fi
-          
-          echo "should_release=$SHOULD_RELEASE" >> "$GITHUB_OUTPUT"
-          echo "release_type=$RELEASE_TYPE" >> "$GITHUB_OUTPUT"
-          echo "Should release: $SHOULD_RELEASE (type: $RELEASE_TYPE)"
-
-  build:
-    name: Build Release Artifacts
-    needs: version
-    if: needs.version.outputs.should_release == 'true'
+  build-and-publish:
+    needs: release-please
+    if: ${{ needs.release-please.outputs.release_created }}
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -108,12 +43,10 @@ jobs:
             artifact: localtranscriber-osx-arm64
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
+        uses: actions/checkout@v4
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v5
+        uses: actions/setup-dotnet@v4
         with:
           dotnet-version: "10.0.x"
 
@@ -143,7 +76,7 @@ jobs:
 
       - name: Package artifacts
         run: |
-          VERSION="${{ needs.version.outputs.semver2 }}"
+          VERSION="${{ needs.release-please.outputs.version }}"
           mkdir -p dist
           
           if [[ "${{ matrix.rid }}" == win-* ]]; then
@@ -155,82 +88,67 @@ jobs:
           fi
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
           path: dist/*
           if-no-files-found: error
 
-  release:
-    name: Create GitHub Release
-    needs: [version, build]
+  create-release:
+    needs: [release-please, build-and-publish]
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
       - name: Download all artifacts
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v4
         with:
           path: dist
           merge-multiple: true
 
-      - name: List artifacts
-        run: ls -la dist/
-
-      - name: Generate changelog
-        id: changelog
-        run: |
-          LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
-          
-          if [ -z "$LAST_TAG" ]; then
-            COMMITS=$(git log --pretty=format:"- %s (%h)" --reverse)
-          else
-            COMMITS=$(git log ${LAST_TAG}..HEAD --pretty=format:"- %s (%h)" --reverse)
-          fi
-          
-          # Categorize commits
-          BREAKING=$(echo "$COMMITS" | grep -iE "^- (feat|fix|refactor|perf)(\(.+\))?!:" || true)
-          FEATURES=$(echo "$COMMITS" | grep -iE "^- feat(\(.+\))?:" || true)
-          FIXES=$(echo "$COMMITS" | grep -iE "^- fix(\(.+\))?:" || true)
-          OTHER=$(echo "$COMMITS" | grep -ivE "^- (feat|fix)(\(.+\))?:?" || true)
-          
-          {
-            echo "## What's Changed"
-            echo ""
-            if [ -n "$BREAKING" ]; then
-              echo "### ⚠️ Breaking Changes"
-              echo "$BREAKING"
-              echo ""
-            fi
-            if [ -n "$FEATURES" ]; then
-              echo "### ✨ Features"
-              echo "$FEATURES"
-              echo ""
-            fi
-            if [ -n "$FIXES" ]; then
-              echo "### 🐛 Bug Fixes"
-              echo "$FIXES"
-              echo ""
-            fi
-            if [ -n "$OTHER" ]; then
-              echo "### 📦 Other Changes"
-              echo "$OTHER"
-              echo ""
-            fi
-          } > CHANGELOG.md
-          
-          cat CHANGELOG.md
-
-      - name: Create Release
+      - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ needs.version.outputs.semver2 }}
-          name: LocalTranscriber v${{ needs.version.outputs.semver2 }}
-          body_path: CHANGELOG.md
-          draft: false
-          prerelease: ${{ contains(needs.version.outputs.semver2, '-') }}
+          tag_name: ${{ needs.release-please.outputs.tag_name }}
           files: dist/*
-          fail_on_unmatched_files: true
+
+  docker-release:
+    needs: release-please
+    if: ${{ needs.release-please.outputs.release_created }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        target: [cli, web]
+        variant: [cpu, cuda]
+        exclude:
+          - variant: cuda
+            target: cli
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: ${{ matrix.variant == 'cuda' && 'linux/amd64' || 'linux/amd64,linux/arm64' }}
+          target: ${{ matrix.target }}
+          build-args: |
+            VARIANT=${{ matrix.variant }}
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}:${{ matrix.target }}-${{ matrix.variant }}-${{ needs.release-please.outputs.version }}
+            ghcr.io/${{ github.repository }}:${{ matrix.target }}-${{ matrix.variant }}-latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

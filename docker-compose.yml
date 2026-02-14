@@ -1,0 +1,126 @@
+services:
+  # ==========================================================================
+  # Web UI (default)
+  # ==========================================================================
+  web:
+    build:
+      context: .
+      target: web
+      args:
+        VARIANT: cpu
+    image: local-transcriber:web
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./models:/app/models
+      - ./output:/app/output
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - OLLAMA_HOST=http://ollama:11434
+    depends_on:
+      - ollama
+
+  # Web with CUDA GPU support
+  web-cuda:
+    build:
+      context: .
+      target: web
+      args:
+        VARIANT: cuda
+    image: local-transcriber:web-cuda
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./models:/app/models
+      - ./output:/app/output
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - OLLAMA_HOST=http://ollama:11434
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    depends_on:
+      - ollama
+    profiles:
+      - cuda
+
+  # ==========================================================================
+  # CLI (for batch processing)
+  # ==========================================================================
+  cli:
+    build:
+      context: .
+      target: cli
+      args:
+        VARIANT: cpu
+    image: local-transcriber:cli
+    volumes:
+      - ./models:/app/models
+      - ./output:/app/output
+      - ./input:/app/input
+    environment:
+      - OLLAMA_HOST=http://ollama:11434
+    profiles:
+      - cli
+
+  cli-cuda:
+    build:
+      context: .
+      target: cli
+      args:
+        VARIANT: cuda
+    image: local-transcriber:cli-cuda
+    volumes:
+      - ./models:/app/models
+      - ./output:/app/output
+      - ./input:/app/input
+    environment:
+      - OLLAMA_HOST=http://ollama:11434
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    profiles:
+      - cli-cuda
+
+  # ==========================================================================
+  # Ollama (local LLM for formatting)
+  # ==========================================================================
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  ollama-cuda:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    profiles:
+      - cuda
+      - cli-cuda
+
+volumes:
+  ollama-data:

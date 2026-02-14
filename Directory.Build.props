@@ -1,5 +1,29 @@
 <Project>
-  <ItemGroup>
-    <PackageReference Include="Nerdbank.GitVersioning" Version="3.7.115" PrivateAssets="all" />
-  </ItemGroup>
+    <PropertyGroup>
+        <!-- x-release-please-start-version -->
+        <Version>0.1.2</Version>
+        <!-- x-release-please-end -->
+        <Nullable>enable</Nullable>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <LangVersion>preview</LangVersion>
+        <Deterministic>true</Deterministic>
+        <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    </PropertyGroup>
+
+    <PropertyGroup>
+        <Authors>JDH Productions LLC</Authors>
+        <Company>JDH Productions LLC</Company>
+        <Product>LocalTranscriber</Product>
+        <Description>Local voice-to-text transcription using Whisper with optional LLM formatting</Description>
+
+        <RepositoryType>git</RepositoryType>
+        <RepositoryUrl>https://github.com/JerrettDavis/LocalTranscriber</RepositoryUrl>
+
+        <IncludeSymbols>true</IncludeSymbols>
+        <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+        <PublishRepositoryUrl>true</PublishRepositoryUrl>
+        <EmbedUntrackedSources>true</EmbedUntrackedSources>
+
+        <ContinuousIntegrationBuild Condition="'$(GITHUB_ACTIONS)' == 'true'">true</ContinuousIntegrationBuild>
+    </PropertyGroup>
 </Project>
