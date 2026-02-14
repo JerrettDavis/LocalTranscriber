@@ -25,6 +25,112 @@ window.localTranscriberBrowser = (() => {
     { url: "https://hf-mirror.com", name: "HF-Mirror", region: "China-friendly", type: "hf" },
   ];
 
+  // === Prompt Templates ===
+  const PROMPT_STORAGE_KEY = "localTranscriber_promptTemplates";
+  
+  const defaultPromptTemplates = {
+    systemMessage: "You are a transcription editor.",
+    cleanupPrompt: `Convert the following raw transcript into clean Markdown with structure and correct punctuation.
+
+Rules:
+- Do NOT add facts that are not present.
+- Keep speaker intent the same.
+- Fix obvious ASR errors when you can infer the intended word from context.
+- Keep code-ish content as inline code or fenced blocks.
+- {strictness}
+- If uncertain, preserve the original wording instead of summarizing.
+- Summary should contain between {summaryMinBullets} and {summaryMaxBullets} bullets.
+- {actionItemRule}`,
+    outputTemplate: `# Transcription
+
+- **Model:** \`{model}\`
+- **Language:** \`{language}\`
+
+## Summary
+- (3-8 bullet points)
+
+## Action Items
+- (use checkboxes like "- [ ]")
+
+## Transcript
+(Use paragraphs. Use headings only if the transcript strongly suggests it.)`
+  };
+
+  function getPromptTemplates() {
+    try {
+      const stored = localStorage.getItem(PROMPT_STORAGE_KEY);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        return {
+          systemMessage: parsed.systemMessage || defaultPromptTemplates.systemMessage,
+          cleanupPrompt: parsed.cleanupPrompt || defaultPromptTemplates.cleanupPrompt,
+          outputTemplate: parsed.outputTemplate || defaultPromptTemplates.outputTemplate,
+        };
+      }
+    } catch (e) {
+      console.warn("[LocalTranscriber] Failed to load prompt templates:", e);
+    }
+    return { ...defaultPromptTemplates };
+  }
+
+  function setPromptTemplates(templates) {
+    try {
+      const toSave = {
+        systemMessage: templates.systemMessage || defaultPromptTemplates.systemMessage,
+        cleanupPrompt: templates.cleanupPrompt || defaultPromptTemplates.cleanupPrompt,
+        outputTemplate: templates.outputTemplate || defaultPromptTemplates.outputTemplate,
+      };
+      localStorage.setItem(PROMPT_STORAGE_KEY, JSON.stringify(toSave));
+      console.log("[LocalTranscriber] Prompt templates saved");
+      return true;
+    } catch (e) {
+      console.error("[LocalTranscriber] Failed to save prompt templates:", e);
+      return false;
+    }
+  }
+
+  function resetPromptTemplates() {
+    localStorage.removeItem(PROMPT_STORAGE_KEY);
+    console.log("[LocalTranscriber] Prompt templates reset to defaults");
+    return { ...defaultPromptTemplates };
+  }
+
+  function getDefaultPromptTemplates() {
+    return { ...defaultPromptTemplates };
+  }
+
+  function buildFormattingPrompt(transcript, model, language, options = {}) {
+    const templates = getPromptTemplates();
+    const strictness = options.strictTranscript
+      ? "Preserve transcript wording very strictly."
+      : "You may lightly smooth wording while preserving meaning.";
+    const actionItemRule = options.includeActionItems !== false
+      ? "Include actionable checkbox items if present."
+      : "Keep Action Items minimal (use - [] when unclear).";
+    const summaryMin = options.summaryMinBullets || 3;
+    const summaryMax = options.summaryMaxBullets || 8;
+
+    const cleanupWithPlaceholders = templates.cleanupPrompt
+      .replace("{strictness}", strictness)
+      .replace("{actionItemRule}", actionItemRule)
+      .replace("{summaryMinBullets}", summaryMin)
+      .replace("{summaryMaxBullets}", summaryMax);
+
+    const outputWithPlaceholders = templates.outputTemplate
+      .replace("{model}", model || "unknown")
+      .replace("{language}", language || "auto");
+
+    return [
+      cleanupWithPlaceholders,
+      "",
+      "Output template (exact sections, in this order):",
+      outputWithPlaceholders,
+      "",
+      "Raw transcript:",
+      transcript || "(no speech detected)"
+    ].join("\n");
+  }
+
   let transformersModulePromise = null;
   let webLlmModulePromise = null;
   const asrPipelineCache = new Map();
@@ -629,31 +735,20 @@ window.localTranscriberBrowser = (() => {
       onProgress?.(Math.min(94, Math.max(86, pct)), text);
     });
 
-    const prompt = [
-      "You are formatting a transcription into clean markdown.",
-      "Return markdown only.",
-      "Preserve the transcript wording exactly; do not paraphrase transcript lines.",
-      "",
-      `Model: ${whisperModel}`,
-      `Language: ${language || "auto"}`,
-      "",
-      "Input transcript:",
-      transcript || "(no speech detected)",
-      "",
-      "Required output format:",
-      "# Transcription",
-      "- **Model:** `<model>`",
-      "- **Language:** `<language>`",
-      "## Summary",
-      "- concise bullets",
-      "## Action Items",
-      "- []",
-      "## Transcript",
-      "<verbatim transcript>",
-    ].join("\n");
+    // Use customizable prompt templates
+    const templates = getPromptTemplates();
+    const prompt = buildFormattingPrompt(transcript, whisperModel, language, {
+      strictTranscript: true,
+      includeActionItems: true,
+      summaryMinBullets: 3,
+      summaryMaxBullets: 8
+    });
 
     const completion = await engine.chat.completions.create({
-      messages: [{ role: "user", content: prompt }],
+      messages: [
+        { role: "system", content: templates.systemMessage },
+        { role: "user", content: prompt }
+      ],
       temperature: 0.2,
     });
 
@@ -1189,6 +1284,13 @@ window.localTranscriberBrowser = (() => {
     autoSelectMirror,
     getMirrorPreference,
     setMirrorPreference,
+    
+    // Prompt templates (for tuning output)
+    getPromptTemplates,
+    setPromptTemplates,
+    resetPromptTemplates,
+    getDefaultPromptTemplates,
+    buildFormattingPrompt,
     
     // WebLLM
     listWebLlmModels,

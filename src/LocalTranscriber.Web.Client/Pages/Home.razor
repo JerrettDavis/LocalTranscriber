@@ -206,6 +206,37 @@
                         </label>
                     </div>
 
+                    @* Prompt Editor Section *@
+                    <details class="prompt-editor-section">
+                        <summary class="prompt-editor-toggle">
+                            <span>✏️ Edit Prompts</span>
+                        </summary>
+                        <div class="prompt-editor-content">
+                            <div class="prompt-field">
+                                <label>
+                                    <span>System Message</span>
+                                    <textarea @bind="_promptSystemMessage" rows="2" placeholder="You are a transcription editor."></textarea>
+                                </label>
+                            </div>
+                            <div class="prompt-field">
+                                <label>
+                                    <span>Cleanup Prompt</span>
+                                    <textarea @bind="_promptCleanup" rows="8" placeholder="Rules for formatting..."></textarea>
+                                </label>
+                            </div>
+                            <div class="prompt-field">
+                                <label>
+                                    <span>Output Template</span>
+                                    <textarea @bind="_promptOutputTemplate" rows="8" placeholder="# Transcription..."></textarea>
+                                </label>
+                            </div>
+                            <div class="prompt-actions">
+                                <button class="chip-btn" type="button" @onclick="SavePromptsAsync">Save Prompts</button>
+                                <button class="chip-btn ghost" type="button" @onclick="ResetPromptsAsync">Reset to Defaults</button>
+                            </div>
+                        </div>
+                    </details>
+
                     @if (!string.IsNullOrWhiteSpace(_sourceDescription))
                     {
                         <p class="subtext">@_sourceDescription</p>
@@ -241,6 +272,11 @@
     private readonly List<MirrorInfo> _mirrors = [];
     private string _selectedMirror = "https://huggingface.co";
     private string _mirrorStatus = "";
+
+    // Prompt templates
+    private string _promptSystemMessage = "";
+    private string _promptCleanup = "";
+    private string _promptOutputTemplate = "";
 
     private BrowserExecutionCapabilities _browserCapabilities = new(false, false, false, false, "Checking...");
 
@@ -278,6 +314,7 @@
             await RefreshDevicesAsync();
             await RefreshWebLlmModelsAsync();
             await RefreshMirrorsAsync();
+            await LoadPromptsAsync();
             StateHasChanged();
         }
     }
@@ -374,6 +411,46 @@
             _mirrorStatus = "";
             InvokeAsync(StateHasChanged);
         });
+    }
+
+    private async Task LoadPromptsAsync()
+    {
+        try
+        {
+            var templates = await JS.InvokeAsync<PromptTemplatesJs>("localTranscriberBrowser.getPromptTemplates");
+            if (templates != null)
+            {
+                _promptSystemMessage = templates.SystemMessage ?? "";
+                _promptCleanup = templates.CleanupPrompt ?? "";
+                _promptOutputTemplate = templates.OutputTemplate ?? "";
+            }
+        }
+        catch { }
+    }
+
+    private async Task SavePromptsAsync()
+    {
+        try
+        {
+            var templates = new PromptTemplatesJs(_promptSystemMessage, _promptCleanup, _promptOutputTemplate);
+            await JS.InvokeVoidAsync("localTranscriberBrowser.setPromptTemplates", templates);
+        }
+        catch { }
+    }
+
+    private async Task ResetPromptsAsync()
+    {
+        try
+        {
+            var defaults = await JS.InvokeAsync<PromptTemplatesJs>("localTranscriberBrowser.resetPromptTemplates");
+            if (defaults != null)
+            {
+                _promptSystemMessage = defaults.SystemMessage ?? "";
+                _promptCleanup = defaults.CleanupPrompt ?? "";
+                _promptOutputTemplate = defaults.OutputTemplate ?? "";
+            }
+        }
+        catch { }
     }
 
     private async Task ToggleRecordAsync()
@@ -584,6 +661,7 @@
     private record ProgressItem(int Percent, string Message, bool IsCompleted, bool IsError);
     private record AudioDevice(string DeviceId, string Label);
     private record MirrorInfo(string Url, string Name, string Region);
+    private record PromptTemplatesJs(string? SystemMessage, string? CleanupPrompt, string? OutputTemplate);
     private record BrowserExecutionCapabilities(bool Supported, bool HasWebGpu, bool HasAudioContext, bool HasMediaRecorder, string Reason);
     private record BrowserAudioPayload(string FileName, string MimeType, string Base64, long Size, string? PreviewUrl);
     private record UploadedAudioPayload(string FileName, string MimeType, byte[] Bytes);

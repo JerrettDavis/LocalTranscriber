@@ -4,49 +4,27 @@ namespace LocalTranscriber.Cli.Services;
 
 internal static class TranscriptionPromptFactory
 {
+    /// <summary>
+    /// Builds a cleanup prompt using default templates.
+    /// </summary>
     public static string BuildCleanupPrompt(Transcript transcript, FormatterTuningOptions? options = null)
+        => BuildCleanupPrompt(transcript, options, null);
+
+    /// <summary>
+    /// Builds a cleanup prompt using custom templates (or defaults if null).
+    /// </summary>
+    public static string BuildCleanupPrompt(
+        Transcript transcript, 
+        FormatterTuningOptions? options,
+        PromptTemplates? templates)
     {
-        var tuned = (options ?? new FormatterTuningOptions()).Normalized();
-        var strictness = tuned.StrictTranscript
-            ? "Preserve transcript wording very strictly."
-            : "You may lightly smooth wording while preserving meaning.";
-
-        var actionItemRule = tuned.IncludeActionItems
-            ? "- Include actionable checkbox items if present."
-            : "- Keep Action Items minimal (use - [] when unclear).";
-
-        return $"""
-You are a transcription editor.
-
-Convert the following raw transcript into clean Markdown with structure and correct punctuation.
-
-Rules:
-- Do NOT add facts that are not present.
-- Keep speaker intent the same.
-- Fix obvious ASR errors when you can infer the intended word from context.
-- Keep code-ish content as inline code or fenced blocks.
-- {strictness}
-- If uncertain, preserve the original wording instead of summarizing.
-- Summary should contain between {tuned.EffectiveSummaryMinBullets} and {tuned.EffectiveSummaryMaxBullets} bullets.
-- {actionItemRule}
-
-Output template (exact sections, in this order):
-# Transcription
-
-- **Model:** `{transcript.Model}`
-- **Language:** `{transcript.Language}`
-
-## Summary
-- (3-8 bullet points)
-
-## Action Items
-- (use checkboxes like "- [ ]")
-
-## Transcript
-(Use paragraphs. Use headings only if the transcript strongly suggests it.)
-
-Raw transcript:
-{transcript.PromptText}
-""";
+        var promptTemplates = (templates ?? new PromptTemplates()).WithDefaults();
+        return promptTemplates.BuildPrompt(transcript, options);
     }
+
+    /// <summary>
+    /// Gets the system message from templates (or default).
+    /// </summary>
+    public static string GetSystemMessage(PromptTemplates? templates = null)
+        => (templates ?? new PromptTemplates()).WithDefaults().SystemMessage;
 }
