@@ -160,59 +160,68 @@
                         </div>
                     }
 
-                    <label class="mic-select-wrap">
-                        <span>Microphone</span>
-                        <select @bind="_selectedDeviceId" disabled="@(_devices.Count == 0 || _isRecording || _isSubmitting)">
-                            @if (_devices.Count == 0)
-                            {
-                                <option value="">No microphone devices detected</option>
-                            }
-                            else
-                            {
-                                @foreach (var device in _devices)
-                                {
-                                    <option value="@device.DeviceId">@device.Label</option>
-                                }
-                            }
-                        </select>
-                    </label>
+                    <details class="settings-panel">
+                        <summary class="settings-panel-toggle">
+                            <svg class="icon-svg" viewBox="0 0 24 24"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
+                            <span>Settings</span>
+                        </summary>
+                        <div class="settings-panel-content">
+                            <label class="mic-select-wrap">
+                                <span>Microphone</span>
+                                <select @bind="_selectedDeviceId" disabled="@(_devices.Count == 0 || _isRecording || _isSubmitting)">
+                                    @if (_devices.Count == 0)
+                                    {
+                                        <option value="">No microphone devices detected</option>
+                                    }
+                                    else
+                                    {
+                                        @foreach (var device in _devices)
+                                        {
+                                            <option value="@device.DeviceId">@device.Label</option>
+                                        }
+                                    }
+                                </select>
+                            </label>
 
-                    <div class="settings-row">
-                        <label>
-                            <span>Model</span>
-                            <select @bind="_model" disabled="@_isSubmitting">
-                                @foreach (var model in _models)
-                                {
-                                    <option value="@model">@model</option>
-                                }
-                            </select>
-                        </label>
+                            <div class="settings-row">
+                                <label>
+                                    <span>Model</span>
+                                    <select @bind="_model" disabled="@_isSubmitting">
+                                        @foreach (var model in _models)
+                                        {
+                                            <option value="@model">@model</option>
+                                        }
+                                    </select>
+                                </label>
 
-                        <label>
-                            <span>WebLLM Model</span>
-                            <select @bind="_webLlmModel" disabled="@_isSubmitting">
-                                @foreach (var model in _webLlmModelPresets)
-                                {
-                                    <option value="@model">@model</option>
-                                }
-                            </select>
-                        </label>
+                                <label>
+                                    <span>WebLLM Model</span>
+                                    <select @bind="_webLlmModel" disabled="@_isSubmitting">
+                                        @foreach (var model in _webLlmModelPresets)
+                                        {
+                                            <option value="@model">@model</option>
+                                        }
+                                    </select>
+                                </label>
 
-                        <label>
-                            <span>Detect Speakers</span>
-                            <input type="checkbox" @bind="_enableSpeakerLabels" disabled="@_isSubmitting" />
-                        </label>
+                                <label class="toggle-label">
+                                    <span>Detect Speakers</span>
+                                    <div class="toggle-switch">
+                                        <input type="checkbox" @bind="_enableSpeakerLabels" disabled="@_isSubmitting" />
+                                        <span class="toggle-slider"></span>
+                                    </div>
+                                </label>
 
-                        <label>
-                            <span>Model Mirror @(_mirrorStatus)</span>
-                            <select @bind="_selectedMirror" @bind:after="OnMirrorChangedAsync" disabled="@_isSubmitting">
-                                @foreach (var mirror in _mirrors)
-                                {
-                                    <option value="@mirror.Url">@mirror.Name (@mirror.Region)</option>
-                                }
-                            </select>
-                        </label>
-                    </div>
+                                <label>
+                                    <span>Model Mirror @(_mirrorStatus)</span>
+                                    <select @bind="_selectedMirror" @bind:after="OnMirrorChangedAsync" disabled="@_isSubmitting">
+                                        @foreach (var mirror in _mirrors)
+                                        {
+                                            <option value="@mirror.Url">@mirror.Name (@mirror.Region)</option>
+                                        }
+                                    </select>
+                                </label>
+                            </div>
 
                     @* Advanced Settings Section *@
                     <details class="settings-accordion">
@@ -318,6 +327,8 @@
                                     <dd>Detected/specified language</dd>
                                 </dl>
                             </aside>
+                        </div>
+                    </details>
                         </div>
                     </details>
 
