@@ -380,12 +380,10 @@
     opacity: 0.55;
 }
 
-/* Toggle row - checkbox with label */
+/* Toggle row - checkbox with label above */
 .settings-row .toggle-row {
-    align-items: center;
     display: grid;
-    gap: 0.55rem;
-    grid-template-columns: 1fr auto;
+    gap: 0.36rem;
 }
 
 .settings-row .toggle-row input[type="checkbox"] {
