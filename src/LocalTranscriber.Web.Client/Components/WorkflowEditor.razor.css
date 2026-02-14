@@ -59,9 +59,9 @@
 }
 
 .workflow-steps {
-    max-height: 400px;
-    overflow-y: auto;
-    padding: 0.75rem;
+    max-height: none;
+    overflow-y: visible;
+    padding: 1rem;
 }
 
 .workflow-step {
@@ -239,13 +239,11 @@
     border: 1px solid var(--border-soft);
     border-radius: var(--radius-md);
     box-shadow: var(--shadow-soft);
-    left: 0;
     margin-top: 0.5rem;
-    max-height: 300px;
+    max-height: 450px;
     overflow-y: auto;
-    padding: 0.5rem;
-    position: absolute;
-    right: 0;
+    padding: 0.75rem;
+    position: relative;
     z-index: 10;
 }
 
@@ -261,61 +259,71 @@
 }
 
 .step-category {
-    margin-bottom: 0.5rem;
+    margin-bottom: 1rem;
 }
 
 .step-category:last-child {
     margin-bottom: 0;
 }
 
+.step-category + .step-category {
+    border-top: 1px solid var(--border-soft);
+    padding-top: 1rem;
+}
+
 .category-label {
-    color: var(--ink-subtle);
-    font-size: 0.65rem;
+    background: var(--surface);
+    border-radius: 6px;
+    color: var(--ink-muted);
+    font-size: 0.7rem;
     font-weight: 600;
-    letter-spacing: 0.08em;
-    margin-bottom: 0.35rem;
-    padding: 0.25rem 0.5rem;
+    letter-spacing: 0.06em;
+    margin-bottom: 0.5rem;
+    padding: 0.4rem 0.6rem;
     text-transform: uppercase;
 }
 
 .step-type-option {
     align-items: flex-start;
     background: transparent;
-    border: none;
+    border: 1px solid transparent;
     border-radius: var(--radius-sm);
     cursor: pointer;
     display: flex;
-    gap: 0.6rem;
-    padding: 0.5rem;
+    gap: 0.75rem;
+    padding: 0.75rem;
     text-align: left;
-    transition: background 0.15s ease;
+    transition: background 0.15s ease, border-color 0.15s ease;
     width: 100%;
 }
 
 .step-type-option:hover {
     background: var(--surface);
+    border-color: var(--border-soft);
 }
 
 .step-type-option .step-icon {
-    font-size: 1.25rem;
-    padding-top: 0.1rem;
+    font-size: 1.5rem;
+    line-height: 1;
 }
 
 .step-type-option .step-info {
     display: flex;
     flex-direction: column;
-    gap: 0.1rem;
+    gap: 0.25rem;
+    min-width: 0;
 }
 
 .step-type-option .step-name {
     color: var(--ink-strong);
-    font-size: 0.85rem;
-    font-weight: 500;
+    font-size: 0.9rem;
+    font-weight: 600;
 }
 
 .step-type-option .step-desc {
     color: var(--ink-muted);
-    font-size: 0.75rem;
+    font-size: 0.8rem;
+    line-height: 1.35;
 }
 
 .chip-btn {

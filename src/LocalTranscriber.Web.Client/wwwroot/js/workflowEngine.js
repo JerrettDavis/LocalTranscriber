@@ -129,6 +129,54 @@ window.localTranscriberWorkflow = (() => {
       inputs: ["text1", "text2"],
       outputs: ["mergedText"],
     },
+
+    userReview: {
+      id: "userReview",
+      name: "User Review & Edit",
+      description: "Pause for human review with playback sync and live editing",
+      icon: "👁️",
+      category: "interactive",
+      configSchema: {
+        title: { type: "text", label: "Review Title", default: "Review Transcript" },
+        instructions: { type: "textarea", label: "Instructions for Reviewer", default: "Review the transcript below. Use the playback tool to verify accuracy, then make any needed corrections." },
+        showPlayback: { type: "select", label: "Show Playback Controls", options: ["yes", "no"], default: "yes" },
+        showHighlighting: { type: "select", label: "Highlight Sync", options: ["yes", "no"], default: "yes" },
+        requireApproval: { type: "select", label: "Require Approval", options: ["yes", "no"], default: "yes" },
+      },
+      inputs: ["text", "segments", "audio"],
+      outputs: ["editedText", "approved"],
+      isInteractive: true,
+    },
+
+    checkpoint: {
+      id: "checkpoint",
+      name: "Checkpoint",
+      description: "Save intermediate output for comparison or rollback",
+      icon: "💾",
+      category: "utility",
+      configSchema: {
+        label: { type: "text", label: "Checkpoint Label", default: "Checkpoint" },
+        includeInOutput: { type: "select", label: "Include in Final Output", options: ["yes", "no"], default: "no" },
+      },
+      inputs: ["text"],
+      outputs: ["text"],
+    },
+
+    compare: {
+      id: "compare",
+      name: "Compare Versions",
+      description: "Show diff between two text versions for review",
+      icon: "🔀",
+      category: "interactive",
+      configSchema: {
+        label1: { type: "text", label: "Version 1 Label", default: "Original" },
+        label2: { type: "text", label: "Version 2 Label", default: "Processed" },
+        showDiff: { type: "select", label: "Show Diff View", options: ["side-by-side", "inline", "unified"], default: "side-by-side" },
+      },
+      inputs: ["text1", "text2"],
+      outputs: ["selectedText"],
+      isInteractive: true,
+    },
   };
 
   // ═══════════════════════════════════════════════════════════════
@@ -546,7 +594,132 @@ window.localTranscriberWorkflow = (() => {
 
       return { processedText: result };
     },
+
+    async userReview(step, context, onProgress) {
+      onProgress(0, "Waiting for user review...");
+
+      const inputText = context.processedText || context.labeledText || context.rawText || "";
+      
+      // Emit a special progress event that signals the UI to show review mode
+      // The UI will handle displaying the editor with playback sync
+      return new Promise((resolve) => {
+        // Store resolver for later - will be called when user approves
+        const reviewId = `review-${step.id}-${Date.now()}`;
+        
+        pendingReviews.set(reviewId, {
+          step,
+          context,
+          resolve,
+          inputText,
+          segments: context.segments,
+          audio: context.audio,
+        });
+
+        onProgress(50, `Review required: ${step.config.title || "Review Transcript"}`, {
+          isInteractive: true,
+          reviewId,
+          inputText,
+          segments: context.segments,
+          showPlayback: step.config.showPlayback === "yes",
+          showHighlighting: step.config.showHighlighting === "yes",
+          requireApproval: step.config.requireApproval === "yes",
+          instructions: step.config.instructions,
+        });
+      });
+    },
+
+    async checkpoint(step, context, onProgress) {
+      onProgress(50, `Saving checkpoint: ${step.config.label}...`);
+      
+      const text = context.processedText || context.labeledText || context.rawText || "";
+      
+      // Store checkpoint in context
+      context.checkpoints = context.checkpoints || {};
+      context.checkpoints[step.config.label] = {
+        text,
+        timestamp: Date.now(),
+        stepId: step.id,
+      };
+
+      onProgress(100, "Checkpoint saved");
+
+      return { 
+        processedText: text,
+        checkpointLabel: step.config.label,
+      };
+    },
+
+    async compare(step, context, onProgress) {
+      onProgress(0, "Waiting for version comparison...");
+
+      // Get two versions to compare - typically from checkpoints or previous outputs
+      const text1 = context.checkpoints?.[step.config.label1]?.text || context.rawText || "";
+      const text2 = context.processedText || context.labeledText || "";
+
+      return new Promise((resolve) => {
+        const compareId = `compare-${step.id}-${Date.now()}`;
+        
+        pendingReviews.set(compareId, {
+          step,
+          context,
+          resolve,
+          text1,
+          text2,
+        });
+
+        onProgress(50, "Compare versions", {
+          isInteractive: true,
+          compareId,
+          text1,
+          text2,
+          label1: step.config.label1,
+          label2: step.config.label2,
+          diffMode: step.config.showDiff,
+        });
+      });
+    },
   };
+
+  // Pending interactive reviews
+  const pendingReviews = new Map();
+
+  // Called from UI when user completes a review
+  function completeReview(reviewId, editedText, approved = true) {
+    const review = pendingReviews.get(reviewId);
+    if (!review) {
+      console.warn(`[Workflow] Review not found: ${reviewId}`);
+      return false;
+    }
+
+    pendingReviews.delete(reviewId);
+    review.resolve({
+      processedText: editedText,
+      editedText,
+      approved,
+      reviewedAt: Date.now(),
+    });
+
+    return true;
+  }
+
+  // Called from UI when user selects a version in compare
+  function completeCompare(compareId, selectedText, selectedVersion) {
+    const compare = pendingReviews.get(compareId);
+    if (!compare) {
+      console.warn(`[Workflow] Compare not found: ${compareId}`);
+      return false;
+    }
+
+    pendingReviews.delete(compareId);
+    compare.resolve({
+      processedText: selectedText,
+      selectedText,
+      selectedVersion,
+      comparedAt: Date.now(),
+    });
+
+    return true;
+  }
 
   async function runLlmStep(step, context, onProgress, buildPrompt) {
     onProgress(10, `Loading model: ${step.config.model}...`);
@@ -620,6 +793,11 @@ window.localTranscriberWorkflow = (() => {
 
     // Execution
     executeWorkflow,
+
+    // Interactive steps
+    completeReview,
+    completeCompare,
+    getPendingReviews: () => Array.from(pendingReviews.keys()),
   };
 })();
 
