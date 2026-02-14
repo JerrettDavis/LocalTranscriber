@@ -1,4 +1,5 @@
 using LocalTranscriber.Web.Components;
+using LocalTranscriber.Web.Plugins;
 using LocalTranscriber.Web.Transcription;
 using Microsoft.AspNetCore.SignalR;
 using System.Security.Cryptography;
@@ -16,6 +17,7 @@ builder.Services.AddSignalR(options =>
 builder.Services.AddSingleton<TranscriptionJobProcessor>();
 builder.Services.AddSingleton<TranscriptionResultCache>();
 builder.Services.AddHttpClient();
+builder.Services.AddSingleton<PluginLoader>();
 
 builder.Services.Configure<HubOptions>(options =>
 {
@@ -23,6 +25,10 @@ builder.Services.Configure<HubOptions>(options =>
 });
 
 var app = builder.Build();
+
+// Load server-side workflow plugins
+var pluginLoader = app.Services.GetRequiredService<PluginLoader>();
+pluginLoader.LoadFromDirectory(Path.Combine(AppContext.BaseDirectory, "plugins"));
 
 // Configure the HTTP request pipeline.
 if (!app.Environment.IsDevelopment())

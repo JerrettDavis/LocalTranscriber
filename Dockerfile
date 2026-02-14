@@ -101,6 +101,22 @@ RUN wget -qO - https://developer.download.nvidia.com/compute/cuda/repos/ubuntu24
 ENV LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH
 
 # ----------------------------------------------------------------------------
+# Publish Client (Blazor WASM - static site)
+# ----------------------------------------------------------------------------
+FROM build AS publish-client
+ARG CONFIGURATION=Release
+WORKDIR /src/src/LocalTranscriber.Web.Client
+RUN dotnet publish -c $CONFIGURATION -o /app/client --no-build
+
+# ----------------------------------------------------------------------------
+# Final: Client (static site served by nginx)
+# ----------------------------------------------------------------------------
+FROM nginx:alpine AS client
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY --from=publish-client /app/client/wwwroot /usr/share/nginx/html
+EXPOSE 80
+
+# ----------------------------------------------------------------------------
 # Final: CLI
 # ----------------------------------------------------------------------------
 FROM runtime-${VARIANT} AS cli

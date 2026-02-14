@@ -77,6 +77,7 @@
 
 .minimal-capture,
 .minimal-processing,
+.minimal-interactive,
 .minimal-results,
 .minimal-history {
     animation: stageMaterialize 0.42s cubic-bezier(0.21, 0.86, 0.25, 1) both;
@@ -95,6 +96,7 @@
 @media (max-width: 480px) {
     .minimal-capture,
     .minimal-processing,
+    .minimal-interactive,
     .minimal-results,
     .minimal-history {
         padding: 4rem 0.65rem 2rem;
@@ -1792,6 +1794,7 @@ audio {
 
 .screen-root.minimal .minimal-capture,
 .screen-root.minimal .minimal-processing,
+.screen-root.minimal .minimal-interactive,
 .screen-root.minimal .minimal-results,
 .screen-root.minimal .minimal-history {
     min-height: calc(100vh - 2.4rem);
@@ -2325,4 +2328,42 @@ audio {
 .diagnostics-actions .chip-btn.danger:hover {
     background: color-mix(in srgb, var(--danger) 15%, var(--surface));
     border-color: var(--danger);
+}
+
+/* Phase Progress Bar */
+.phase-progress-bar {
+    align-items: center;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    justify-content: center;
+    margin-bottom: 1.2rem;
+    width: min(700px, 100%);
+}
+
+.phase-pill {
+    border: 1px solid var(--border-soft);
+    border-radius: 999px;
+    color: var(--ink-muted);
+    font-size: 0.72rem;
+    font-weight: 600;
+    padding: 0.25rem 0.65rem;
+    transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+}
+
+.phase-pill.pending {
+    background: color-mix(in srgb, var(--surface-elevated) 88%, transparent);
+    opacity: 0.6;
+}
+
+.phase-pill.active {
+    background: color-mix(in srgb, var(--accent) 22%, var(--surface-elevated));
+    border-color: color-mix(in srgb, var(--accent) 65%, transparent);
+    color: var(--ink-strong);
+}
+
+.phase-pill.completed {
+    background: color-mix(in srgb, var(--success) 18%, var(--surface-elevated));
+    border-color: color-mix(in srgb, var(--success) 48%, transparent);
+    color: var(--ink-subtle);
 }

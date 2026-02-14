@@ -15,6 +15,16 @@
     @if (_minimalStage == MinimalStage.Processing)
     {
         <section class="minimal-processing">
+            @if (_phaseNames.Count > 0)
+            {
+                <div class="phase-progress-bar">
+                    @for (var i = 0; i < _phaseNames.Count; i++)
+                    {
+                        var status = i < _currentPhaseIndex ? "completed" : i == _currentPhaseIndex ? "active" : "pending";
+                        <div class="phase-pill @status" title="@_phaseNames[i]">@_phaseNames[i]</div>
+                    }
+                </div>
+            }
             <div class="orbit-loader"></div>
             <h2>@_statusMessage</h2>
             <p class="subtext">Processing audio locally in your browser.</p>
@@ -44,6 +54,33 @@
                 <div class="error-box">@_errorMessage</div>
                 <button class="ghost-btn" type="button" @onclick="BackToCapture">Back</button>
             }
+        </section>
+    }
+    else if (_minimalStage == MinimalStage.Interactive)
+    {
+        <section class="minimal-interactive">
+            @if (_phaseNames.Count > 0)
+            {
+                <div class="phase-progress-bar">
+                    @for (var i = 0; i < _phaseNames.Count; i++)
+                    {
+                        var status = i < _currentPhaseIndex ? "completed" : i == _currentPhaseIndex ? "active" : "pending";
+                        <div class="phase-pill @status" title="@_phaseNames[i]">@_phaseNames[i]</div>
+                    }
+                </div>
+            }
+
+            <LocalTranscriber.Web.Client.Components.InteractiveStepHost
+                StepType="@(_interactiveStepType ?? "")"
+                Title="@_interactiveTitle"
+                Instructions="@_interactiveInstructions"
+                Choices="@_interactiveChoices"
+                Prompts="@_interactivePrompts"
+                InputText="@_interactiveInputText"
+                InteractionId="@_interactiveId"
+                OnChoiceCompleted="HandleChoiceCompleted"
+                OnMultiRecordCompleted="HandleMultiRecordCompleted"
+                OnReviewCompleted="HandleReviewCompleted" />
         </section>
     }
     else if (_minimalStage == MinimalStage.Results)
@@ -499,6 +536,17 @@
     private MinimalStage _minimalStage = MinimalStage.Capture;
     private ResultTab _activeTab = ResultTab.Final;
 
+    // Interactive workflow state
+    private string? _interactiveStepType;
+    private string? _interactiveTitle;
+    private string? _interactiveInstructions;
+    private string? _interactiveId;
+    private List<LocalTranscriber.Web.Client.Components.InteractiveStepHost.ChoiceOption>? _interactiveChoices;
+    private List<string>? _interactivePrompts;
+    private string? _interactiveInputText;
+    private List<string> _phaseNames = new();
+    private int _currentPhaseIndex = -1;
+
     private bool _hasAudio => _browserRecording is not null || _uploadedAudio is not null;
 
     private string? _sourceDescription
@@ -833,7 +881,7 @@
         _rawWhisperText = null;
         _activeJobId = Guid.NewGuid().ToString("N");
         _minimalStage = MinimalStage.Processing;
-        _statusMessage = "Starting transcription...";
+        _statusMessage = "Starting workflow...";
 
         try
         {
@@ -845,24 +893,16 @@
                 return;
             }
 
-            var request = new BrowserTranscriptionRequest(
-                _activeJobId,
-                input.FileName,
-                input.MimeType,
-                input.Base64,
-                _model,
-                "auto",
-                _enableSpeakerLabels,
-                true, // Always use WebLLM
-                _webLlmModel);
+            var audioInput = new { base64 = input.Base64, fileName = input.FileName, mimeType = input.MimeType };
 
-            var result = await JS.InvokeAsync<BrowserTranscriptionResult>(
-                "localTranscriberBrowser.transcribeInBrowser",
+            var result = await JS.InvokeAsync<WorkflowExecutionResult>(
+                "localTranscriberWorkflow.executeActiveWorkflow",
+                audioInput,
                 _dotNetRef,
-                request);
+                _activeJobId);
 
             _rawWhisperText = result.RawWhisperText;
-            _markdownOutput = result.Markdown;
+            _markdownOutput = result.Markdown ?? result.SpeakerLabeledText ?? result.RawWhisperText;
             _statusMessage = "Complete!";
             _minimalStage = MinimalStage.Results;
         }
@@ -891,6 +931,130 @@
         await InvokeAsync(StateHasChanged);
     }
 
+    [JSInvokable]
+    public async Task OnWorkflowProgress(WorkflowProgressMessage msg)
+    {
+        if (msg.JobId != _activeJobId) return;
+
+        // Interactive step handling
+        if (msg.IsInteractive == true)
+        {
+            switch (msg.InteractiveType)
+            {
+                case "userReview":
+                    _interactiveStepType = "userReview";
+                    _interactiveTitle = "Review & Edit";
+                    _interactiveInstructions = null;
+                    _interactiveInputText = msg.InputText;
+                    _interactiveId = msg.ReviewId;
+                    _interactiveChoices = null;
+                    _interactivePrompts = null;
+                    _minimalStage = MinimalStage.Interactive;
+                    break;
+                case "choice":
+                    _interactiveStepType = "choice";
+                    _interactiveTitle = "Choose an option";
+                    _interactiveInstructions = null;
+                    _interactiveId = msg.ChoiceId;
+                    _interactiveChoices = msg.Choices?.Select(c =>
+                        new LocalTranscriber.Web.Client.Components.InteractiveStepHost.ChoiceOption(c.Label, c.Target)).ToList();
+                    _interactivePrompts = null;
+                    _interactiveInputText = null;
+                    _minimalStage = MinimalStage.Interactive;
+                    break;
+                case "multiRecord":
+                    _interactiveStepType = "multiRecord";
+                    _interactiveTitle = "Record Responses";
+                    _interactiveInstructions = msg.Instructions;
+                    _interactiveId = msg.MultiRecordId;
+                    _interactiveChoices = null;
+                    _interactivePrompts = msg.Prompts;
+                    _interactiveInputText = null;
+                    _minimalStage = MinimalStage.Interactive;
+                    break;
+            }
+            await InvokeAsync(StateHasChanged);
+            return;
+        }
+
+        // Regular progress
+        _timeline.Insert(0, new ProgressItem(msg.Percent, msg.Message, msg.IsCompleted, msg.IsError));
+        _statusMessage = msg.Message;
+
+        if (msg.RawWhisperText is not null) _rawWhisperText = msg.RawWhisperText;
+        if (msg.Markdown is not null) _markdownOutput = msg.Markdown;
+
+        if (msg.IsError)
+            _errorMessage = msg.Message;
+
+        await InvokeAsync(StateHasChanged);
+    }
+
+    [JSInvokable]
+    public async Task OnWorkflowInteractive(WorkflowInteractiveEvent evt)
+    {
+        _interactiveStepType = evt.StepType;
+        _interactiveTitle = evt.Title;
+        _interactiveInstructions = evt.Instructions;
+        _interactiveId = evt.InteractionId;
+        _interactiveInputText = evt.InputText;
+
+        _interactiveChoices = evt.Choices?.Select(c =>
+            new LocalTranscriber.Web.Client.Components.InteractiveStepHost.ChoiceOption(c.Label, c.Target)).ToList();
+        _interactivePrompts = evt.Prompts;
+
+        _minimalStage = MinimalStage.Interactive;
+        await InvokeAsync(StateHasChanged);
+    }
+
+    [JSInvokable]
+    public async Task OnWorkflowPhaseProgress(WorkflowPhaseProgressEvent evt)
+    {
+        _phaseNames = evt.PhaseNames ?? new();
+        _currentPhaseIndex = evt.CurrentIndex;
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task HandleChoiceCompleted(LocalTranscriber.Web.Client.Components.InteractiveStepHost.ChoiceResult result)
+    {
+        var id = _interactiveId;
+        ClearInteractiveState();
+        _minimalStage = MinimalStage.Processing;
+        StateHasChanged();
+        await JS.InvokeVoidAsync("localTranscriberWorkflow.completeChoice", id, result.SelectedTarget);
+    }
+
+    private async Task HandleMultiRecordCompleted(LocalTranscriber.Web.Client.Components.InteractiveStepHost.MultiRecordResult result)
+    {
+        var id = _interactiveId;
+        ClearInteractiveState();
+        _minimalStage = MinimalStage.Processing;
+        StateHasChanged();
+
+        var recordings = result.Pairs.Select(p => new { question = p.Question, answer = p.Answer }).ToArray();
+        await JS.InvokeVoidAsync("localTranscriberWorkflow.completeMultiRecord", id, recordings);
+    }
+
+    private async Task HandleReviewCompleted(LocalTranscriber.Web.Client.Components.InteractiveStepHost.ReviewResult result)
+    {
+        var id = _interactiveId;
+        ClearInteractiveState();
+        _minimalStage = MinimalStage.Processing;
+        StateHasChanged();
+        await JS.InvokeVoidAsync("localTranscriberWorkflow.completeReview", id, result.Text);
+    }
+
+    private void ClearInteractiveState()
+    {
+        _interactiveStepType = null;
+        _interactiveTitle = null;
+        _interactiveInstructions = null;
+        _interactiveId = null;
+        _interactiveChoices = null;
+        _interactivePrompts = null;
+        _interactiveInputText = null;
+    }
+
     private BrowserAudioInput? BuildAudioInput()
     {
         if (_browserRecording is not null)
@@ -909,6 +1073,9 @@
         _errorMessage = null;
         _browserRecording = null;
         _uploadedAudio = null;
+        ClearInteractiveState();
+        _phaseNames.Clear();
+        _currentPhaseIndex = -1;
         return Task.CompletedTask;
     }
 
@@ -1023,7 +1190,7 @@
         return ValueTask.CompletedTask;
     }
 
-    private enum MinimalStage { Capture, Processing, Results }
+    private enum MinimalStage { Capture, Processing, Interactive, Results }
     private enum ResultTab { Final, Raw, Logs }
 
     private record ProgressItem(int Percent, string Message, bool IsCompleted, bool IsError);
@@ -1073,4 +1240,27 @@
     private record SessionsStatsJs(int Count, int TotalWords, RecentSessionJs[]? Recent);
     private record RecentSessionJs(long? Date, string? Model, int? WordCount);
     private record ServiceWorkerStatsJs(bool Registered, string? Scope, string? State);
+
+    // Workflow execution result (returned by executeActiveWorkflow)
+    private record WorkflowExecutionResult(string? RawWhisperText, string? SpeakerLabeledText, string? Markdown, int? DetectedSpeakerCount);
+
+    // Workflow progress message (from OnWorkflowProgress callback)
+    public record WorkflowProgressMessage(
+        string JobId, int Percent, string Stage, string Message,
+        bool IsCompleted, bool IsError,
+        // Interactive fields
+        bool? IsInteractive, string? InteractiveType,
+        string? ReviewId, string? ChoiceId, string? MultiRecordId,
+        string? InputText, string? Instructions,
+        List<WorkflowChoiceOption>? Choices, List<string>? Prompts,
+        // Result fields
+        string? RawWhisperText, string? SpeakerLabeledText, string? Markdown, int? DetectedSpeakerCount);
+    public record WorkflowChoiceOption(string Label, string? Target);
+
+    // V2 workflow interactive event types
+    public record WorkflowInteractiveEvent(
+        string? StepType, string? Title, string? Instructions, string? InteractionId,
+        string? InputText, List<WorkflowInteractiveChoice>? Choices, List<string>? Prompts);
+    public record WorkflowInteractiveChoice(string Label, string? Target);
+    public record WorkflowPhaseProgressEvent(List<string>? PhaseNames, int CurrentIndex);
 }

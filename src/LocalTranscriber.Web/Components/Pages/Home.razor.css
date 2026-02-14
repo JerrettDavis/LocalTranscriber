@@ -70,6 +70,7 @@
 
 .minimal-capture,
 .minimal-processing,
+.minimal-interactive,
 .minimal-results,
 .minimal-history {
     animation: stageMaterialize 0.42s cubic-bezier(0.21, 0.86, 0.25, 1) both;
@@ -81,6 +82,51 @@
     max-width: 900px;
     min-height: calc(100vh - 1.5rem);
     padding: 4.8rem 1rem 2.6rem;
+}
+
+/* Phase progress bar */
+.phase-progress-bar {
+    display: flex;
+    gap: 0.35rem;
+    margin-bottom: 1.2rem;
+    flex-wrap: wrap;
+    justify-content: center;
+}
+
+.phase-pill {
+    padding: 0.3rem 0.7rem;
+    border-radius: 1rem;
+    font-size: 0.72rem;
+    font-weight: 500;
+    letter-spacing: 0.03em;
+    transition: all 0.3s ease;
+}
+
+.phase-pill.pending {
+    background: color-mix(in srgb, var(--surface-elevated) 60%, transparent);
+    color: var(--text-dim);
+    border: 1px solid var(--border-soft);
+}
+
+.phase-pill.active {
+    background: color-mix(in srgb, var(--accent) 18%, transparent);
+    color: var(--accent);
+    border: 1px solid var(--accent);
+    box-shadow: 0 0 8px color-mix(in srgb, var(--accent) 25%, transparent);
+}
+
+.phase-pill.completed {
+    background: color-mix(in srgb, #22c55e 15%, transparent);
+    color: #22c55e;
+    border: 1px solid color-mix(in srgb, #22c55e 40%, transparent);
+}
+
+.phase-pill-label {
+    white-space: nowrap;
+}
+
+.minimal-interactive {
+    gap: 1rem;
 }
 
 .capture-hub {
@@ -309,6 +355,98 @@
     min-height: 2.55rem;
     padding: 0.45rem 0.7rem;
     width: 100%;
+}
+
+/* Settings panel (minimal view) */
+
+.settings-panel {
+    background: color-mix(in srgb, var(--surface-elevated) 88%, transparent);
+    border: 1px solid var(--border-soft);
+    border-radius: 14px;
+    margin-top: 0.5rem;
+    width: 100%;
+}
+
+.settings-panel-toggle {
+    align-items: center;
+    color: var(--ink-muted);
+    cursor: pointer;
+    display: flex;
+    font-size: 0.82rem;
+    font-weight: 600;
+    gap: 0.4rem;
+    justify-content: center;
+    padding: 0.6rem 0.85rem;
+    transition: color 0.2s ease;
+    user-select: none;
+}
+
+.settings-panel-toggle:hover {
+    color: var(--ink-strong);
+}
+
+.settings-panel-toggle .icon-svg {
+    height: 1rem;
+    width: 1rem;
+}
+
+.settings-panel[open] .settings-panel-toggle {
+    border-bottom: 1px solid var(--border-soft);
+    color: var(--ink-strong);
+}
+
+.settings-panel-content {
+    display: grid;
+    gap: 0.75rem;
+    padding: 0.85rem;
+}
+
+.settings-grid {
+    display: grid;
+    gap: 0.65rem;
+    grid-template-columns: repeat(2, 1fr);
+}
+
+@media (max-width: 480px) {
+    .settings-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+.settings-grid label {
+    display: grid;
+    gap: 0.3rem;
+}
+
+.settings-grid span {
+    color: var(--ink-subtle);
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+
+.settings-grid select,
+.settings-grid input[type="number"] {
+    background: color-mix(in srgb, var(--surface) 90%, transparent);
+    border: 1px solid var(--border-soft);
+    border-radius: 8px;
+    color: var(--ink-strong);
+    font-size: 0.82rem;
+    min-height: 2.2rem;
+    padding: 0.35rem 0.55rem;
+}
+
+.settings-grid .toggle-row {
+    display: grid;
+    gap: 0.36rem;
+}
+
+.settings-hint {
+    color: var(--ink-muted);
+    font-size: 0.8rem;
+    font-style: italic;
+    margin: 0.5rem 0 0;
 }
 
 .field-grid input[type="range"] {
@@ -1239,6 +1377,7 @@ audio {
 
 .screen-root.minimal .minimal-capture,
 .screen-root.minimal .minimal-processing,
+.screen-root.minimal .minimal-interactive,
 .screen-root.minimal .minimal-results,
 .screen-root.minimal .minimal-history {
     min-height: calc(100vh - 2.4rem);
@@ -1585,4 +1724,70 @@ audio {
         min-width: 0;
         width: 100%;
     }
+}
+
+/* Interactive host */
+.interactive-host {
+    align-items: center;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    max-width: 600px;
+    width: 100%;
+}
+
+.interactive-host h3 {
+    font-size: 1.15rem;
+    font-weight: 600;
+    margin: 0;
+}
+
+.interactive-choices {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.65rem;
+    justify-content: center;
+}
+
+.interactive-choices .solid-btn {
+    min-width: 10rem;
+}
+
+.interactive-host .text-editor {
+    min-height: 180px;
+    width: 100%;
+}
+
+.multi-record-list {
+    display: grid;
+    gap: 0.75rem;
+    width: 100%;
+}
+
+.multi-record-item {
+    display: grid;
+    gap: 0.3rem;
+}
+
+.multi-record-item label {
+    display: grid;
+    gap: 0.35rem;
+}
+
+.multi-record-item textarea {
+    background: color-mix(in srgb, var(--surface) 84%, transparent);
+    border: 1px solid var(--border-soft);
+    border-radius: 10px;
+    color: var(--ink-strong);
+    font-size: 0.86rem;
+    line-height: 1.4;
+    padding: 0.55rem 0.65rem;
+    resize: vertical;
+    width: 100%;
+}
+
+.multi-record-item textarea:focus {
+    border-color: color-mix(in srgb, var(--accent) 58%, transparent);
+    box-shadow: 0 0 0 0.14rem color-mix(in srgb, var(--accent) 18%, transparent);
+    outline: none;
 }

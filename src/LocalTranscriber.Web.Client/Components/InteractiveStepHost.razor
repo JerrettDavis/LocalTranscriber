@@ -1,0 +1,228 @@
+@inject IJSRuntime JS
+
+<div class="interactive-host">
+    @switch (StepType)
+    {
+        case "choice":
+            <div class="interactive-choice">
+                <h3>@Title</h3>
+                @if (!string.IsNullOrWhiteSpace(Instructions))
+                {
+                    <p class="interactive-instructions">@Instructions</p>
+                }
+                <div class="choice-buttons">
+                    @if (Choices != null)
+                    {
+                        @foreach (var choice in Choices)
+                        {
+                            var c = choice;
+                            <button class="choice-btn" type="button" @onclick="() => OnChoiceSelected(c)">
+                                @c.Label
+                            </button>
+                        }
+                    }
+                </div>
+            </div>
+            break;
+
+        case "multiRecord":
+            <div class="interactive-multi-record">
+                <h3>@Title</h3>
+                @if (!string.IsNullOrWhiteSpace(Instructions))
+                {
+                    <p class="interactive-instructions">@Instructions</p>
+                }
+
+                <div class="multi-record-progress">
+                    <span>@_completedCount / @(Prompts?.Count ?? 0) answered</span>
+                    <div class="progress-bar">
+                        <div class="progress-fill" style="width: @(ProgressPercent)%"></div>
+                    </div>
+                </div>
+
+                <div class="prompt-cards">
+                    @if (Prompts != null)
+                    {
+                        @for (var i = 0; i < Prompts.Count; i++)
+                        {
+                            var idx = i;
+                            var prompt = Prompts[i];
+                            var hasRecording = _recordings.ContainsKey(idx);
+                            <div class="prompt-card @(hasRecording ? "completed" : "") @(_activeRecordingIndex == idx ? "recording" : "")">
+                                <div class="prompt-header">
+                                    <span class="prompt-number">@(idx + 1)</span>
+                                    <span class="prompt-text">@prompt</span>
+                                </div>
+                                <div class="prompt-actions">
+                                    @if (_activeRecordingIndex == idx)
+                                    {
+                                        <button class="record-action stop" type="button" @onclick="() => StopRecordingAsync(idx)">
+                                            Stop
+                                        </button>
+                                    }
+                                    else
+                                    {
+                                        <button class="record-action @(hasRecording ? "re-record" : "record")" type="button" @onclick="() => StartRecordingAsync(idx)">
+                                            @(hasRecording ? "Re-record" : "Record")
+                                        </button>
+                                    }
+                                </div>
+                                @if (hasRecording && _recordings[idx].Transcription != null)
+                                {
+                                    <div class="prompt-transcription">
+                                        <p>@_recordings[idx].Transcription</p>
+                                    </div>
+                                }
+                            </div>
+                        }
+                    }
+                </div>
+
+                @if (_completedCount == (Prompts?.Count ?? 0) && _completedCount > 0)
+                {
+                    <button class="submit-all-btn" type="button" @onclick="SubmitAllRecordings">
+                        Submit All Answers
+                    </button>
+                }
+            </div>
+            break;
+
+        case "userReview":
+            <div class="interactive-review">
+                <h3>@(Title ?? "Review & Edit")</h3>
+                @if (!string.IsNullOrWhiteSpace(Instructions))
+                {
+                    <p class="interactive-instructions">@Instructions</p>
+                }
+                <textarea class="review-editor" @bind="_reviewText" @bind:event="oninput"></textarea>
+                <div class="review-actions">
+                    <button class="choice-btn primary" type="button" @onclick="ApproveReview">Approve</button>
+                    @if (ShowPlayback)
+                    {
+                        <span class="review-note">Use playback controls above to verify accuracy</span>
+                    }
+                </div>
+            </div>
+            break;
+
+        default:
+            <div class="interactive-unknown">
+                <p>Unknown interactive step type: @StepType</p>
+            </div>
+            break;
+    }
+</div>
+
+@code {
+    [Parameter] public string StepType { get; set; } = "";
+    [Parameter] public string? Title { get; set; }
+    [Parameter] public string? Instructions { get; set; }
+    [Parameter] public List<ChoiceOption>? Choices { get; set; }
+    [Parameter] public List<string>? Prompts { get; set; }
+    [Parameter] public string? InputText { get; set; }
+    [Parameter] public bool ShowPlayback { get; set; }
+    [Parameter] public string? InteractionId { get; set; }
+    [Parameter] public EventCallback<ChoiceResult> OnChoiceCompleted { get; set; }
+    [Parameter] public EventCallback<MultiRecordResult> OnMultiRecordCompleted { get; set; }
+    [Parameter] public EventCallback<ReviewResult> OnReviewCompleted { get; set; }
+
+    private Dictionary<int, RecordingEntry> _recordings = new();
+    private int _activeRecordingIndex = -1;
+    private string _reviewText = "";
+    private int _completedCount => _recordings.Count;
+    private double ProgressPercent => Prompts?.Count > 0 ? (double)_completedCount / Prompts.Count * 100 : 0;
+
+    protected override void OnParametersSet()
+    {
+        if (StepType == "userReview" && !string.IsNullOrEmpty(InputText) && string.IsNullOrEmpty(_reviewText))
+        {
+            _reviewText = InputText;
+        }
+    }
+
+    private async Task OnChoiceSelected(ChoiceOption choice)
+    {
+        await OnChoiceCompleted.InvokeAsync(new ChoiceResult(choice.Label, choice.Target));
+    }
+
+    private async Task StartRecordingAsync(int index)
+    {
+        if (_activeRecordingIndex >= 0)
+            return;
+
+        _activeRecordingIndex = index;
+        try
+        {
+            await JS.InvokeVoidAsync("localTranscriberRecorder.startRecording", null);
+        }
+        catch
+        {
+            _activeRecordingIndex = -1;
+        }
+    }
+
+    private async Task StopRecordingAsync(int index)
+    {
+        if (_activeRecordingIndex != index)
+            return;
+
+        try
+        {
+            var payload = await JS.InvokeAsync<RecordingPayload?>("localTranscriberRecorder.stopRecording");
+            if (payload != null)
+            {
+                _recordings[index] = new RecordingEntry(payload.Base64, payload.MimeType, null);
+
+                // Transcribe the recording inline
+                try
+                {
+                    var result = await JS.InvokeAsync<TranscriptionResult?>(
+                        "localTranscriberBrowser.transcribeAudioBase64",
+                        payload.Base64, payload.MimeType);
+                    if (result != null)
+                    {
+                        _recordings[index] = _recordings[index] with { Transcription = result.Text };
+                    }
+                }
+                catch
+                {
+                    // Transcription is optional - recording still captured
+                }
+            }
+        }
+        finally
+        {
+            _activeRecordingIndex = -1;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task SubmitAllRecordings()
+    {
+        if (Prompts == null) return;
+
+        var pairs = new List<QAPair>();
+        for (var i = 0; i < Prompts.Count; i++)
+        {
+            var transcription = _recordings.ContainsKey(i) ? _recordings[i].Transcription ?? "" : "";
+            pairs.Add(new QAPair(Prompts[i], transcription));
+        }
+
+        await OnMultiRecordCompleted.InvokeAsync(new MultiRecordResult(pairs));
+    }
+
+    private async Task ApproveReview()
+    {
+        await OnReviewCompleted.InvokeAsync(new ReviewResult(_reviewText, true));
+    }
+
+    // Models
+    public record ChoiceOption(string Label, string? Target);
+    public record ChoiceResult(string SelectedLabel, string? SelectedTarget);
+    public record MultiRecordResult(List<QAPair> Pairs);
+    public record QAPair(string Question, string Answer);
+    public record ReviewResult(string Text, bool Approved);
+    private record RecordingEntry(string Base64, string MimeType, string? Transcription);
+    private record RecordingPayload(string Base64, string MimeType, string FileName);
+    private record TranscriptionResult(string Text);
+}

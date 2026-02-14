@@ -1,0 +1,241 @@
+.interactive-host {
+    animation: interactiveIn 0.38s cubic-bezier(0.21, 0.86, 0.25, 1) both;
+    width: min(900px, 100%);
+}
+
+.interactive-choice,
+.interactive-multi-record,
+.interactive-review {
+    display: flex;
+    flex-direction: column;
+    gap: 1.2rem;
+}
+
+.interactive-choice h3,
+.interactive-multi-record h3,
+.interactive-review h3 {
+    font-size: 1.15rem;
+    margin: 0;
+}
+
+.interactive-instructions {
+    color: var(--ink-muted);
+    font-size: 0.88rem;
+    margin: 0;
+}
+
+.choice-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.65rem;
+}
+
+.choice-btn {
+    background: var(--surface-elevated);
+    border: 1px solid var(--border-soft);
+    border-radius: 12px;
+    color: var(--ink-strong);
+    font-size: 0.88rem;
+    font-weight: 600;
+    min-height: 2.8rem;
+    min-width: 8rem;
+    padding: 0.55rem 1.2rem;
+    transition: transform 0.2s ease, border-color 0.2s ease, background 0.2s ease, box-shadow 0.2s ease;
+}
+
+.choice-btn:hover {
+    background: color-mix(in srgb, var(--surface-elevated) 55%, var(--accent) 45%);
+    border-color: color-mix(in srgb, var(--accent) 62%, transparent);
+    box-shadow: 0 0 0 0.18rem color-mix(in srgb, var(--accent) 22%, transparent);
+    transform: translateY(-1px);
+}
+
+.choice-btn.primary {
+    background: color-mix(in srgb, var(--accent) 20%, var(--surface-elevated));
+    border-color: color-mix(in srgb, var(--accent) 60%, transparent);
+}
+
+.multi-record-progress {
+    display: flex;
+    align-items: center;
+    gap: 0.8rem;
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--ink-subtle);
+}
+
+.progress-bar {
+    background: color-mix(in srgb, var(--surface-elevated) 70%, var(--border-soft));
+    border-radius: 999px;
+    flex: 1;
+    height: 0.5rem;
+    overflow: hidden;
+}
+
+.progress-fill {
+    background: var(--accent);
+    border-radius: 999px;
+    height: 100%;
+    transition: width 0.3s ease;
+}
+
+.prompt-cards {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.prompt-card {
+    background: var(--surface-elevated);
+    border: 1px solid var(--border-soft);
+    border-radius: 12px;
+    padding: 1rem 1.2rem;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.prompt-card.completed {
+    border-color: color-mix(in srgb, var(--success) 48%, transparent);
+}
+
+.prompt-card.recording {
+    border-color: color-mix(in srgb, var(--danger) 55%, transparent);
+    box-shadow: 0 0 0 0.15rem color-mix(in srgb, var(--danger) 18%, transparent);
+}
+
+.prompt-header {
+    align-items: baseline;
+    display: flex;
+    gap: 0.65rem;
+    margin-bottom: 0.6rem;
+}
+
+.prompt-number {
+    align-items: center;
+    background: color-mix(in srgb, var(--accent) 18%, var(--surface));
+    border-radius: 999px;
+    color: var(--accent);
+    display: inline-flex;
+    font-size: 0.75rem;
+    font-weight: 700;
+    height: 1.6rem;
+    justify-content: center;
+    min-width: 1.6rem;
+}
+
+.prompt-text {
+    color: var(--ink-strong);
+    font-size: 0.9rem;
+    font-weight: 500;
+}
+
+.prompt-actions {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.record-action {
+    background: var(--surface-elevated);
+    border: 1px solid var(--border-soft);
+    border-radius: 8px;
+    color: var(--ink-strong);
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    min-height: 2rem;
+    padding: 0.3rem 0.8rem;
+    text-transform: uppercase;
+    transition: transform 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+
+.record-action:hover {
+    transform: translateY(-1px);
+}
+
+.record-action.record {
+    border-color: color-mix(in srgb, var(--danger) 50%, transparent);
+    color: var(--danger);
+}
+
+.record-action.stop {
+    background: color-mix(in srgb, var(--danger) 15%, var(--surface-elevated));
+    border-color: var(--danger);
+    color: var(--danger);
+}
+
+.record-action.re-record {
+    border-color: color-mix(in srgb, var(--accent) 50%, transparent);
+    color: var(--accent);
+}
+
+.prompt-transcription {
+    background: color-mix(in srgb, var(--surface) 80%, transparent);
+    border-radius: 8px;
+    margin-top: 0.6rem;
+    padding: 0.6rem 0.8rem;
+}
+
+.prompt-transcription p {
+    color: var(--ink-subtle);
+    font-size: 0.84rem;
+    line-height: 1.5;
+    margin: 0;
+}
+
+.submit-all-btn {
+    align-self: center;
+    background: color-mix(in srgb, var(--accent) 20%, var(--surface-elevated));
+    border: 1px solid color-mix(in srgb, var(--accent) 60%, transparent);
+    border-radius: 12px;
+    color: var(--ink-strong);
+    font-size: 0.9rem;
+    font-weight: 700;
+    min-height: 2.8rem;
+    padding: 0.55rem 1.6rem;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.submit-all-btn:hover {
+    box-shadow: 0 8px 24px color-mix(in srgb, var(--accent) 25%, transparent);
+    transform: translateY(-2px);
+}
+
+.review-editor {
+    background: color-mix(in srgb, var(--surface-elevated) 90%, transparent);
+    border: 1px solid var(--border-soft);
+    border-radius: 12px;
+    color: var(--ink-strong);
+    font-family: inherit;
+    font-size: 0.88rem;
+    line-height: 1.6;
+    min-height: 280px;
+    padding: 0.8rem 1rem;
+    resize: vertical;
+    width: 100%;
+}
+
+.review-actions {
+    align-items: center;
+    display: flex;
+    gap: 1rem;
+}
+
+.review-note {
+    color: var(--ink-muted);
+    font-size: 0.78rem;
+}
+
+.interactive-unknown {
+    color: var(--ink-muted);
+    font-style: italic;
+}
+
+@keyframes interactiveIn {
+    from {
+        opacity: 0;
+        transform: translateY(12px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
