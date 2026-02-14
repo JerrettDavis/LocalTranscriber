@@ -417,19 +417,23 @@ Rules:
 
     let asrResult;
     try {
-      asrResult = await asr(audioData, {
+      asrResult = await runAsrWithRecovery(asr, audioData, {
         chunk_length_s: 30,
         stride_length_s: 5,
         return_timestamps: "word",
         ...(language ? { language } : {}),
-      });
+      }, request.model, (pct) =>
+        emitProgress(dotNetRef, request, Math.min(43, Math.max(30, pct)), "transcribe", "Reloading model...")
+      );
     } catch {
-      asrResult = await asr(audioData, {
+      asrResult = await runAsrWithRecovery(asr, audioData, {
         chunk_length_s: 30,
         stride_length_s: 5,
         return_timestamps: true,
         ...(language ? { language } : {}),
-      });
+      }, request.model, (pct) =>
+        emitProgress(dotNetRef, request, Math.min(43, Math.max(30, pct)), "transcribe", "Reloading model...")
+      );
     }
 
     const rawText = normalizeText(asrResult?.text ?? "");
@@ -582,6 +586,34 @@ Rules:
     };
 
     await dotNetRef.invokeMethodAsync("OnBrowserProgress", payload);
+  }
+
+  // Run ASR inference with OrtRun error recovery.
+  // If the ONNX runtime crashes (e.g. corrupted model cache), evict the
+  // cached pipeline, reload the model, and retry once before giving up.
+  async function runAsrWithRecovery(asr, audioData, options, modelName, onProgress) {
+    try {
+      return await asr(audioData, options);
+    } catch (err) {
+      const msg = String(err?.message || err);
+      if (!msg.includes("OrtRun")) throw err;
+
+      console.warn("[LocalTranscriber] OrtRun error detected — evicting cached pipeline and retrying...");
+
+      // Evict the broken pipeline
+      const modelId = resolveWhisperModel(modelName);
+      const cacheKey = `webgpu:${modelId}`;
+      asrPipelineCache.delete(cacheKey);
+
+      // Also clear the browser model cache in case files are corrupted
+      try { await clearModelCache(); } catch { /* best-effort */ }
+
+      // Reload pipeline from scratch
+      const freshAsr = await getWhisperPipeline(modelName, onProgress);
+
+      // Retry once — if this also fails, let it propagate
+      return await freshAsr(audioData, options);
+    }
   }
 
   async function getWhisperPipeline(modelName, onProgress) {
@@ -1575,18 +1607,22 @@ Rules:
 
     let asrResult;
     try {
-      asrResult = await asr(audioData, {
+      asrResult = await runAsrWithRecovery(asr, audioData, {
         chunk_length_s: 30,
         stride_length_s: 5,
         return_timestamps: "word",
         ...(resolvedLang ? { language: resolvedLang } : {}),
+      }, resolvedModel, (pct) => {
+        if (onProgress) onProgress(30 + pct * 0.2, "Reloading model...");
       });
     } catch {
-      asrResult = await asr(audioData, {
+      asrResult = await runAsrWithRecovery(asr, audioData, {
         chunk_length_s: 30,
         stride_length_s: 5,
         return_timestamps: true,
         ...(resolvedLang ? { language: resolvedLang } : {}),
+      }, resolvedModel, (pct) => {
+        if (onProgress) onProgress(30 + pct * 0.2, "Reloading model...");
       });
     }
 
