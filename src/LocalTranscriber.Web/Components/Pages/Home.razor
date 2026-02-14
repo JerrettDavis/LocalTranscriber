@@ -90,12 +90,102 @@
                 }
             </section>
         }
+        else if (_minimalStage == MinimalStage.Interactive)
+        {
+            <section class="minimal-interactive">
+                @if (_phaseNames.Count > 0)
+                {
+                    <div class="phase-progress-bar">
+                        @for (var i = 0; i < _phaseNames.Count; i++)
+                        {
+                            var pClass = i < _currentPhaseIndex ? "completed" : i == _currentPhaseIndex ? "active" : "pending";
+                            <div class="phase-pill @pClass" title="@_phaseNames[i]">
+                                <span class="phase-pill-label">@_phaseNames[i]</span>
+                            </div>
+                        }
+                    </div>
+                }
+
+                <div class="interactive-host">
+                    @if (_interactiveStepType == "choice")
+                    {
+                        <h3>@(_interactiveTitle ?? "Choose an option")</h3>
+                        @if (!string.IsNullOrWhiteSpace(_interactiveInstructions))
+                        {
+                            <p class="subtext">@_interactiveInstructions</p>
+                        }
+                        <div class="interactive-choices">
+                            @if (_interactiveChoices != null)
+                            {
+                                @foreach (var choice in _interactiveChoices)
+                                {
+                                    var c = choice;
+                                    <button class="solid-btn" type="button" @onclick="() => HandleChoiceSelected(c)">@c.Label</button>
+                                }
+                            }
+                        </div>
+                    }
+                    else if (_interactiveStepType == "userReview")
+                    {
+                        <h3>@(_interactiveTitle ?? "Review & Edit")</h3>
+                        @if (!string.IsNullOrWhiteSpace(_interactiveInstructions))
+                        {
+                            <p class="subtext">@_interactiveInstructions</p>
+                        }
+                        <textarea class="text-editor" @bind="_interactiveReviewText" @bind:event="oninput"></textarea>
+                        <button class="solid-btn" type="button" @onclick="HandleReviewApproved">Approve</button>
+                    }
+                    else if (_interactiveStepType == "multiRecord" && _interactivePrompts is { Count: > 0 })
+                    {
+                        <h3>@(_interactiveTitle ?? "Record Responses")</h3>
+                        @if (!string.IsNullOrWhiteSpace(_interactiveInstructions))
+                        {
+                            <p class="subtext">@_interactiveInstructions</p>
+                        }
+                        <div class="multi-record-list">
+                            @for (var i = 0; i < _interactivePrompts.Count; i++)
+                            {
+                                var idx = i;
+                                <div class="multi-record-item">
+                                    <label>
+                                        <strong>@_interactivePrompts[idx]</strong>
+                                        <textarea @bind="_multiRecordAnswers[idx]" @bind:event="oninput" rows="3" placeholder="Type your answer..."></textarea>
+                                    </label>
+                                </div>
+                            }
+                        </div>
+                        <button class="solid-btn" type="button" @onclick="HandleMultiRecordSubmitted">Submit Answers</button>
+                    }
+                    else
+                    {
+                        <h3>@(_interactiveTitle ?? "Waiting for input...")</h3>
+                        @if (!string.IsNullOrWhiteSpace(_interactiveInstructions))
+                        {
+                            <p class="subtext">@_interactiveInstructions</p>
+                        }
+                    }
+                </div>
+            </section>
+        }
         else if (_minimalStage == MinimalStage.Processing)
         {
             <section class="minimal-processing">
                 <div class="orbit-loader"></div>
                 <h2>@_statusMessage</h2>
                 <p class="subtext">Processing audio and streaming step-by-step diagnostics.</p>
+
+                @if (_phaseNames.Count > 0)
+                {
+                    <div class="phase-progress-bar">
+                        @for (var i = 0; i < _phaseNames.Count; i++)
+                        {
+                            var pClass = i < _currentPhaseIndex ? "completed" : i == _currentPhaseIndex ? "active" : "pending";
+                            <div class="phase-pill @pClass" title="@_phaseNames[i]">
+                                <span class="phase-pill-label">@_phaseNames[i]</span>
+                            </div>
+                        }
+                    </div>
+                }
 
                 <div class="log-stream">
                     @if (_timeline.Count == 0)
@@ -337,6 +427,60 @@
                         </select>
                     </label>
 
+                    <details class="settings-panel">
+                        <summary class="settings-panel-toggle">
+                            <svg class="icon-svg" viewBox="0 0 24 24"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
+                            <span>Settings & Workflow</span>
+                        </summary>
+                        <div class="settings-panel-content">
+                            <div class="settings-grid">
+                                <label>
+                                    <span>Workflow</span>
+                                    <select @bind="_selectedWorkflowPreset" @bind:after="ApplyWorkflowPresetAsync" disabled="@_isSubmitting">
+                                        <option value="default">Standard Transcription</option>
+                                        <option value="preset-meeting-notes">Meeting Notes</option>
+                                        <option value="preset-podcast-transcript">Podcast Transcript</option>
+                                        <option value="preset-blog-interview">Blog Interview (Ghostwriter)</option>
+                                    </select>
+                                </label>
+
+                                <label>
+                                    <span>Whisper Model</span>
+                                    <select @bind="_model" disabled="@_isSubmitting">
+                                        @foreach (var model in _models)
+                                        {
+                                            <option value="@model">@model</option>
+                                        }
+                                    </select>
+                                </label>
+
+                                <label>
+                                    <span>Formatter</span>
+                                    <select @bind="_formatProvider" disabled="@(_isSubmitting || _runInBrowser)">
+                                        <option value="auto">auto</option>
+                                        <option value="local">local</option>
+                                        <option value="ollama">ollama</option>
+                                        <option value="huggingface">huggingface</option>
+                                    </select>
+                                </label>
+
+                                <label class="toggle-row">
+                                    <span>Speaker Labels</span>
+                                    <input type="checkbox" @bind="_enableSpeakerLabels" disabled="@_isSubmitting" />
+                                </label>
+                            </div>
+
+                            @if (_runInBrowser)
+                            {
+                                <p class="settings-hint">Browser mode active. Workflows will execute entirely in your browser.</p>
+                            }
+                            else
+                            {
+                                <p class="settings-hint">Server mode. Switch to browser mode for workflow support, or use Studio view for full settings.</p>
+                            }
+                        </div>
+                    </details>
+
                     @if (!string.IsNullOrWhiteSpace(_sourceDescription))
                     {
                         <p class="subtext">@_sourceDescription</p>
@@ -415,10 +559,20 @@
             <article class="studio-card settings-card">
                 <header>
                     <h2>Settings</h2>
-                    <p>Model, language, formatting, and speaker controls.</p>
+                    <p>Model, language, formatting, workflow, and speaker controls.</p>
                 </header>
 
                 <div class="field-grid">
+                    <label>
+                        <span>Workflow</span>
+                        <select @bind="_selectedWorkflowPreset" @bind:after="ApplyWorkflowPresetAsync" disabled="@_isSubmitting">
+                            <option value="default">Standard Transcription</option>
+                            <option value="preset-meeting-notes">Meeting Notes</option>
+                            <option value="preset-podcast-transcript">Podcast Transcript</option>
+                            <option value="preset-blog-interview">Blog Interview (Ghostwriter)</option>
+                        </select>
+                    </label>
+
                     <label>
                         <span>Input Device</span>
                         <select @bind="_selectedDeviceId" disabled="@(_devices.Count == 0 || _isRecording || _isSubmitting)">
@@ -978,6 +1132,7 @@
     private double _speakerShortRunMergeSeconds = 1.6;
 
     private bool _runInBrowser;
+    private string _selectedWorkflowPreset = "default";
     private string _browserCleanupMode = "webllm";
     private string _webLlmModel = "Llama-3.1-8B-Instruct-q4f16_1-MLC";
     private BrowserExecutionCapabilities _browserCapabilities = new(
@@ -1017,6 +1172,19 @@
     private CancellationTokenSource? _jobStatusPollCts;
     private bool _isDisposed;
     private bool _isSnapshotSaveQueued;
+
+    // Interactive workflow state
+    private string? _interactiveStepType;
+    private string? _interactiveTitle;
+    private string? _interactiveInstructions;
+    private string? _interactiveId;
+    private List<InteractiveChoice>? _interactiveChoices;
+    private List<string>? _interactivePrompts;
+    private string? _interactiveInputText;
+    private string _interactiveReviewText = "";
+    private List<string> _multiRecordAnswers = new();
+    private List<string> _phaseNames = new();
+    private int _currentPhaseIndex = -1;
 
     private LayoutMode _layoutMode = LayoutMode.Minimal;
     private MinimalStage _minimalStage = MinimalStage.Capture;
@@ -1206,6 +1374,178 @@
         {
             // Ignore transient browser-progress apply failures.
         }
+    }
+
+    [JSInvokable]
+    public async Task OnWorkflowProgress(WorkflowProgressMessage msg)
+    {
+        if (!string.Equals(msg.JobId, _activeJobId, StringComparison.OrdinalIgnoreCase))
+            return;
+
+        await InvokeAsync(() =>
+        {
+            // Interactive step handling
+            if (msg.IsInteractive == true)
+            {
+                switch (msg.InteractiveType)
+                {
+                    case "userReview":
+                        _interactiveStepType = "userReview";
+                        _interactiveTitle = "Review & Edit";
+                        _interactiveInstructions = null;
+                        _interactiveInputText = msg.InputText;
+                        _interactiveReviewText = msg.InputText ?? "";
+                        _interactiveId = msg.ReviewId;
+                        _interactiveChoices = null;
+                        _interactivePrompts = null;
+                        _minimalStage = MinimalStage.Interactive;
+                        break;
+                    case "choice":
+                        _interactiveStepType = "choice";
+                        _interactiveTitle = "Choose an option";
+                        _interactiveInstructions = null;
+                        _interactiveId = msg.ChoiceId;
+                        _interactiveChoices = msg.Choices?
+                            .Select(c => new InteractiveChoice(c.Label, c.Target)).ToList();
+                        _interactivePrompts = null;
+                        _interactiveInputText = null;
+                        _minimalStage = MinimalStage.Interactive;
+                        break;
+                    case "multiRecord":
+                        _interactiveStepType = "multiRecord";
+                        _interactiveTitle = "Record Responses";
+                        _interactiveInstructions = msg.Instructions;
+                        _interactiveId = msg.MultiRecordId;
+                        _interactiveChoices = null;
+                        _interactivePrompts = msg.Prompts?.ToList();
+                        _multiRecordAnswers = _interactivePrompts != null
+                            ? Enumerable.Repeat("", _interactivePrompts.Count).ToList()
+                            : new();
+                        _interactiveInputText = null;
+                        _minimalStage = MinimalStage.Interactive;
+                        break;
+                }
+                StateHasChanged();
+                return;
+            }
+
+            // Regular progress
+            _timeline.Insert(0, new TranscriptionProgressMessage(
+                msg.JobId, msg.Percent, msg.Stage, msg.Message,
+                msg.IsCompleted, msg.IsError,
+                msg.RawWhisperText, msg.SpeakerLabeledText,
+                null, null, msg.Markdown, _outputPath,
+                msg.DetectedSpeakerCount, null));
+            _statusMessage = msg.Message;
+            _percent = msg.Percent;
+
+            if (msg.RawWhisperText is not null) _rawWhisperText = msg.RawWhisperText;
+            if (msg.SpeakerLabeledText is not null) _speakerLabeledText = msg.SpeakerLabeledText;
+            if (msg.Markdown is not null) _markdownOutput = msg.Markdown;
+
+            if (msg.IsError)
+                _errorMessage = msg.Message;
+
+            StateHasChanged();
+        });
+    }
+
+    [JSInvokable]
+    public async Task OnWorkflowInteractive(WorkflowInteractiveEvent interactiveEvent)
+    {
+        await InvokeAsync(() =>
+        {
+            _interactiveStepType = interactiveEvent.Type;
+            _interactiveTitle = interactiveEvent.Title;
+            _interactiveInstructions = interactiveEvent.Instructions;
+            _interactiveId = interactiveEvent.Id;
+            _interactiveChoices = interactiveEvent.Choices?
+                .Select(c => new InteractiveChoice(c.Label, c.Target))
+                .ToList();
+            _interactivePrompts = interactiveEvent.Prompts?.ToList();
+            _multiRecordAnswers = _interactivePrompts != null
+                ? Enumerable.Repeat("", _interactivePrompts.Count).ToList()
+                : new();
+            _interactiveInputText = interactiveEvent.InputText;
+            _interactiveReviewText = interactiveEvent.InputText ?? "";
+            _minimalStage = MinimalStage.Interactive;
+            StateHasChanged();
+        });
+    }
+
+    [JSInvokable]
+    public async Task OnWorkflowPhaseProgress(WorkflowPhaseProgressEvent phaseEvent)
+    {
+        await InvokeAsync(() =>
+        {
+            _phaseNames = phaseEvent.PhaseNames?.ToList() ?? new();
+            _currentPhaseIndex = phaseEvent.CurrentIndex;
+            StateHasChanged();
+        });
+    }
+
+    private async Task HandleChoiceSelected(InteractiveChoice choice)
+    {
+        _minimalStage = MinimalStage.Processing;
+        _statusMessage = "Continuing workflow...";
+        await JS.InvokeVoidAsync("localTranscriberWorkflow.completeChoice", _interactiveId, choice.Target);
+        ClearInteractiveState();
+    }
+
+    private async Task HandleReviewApproved()
+    {
+        _minimalStage = MinimalStage.Processing;
+        _statusMessage = "Continuing workflow...";
+        await JS.InvokeVoidAsync("localTranscriberWorkflow.completeReview", _interactiveId, _interactiveReviewText, true);
+        ClearInteractiveState();
+    }
+
+    private async Task HandleMultiRecordSubmitted()
+    {
+        _minimalStage = MinimalStage.Processing;
+        _statusMessage = "Continuing workflow...";
+        await JS.InvokeVoidAsync("localTranscriberWorkflow.completeMultiRecord", _interactiveId, _multiRecordAnswers.ToArray());
+        ClearInteractiveState();
+    }
+
+    private async Task ApplyWorkflowPresetAsync()
+    {
+        try
+        {
+            if (_selectedWorkflowPreset == "default")
+            {
+                await JS.InvokeVoidAsync("localTranscriberWorkflow.setActiveWorkflow", "default");
+            }
+            else
+            {
+                // createFromPreset returns a new workflow object; set it as active
+                var created = await JS.InvokeAsync<System.Text.Json.JsonElement?>(
+                    "localTranscriberWorkflow.createFromPreset", _selectedWorkflowPreset);
+                if (created is { } workflow)
+                {
+                    var id = workflow.GetProperty("id").GetString();
+                    if (!string.IsNullOrEmpty(id))
+                        await JS.InvokeVoidAsync("localTranscriberWorkflow.setActiveWorkflow", id);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Failed to apply workflow preset: {ex.Message}");
+        }
+    }
+
+    private void ClearInteractiveState()
+    {
+        _interactiveStepType = null;
+        _interactiveTitle = null;
+        _interactiveInstructions = null;
+        _interactiveId = null;
+        _interactiveChoices = null;
+        _interactivePrompts = null;
+        _multiRecordAnswers = new();
+        _interactiveInputText = null;
+        _interactiveReviewText = "";
     }
 
     private async Task ToggleRecordAsync()
@@ -1466,36 +1806,25 @@
             return;
         }
 
-        _statusMessage = "Running in-browser transcription...";
+        _statusMessage = "Running workflow...";
         _outputPath = "In-browser result (not written to server output folder)";
 
-        var request = new BrowserTranscriptionRequest(
-            _activeJobId!,
-            input.FileName,
-            input.MimeType,
-            input.Base64,
-            _model,
-            _language,
-            _enableSpeakerLabels,
-            _browserCleanupMode == "webllm",
-            _webLlmModel);
+        var audioInput = new { base64 = input.Base64, fileName = input.FileName, mimeType = input.MimeType };
 
         try
         {
-            var result = await JS.InvokeAsync<BrowserTranscriptionResult>(
-                "localTranscriberBrowser.transcribeInBrowser",
+            var result = await JS.InvokeAsync<WorkflowExecutionResult>(
+                "localTranscriberWorkflow.executeActiveWorkflow",
+                audioInput,
                 _dotNetRef,
-                request);
+                _activeJobId);
 
             _rawWhisperText = result.RawWhisperText ?? _rawWhisperText;
             _speakerLabeledText = result.SpeakerLabeledText ?? _speakerLabeledText;
-            _formatterOutput = result.FormatterOutput ?? _formatterOutput;
-            _formatterUsed = result.FormatterUsed ?? _formatterUsed;
-            _markdownOutput = result.Markdown ?? _markdownOutput;
+            _markdownOutput = result.Markdown ?? result.SpeakerLabeledText ?? result.RawWhisperText ?? _markdownOutput;
             _detectedSpeakerCount = result.DetectedSpeakerCount ?? _detectedSpeakerCount;
-            SetSubtitleSegments(result.SubtitleSegments);
             _percent = 100;
-            _statusMessage = "Browser transcription complete.";
+            _statusMessage = "Workflow complete.";
             _minimalStage = MinimalStage.Results;
             _isSubmitting = false;
             await SaveSnapshotAsync();
@@ -1729,6 +2058,9 @@
         _minimalStage = MinimalStage.Capture;
         _isSubmitting = false;
         ClearActiveTabEditor();
+        ClearInteractiveState();
+        _phaseNames.Clear();
+        _currentPhaseIndex = -1;
         StopJobStatusPolling();
         await ClearActiveAudioAsync();
     }
@@ -2559,6 +2891,7 @@
     {
         Capture,
         Processing,
+        Interactive,
         Results,
         History
     }
@@ -2651,4 +2984,40 @@
         string? FormatterOutput,
         int? DetectedSpeakerCount,
         IReadOnlyList<TranscriptionSubtitleSegment>? SubtitleSegments);
+
+    private sealed record InteractiveChoice(string Label, string? Target);
+
+    public sealed record WorkflowInteractiveEvent(
+        string Type,
+        string Id,
+        string? Title,
+        string? Instructions,
+        WorkflowInteractiveChoice[]? Choices,
+        string[]? Prompts,
+        string? InputText);
+
+    public sealed record WorkflowInteractiveChoice(string Label, string? Target);
+
+    public sealed record WorkflowPhaseProgressEvent(
+        string[]? PhaseNames,
+        int CurrentIndex);
+
+    // Workflow execution result (returned by executeActiveWorkflow)
+    private sealed record WorkflowExecutionResult(
+        string? RawWhisperText,
+        string? SpeakerLabeledText,
+        string? Markdown,
+        int? DetectedSpeakerCount);
+
+    // Workflow progress message (from OnWorkflowProgress callback)
+    public sealed record WorkflowProgressMessage(
+        string JobId, int Percent, string Stage, string Message,
+        bool IsCompleted, bool IsError,
+        bool? IsInteractive, string? InteractiveType,
+        string? ReviewId, string? ChoiceId, string? MultiRecordId,
+        string? InputText, string? Instructions,
+        WorkflowChoiceOption[]? Choices, string[]? Prompts,
+        string? RawWhisperText, string? SpeakerLabeledText, string? Markdown, int? DetectedSpeakerCount);
+
+    public sealed record WorkflowChoiceOption(string Label, string? Target);
 }

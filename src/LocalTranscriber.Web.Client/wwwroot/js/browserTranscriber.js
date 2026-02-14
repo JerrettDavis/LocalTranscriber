@@ -1444,10 +1444,55 @@ Rules:
     setTimeout(() => URL.revokeObjectURL(url), 0);
   }
 
+  // Standalone transcription function for workflow engine step handlers.
+  // audioInput: { base64, fileName, mimeType }
+  async function transcribeAudio(audioInput, model, language, onProgress) {
+    const resolvedModel = model || "SmallEn";
+    const resolvedLang = language && language.toLowerCase() !== "auto" ? language : undefined;
+
+    if (onProgress) onProgress(5, "Decoding audio...");
+    const audioData = await decodeToMono16kFloat32(audioInput.base64);
+
+    if (onProgress) onProgress(20, "Loading Whisper model...");
+    const asr = await getWhisperPipeline(resolvedModel, (pct) => {
+      if (onProgress) onProgress(20 + pct * 0.3, "Preparing Whisper runtime...");
+    });
+
+    if (onProgress) onProgress(50, "Transcribing...");
+
+    let asrResult;
+    try {
+      asrResult = await asr(audioData, {
+        chunk_length_s: 30,
+        stride_length_s: 5,
+        return_timestamps: "word",
+        ...(resolvedLang ? { language: resolvedLang } : {}),
+      });
+    } catch {
+      asrResult = await asr(audioData, {
+        chunk_length_s: 30,
+        stride_length_s: 5,
+        return_timestamps: true,
+        ...(resolvedLang ? { language: resolvedLang } : {}),
+      });
+    }
+
+    const text = normalizeText(asrResult?.text ?? "");
+    const segments = buildSubtitleSegments(asrResult?.chunks, text);
+
+    if (onProgress) onProgress(100, "Transcription complete.");
+    return { text, segments };
+  }
+
   return {
     // Core functionality
     getCapabilities,
     transcribeInBrowser,
+
+    // Workflow step APIs (used by workflowEngine.js step handlers)
+    transcribeAudio,
+    buildSpeakerLabeledTranscript,
+    formatWithWebLlm,
     
     // Mobile / Memory management
     checkMemoryForModel,

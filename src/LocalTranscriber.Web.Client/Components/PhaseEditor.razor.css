@@ -1,0 +1,281 @@
+.phase-card {
+    background: var(--surface-elevated);
+    border: 1px solid var(--border-soft);
+    border-radius: 14px;
+    overflow: hidden;
+    transition: border-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+.phase-card.active {
+    border-color: color-mix(in srgb, var(--accent) 65%, transparent);
+    box-shadow: 0 0 0 0.2rem color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.phase-card.completed {
+    border-color: color-mix(in srgb, var(--success) 45%, transparent);
+}
+
+.phase-header {
+    background: color-mix(in srgb, var(--surface) 50%, var(--surface-elevated));
+    border-bottom: 1px solid var(--border-soft);
+    padding: 0.75rem 1rem;
+}
+
+.phase-title-row {
+    align-items: center;
+    display: flex;
+    gap: 0.65rem;
+}
+
+.phase-index {
+    align-items: center;
+    background: color-mix(in srgb, var(--accent) 18%, var(--surface));
+    border-radius: 999px;
+    color: var(--accent);
+    display: inline-flex;
+    font-size: 0.78rem;
+    font-weight: 700;
+    height: 1.8rem;
+    justify-content: center;
+    min-width: 1.8rem;
+}
+
+.phase-card.active .phase-index {
+    background: var(--accent);
+    color: var(--surface);
+}
+
+.phase-card.completed .phase-index {
+    background: var(--success);
+    color: var(--surface);
+}
+
+.phase-title-group {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    gap: 0.15rem;
+}
+
+.phase-name {
+    cursor: pointer;
+    font-size: 0.95rem;
+    margin: 0;
+}
+
+.phase-name:hover {
+    color: var(--accent);
+}
+
+.phase-name-input {
+    background: var(--surface);
+    border: 1px solid var(--accent);
+    border-radius: 6px;
+    color: var(--ink-strong);
+    font-size: 0.95rem;
+    font-weight: 700;
+    padding: 0.15rem 0.4rem;
+    width: 100%;
+}
+
+.phase-description {
+    color: var(--ink-muted);
+    font-size: 0.78rem;
+}
+
+.phase-actions {
+    display: flex;
+    gap: 0.25rem;
+}
+
+.phase-action-btn {
+    align-items: center;
+    background: transparent;
+    border: 1px solid var(--border-soft);
+    border-radius: 6px;
+    color: var(--ink-muted);
+    display: inline-flex;
+    font-size: 0.78rem;
+    height: 1.6rem;
+    justify-content: center;
+    transition: border-color 0.15s ease, color 0.15s ease;
+    width: 1.6rem;
+}
+
+.phase-action-btn:hover:not(:disabled) {
+    border-color: var(--accent);
+    color: var(--ink-strong);
+}
+
+.phase-action-btn.danger:hover:not(:disabled) {
+    border-color: var(--danger);
+    color: var(--danger);
+}
+
+.phase-action-btn:disabled {
+    opacity: 0.35;
+}
+
+.phase-steps {
+    padding: 0.6rem 0.8rem;
+}
+
+.phase-step {
+    background: color-mix(in srgb, var(--surface) 65%, transparent);
+    border: 1px solid var(--border-soft);
+    border-radius: 10px;
+    margin-bottom: 0.45rem;
+    transition: border-color 0.15s ease;
+}
+
+.phase-step.editing {
+    border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+.phase-step.disabled {
+    opacity: 0.5;
+}
+
+.phase-step .step-header {
+    align-items: center;
+    cursor: pointer;
+    display: flex;
+    gap: 0.45rem;
+    padding: 0.45rem 0.6rem;
+}
+
+.phase-step .step-icon {
+    font-size: 0.9rem;
+}
+
+.phase-step .step-name {
+    flex: 1;
+    font-size: 0.84rem;
+    font-weight: 600;
+}
+
+.phase-step .step-type {
+    color: var(--ink-muted);
+    font-size: 0.72rem;
+}
+
+.phase-step .step-actions {
+    display: flex;
+    gap: 0.2rem;
+}
+
+.phase-step .icon-btn {
+    align-items: center;
+    background: transparent;
+    border: none;
+    color: var(--ink-muted);
+    display: inline-flex;
+    font-size: 0.72rem;
+    height: 1.4rem;
+    justify-content: center;
+    transition: color 0.15s ease;
+    width: 1.4rem;
+}
+
+.phase-step .icon-btn:hover:not(:disabled) {
+    color: var(--ink-strong);
+}
+
+.phase-step .icon-btn.danger:hover {
+    color: var(--danger);
+}
+
+.phase-step .step-config {
+    border-top: 1px solid var(--border-soft);
+    display: grid;
+    gap: 0.55rem;
+    padding: 0.55rem 0.6rem;
+}
+
+.phase-step .config-field {
+    display: grid;
+    gap: 0.25rem;
+}
+
+.phase-step .config-field label {
+    color: var(--ink-subtle);
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+
+.phase-step .config-field select,
+.phase-step .config-field input,
+.phase-step .config-field textarea {
+    background: color-mix(in srgb, var(--surface-elevated) 90%, transparent);
+    border: 1px solid var(--border-soft);
+    border-radius: 8px;
+    color: var(--ink-strong);
+    font-size: 0.82rem;
+    min-height: 2rem;
+    padding: 0.3rem 0.5rem;
+}
+
+.phase-step .range-input {
+    align-items: center;
+    display: flex;
+    gap: 0.5rem;
+}
+
+.phase-step .range-input input[type="range"] {
+    flex: 1;
+    min-height: auto;
+    padding: 0;
+}
+
+.add-step-in-phase {
+    align-items: center;
+    background: transparent;
+    border: 1px dashed var(--border-soft);
+    border-radius: 8px;
+    color: var(--ink-muted);
+    display: flex;
+    font-size: 0.78rem;
+    font-weight: 600;
+    gap: 0.35rem;
+    justify-content: center;
+    margin-top: 0.35rem;
+    min-height: 2rem;
+    transition: border-color 0.15s ease, color 0.15s ease;
+    width: 100%;
+}
+
+.add-step-in-phase:hover {
+    border-color: var(--accent);
+    color: var(--ink-strong);
+}
+
+.phase-transitions {
+    border-top: 1px solid var(--border-soft);
+    padding: 0.5rem 0.8rem;
+}
+
+.transition-row {
+    align-items: center;
+    display: flex;
+    font-size: 0.8rem;
+    gap: 0.45rem;
+    padding: 0.2rem 0;
+}
+
+.transition-arrow {
+    color: var(--accent);
+    font-weight: 700;
+}
+
+.transition-target {
+    color: var(--ink-strong);
+    font-weight: 600;
+}
+
+.transition-condition {
+    color: var(--ink-muted);
+    font-size: 0.72rem;
+    font-style: italic;
+}

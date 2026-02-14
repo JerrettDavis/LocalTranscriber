@@ -1,0 +1,243 @@
+@inject IJSRuntime JS
+
+<div class="phase-card @(IsActive ? "active" : "") @(IsCompleted ? "completed" : "")">
+    <div class="phase-header">
+        <div class="phase-title-row">
+            <span class="phase-index">@(PhaseIndex + 1)</span>
+            <div class="phase-title-group">
+                @if (_isEditingName)
+                {
+                    <input class="phase-name-input" type="text" @bind="Phase.Name" @bind:event="oninput"
+                           @onblur="() => { _isEditingName = false; OnPhaseChanged.InvokeAsync(Phase); }"
+                           @onkeydown="HandleNameKeyDown" />
+                }
+                else
+                {
+                    <h4 class="phase-name" @onclick="() => _isEditingName = true">@Phase.Name</h4>
+                }
+                @if (!string.IsNullOrWhiteSpace(Phase.Description))
+                {
+                    <span class="phase-description">@Phase.Description</span>
+                }
+            </div>
+            <div class="phase-actions">
+                <button class="phase-action-btn" type="button" @onclick="() => OnMoveUp.InvokeAsync()" disabled="@(PhaseIndex == 0)" title="Move up">↑</button>
+                <button class="phase-action-btn" type="button" @onclick="() => OnMoveDown.InvokeAsync()" disabled="@IsLast" title="Move down">↓</button>
+                <button class="phase-action-btn danger" type="button" @onclick="() => OnDelete.InvokeAsync()" title="Delete phase">✕</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="phase-steps">
+        @if (Phase.Steps != null)
+        {
+            @for (var i = 0; i < Phase.Steps.Count; i++)
+            {
+                var step = Phase.Steps[i];
+                var index = i;
+                <div class="phase-step @(step.Enabled ? "" : "disabled") @(_expandedStepId == step.Id ? "editing" : "")">
+                    <div class="step-header" @onclick="() => ToggleStepEdit(step.Id)">
+                        <span class="step-icon">@GetStepIcon(step.Type)</span>
+                        <span class="step-name">@step.Name</span>
+                        <span class="step-type">@step.Type</span>
+                        <div class="step-actions">
+                            <button class="icon-btn" type="button" @onclick:stopPropagation @onclick="() => ToggleStep(step)" title="@(step.Enabled ? "Disable" : "Enable")">
+                                @(step.Enabled ? "✓" : "○")
+                            </button>
+                            <button class="icon-btn" type="button" @onclick:stopPropagation @onclick="() => MoveStepInPhase(index, -1)" disabled="@(index == 0)" title="Move up">↑</button>
+                            <button class="icon-btn" type="button" @onclick:stopPropagation @onclick="() => MoveStepInPhase(index, 1)" disabled="@(index == Phase.Steps.Count - 1)" title="Move down">↓</button>
+                            <button class="icon-btn danger" type="button" @onclick:stopPropagation @onclick="() => RemoveStepFromPhase(step.Id)" title="Remove">✕</button>
+                        </div>
+                    </div>
+
+                    @if (_expandedStepId == step.Id && StepTypes != null)
+                    {
+                        <div class="step-config">
+                            @if (StepTypes.TryGetValue(step.Type, out var typeDef))
+                            {
+                                @foreach (var (key, schema) in typeDef.ConfigSchema)
+                                {
+                                    <div class="config-field">
+                                        <label>@schema.Label</label>
+                                        @switch (schema.Type)
+                                        {
+                                            case "select":
+                                                <select value="@GetConfigValue(step, key, typeDef)" @onchange="e => SetConfigValue(step, key, e.Value?.ToString())">
+                                                    @foreach (var opt in schema.Options ?? Array.Empty<string>())
+                                                    {
+                                                        <option value="@opt" selected="@(GetConfigValue(step, key, typeDef) == opt)">@opt</option>
+                                                    }
+                                                </select>
+                                                break;
+                                            case "textarea":
+                                                <textarea rows="3" @onchange="e => SetConfigValue(step, key, e.Value?.ToString())">@GetConfigValue(step, key, typeDef)</textarea>
+                                                break;
+                                            case "range":
+                                                <div class="range-input">
+                                                    <input type="range" min="@schema.Min" max="@schema.Max" step="@(schema.Step ?? 1)"
+                                                           value="@GetConfigValue(step, key, typeDef)"
+                                                           @onchange="e => SetConfigValue(step, key, e.Value?.ToString())" />
+                                                    <span>@GetConfigValue(step, key, typeDef)</span>
+                                                </div>
+                                                break;
+                                            case "number":
+                                                <input type="number" min="@schema.Min" max="@schema.Max"
+                                                       value="@GetConfigValue(step, key, typeDef)"
+                                                       @onchange="e => SetConfigValue(step, key, e.Value?.ToString())" />
+                                                break;
+                                            default:
+                                                <input type="text" value="@GetConfigValue(step, key, typeDef)"
+                                                       @onchange="e => SetConfigValue(step, key, e.Value?.ToString())" />
+                                                break;
+                                        }
+                                    </div>
+                                }
+                            }
+                        </div>
+                    }
+                </div>
+            }
+        }
+
+        <button class="add-step-in-phase" type="button" @onclick="() => OnAddStep.InvokeAsync(Phase.Id)">
+            <span>➕</span> Add Step
+        </button>
+    </div>
+
+    @if (Phase.Transitions != null && Phase.Transitions.Count > 0)
+    {
+        <div class="phase-transitions">
+            @foreach (var transition in Phase.Transitions)
+            {
+                <div class="transition-row">
+                    <span class="transition-arrow">→</span>
+                    <span class="transition-target">@(transition.Label ?? transition.Target ?? "End")</span>
+                    <span class="transition-condition">@transition.Condition</span>
+                </div>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public PhaseModel Phase { get; set; } = default!;
+    [Parameter] public int PhaseIndex { get; set; }
+    [Parameter] public bool IsLast { get; set; }
+    [Parameter] public bool IsActive { get; set; }
+    [Parameter] public bool IsCompleted { get; set; }
+    [Parameter] public Dictionary<string, StepTypeDefinition>? StepTypes { get; set; }
+    [Parameter] public EventCallback<PhaseModel> OnPhaseChanged { get; set; }
+    [Parameter] public EventCallback OnMoveUp { get; set; }
+    [Parameter] public EventCallback OnMoveDown { get; set; }
+    [Parameter] public EventCallback OnDelete { get; set; }
+    [Parameter] public EventCallback<string> OnAddStep { get; set; }
+
+    private string? _expandedStepId;
+    private bool _isEditingName;
+
+    private void ToggleStepEdit(string stepId)
+    {
+        _expandedStepId = _expandedStepId == stepId ? null : stepId;
+    }
+
+    private void ToggleStep(WorkflowStep step)
+    {
+        step.Enabled = !step.Enabled;
+        OnPhaseChanged.InvokeAsync(Phase);
+    }
+
+    private void MoveStepInPhase(int index, int direction)
+    {
+        var newIndex = index + direction;
+        if (Phase.Steps == null || newIndex < 0 || newIndex >= Phase.Steps.Count) return;
+        var step = Phase.Steps[index];
+        Phase.Steps.RemoveAt(index);
+        Phase.Steps.Insert(newIndex, step);
+        OnPhaseChanged.InvokeAsync(Phase);
+    }
+
+    private void RemoveStepFromPhase(string stepId)
+    {
+        Phase.Steps?.RemoveAll(s => s.Id == stepId);
+        if (_expandedStepId == stepId) _expandedStepId = null;
+        OnPhaseChanged.InvokeAsync(Phase);
+    }
+
+    private string GetStepIcon(string type) =>
+        StepTypes != null && StepTypes.TryGetValue(type, out var def) ? def.Icon : "⚙️";
+
+    private string GetConfigValue(WorkflowStep step, string key, StepTypeDefinition typeDef)
+    {
+        if (step.Config.TryGetValue(key, out var val))
+            return val?.ToString() ?? "";
+        if (typeDef.ConfigSchema.TryGetValue(key, out var schema))
+            return schema.Default?.ToString() ?? "";
+        return "";
+    }
+
+    private void SetConfigValue(WorkflowStep step, string key, string? value)
+    {
+        step.Config[key] = value ?? "";
+        OnPhaseChanged.InvokeAsync(Phase);
+    }
+
+    private void HandleNameKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            _isEditingName = false;
+            OnPhaseChanged.InvokeAsync(Phase);
+        }
+    }
+
+    // Models - these reference the same types from WorkflowEditor
+    // They will be shared via the parent component
+    public class PhaseModel
+    {
+        public string Id { get; set; } = "";
+        public string Name { get; set; } = "";
+        public string? Description { get; set; }
+        public List<WorkflowStep> Steps { get; set; } = new();
+        public List<TransitionModel> Transitions { get; set; } = new();
+    }
+
+    public class TransitionModel
+    {
+        public string Id { get; set; } = "";
+        public string? Target { get; set; }
+        public string Condition { get; set; } = "auto";
+        public string? Label { get; set; }
+        public string? Expression { get; set; }
+    }
+
+    // These reference the same types from WorkflowEditor.razor
+    public class WorkflowStep
+    {
+        public string Id { get; set; } = "";
+        public string Type { get; set; } = "";
+        public string Name { get; set; } = "";
+        public Dictionary<string, object> Config { get; set; } = new();
+        public bool Enabled { get; set; } = true;
+    }
+
+    public class StepTypeDefinition
+    {
+        public string Id { get; set; } = "";
+        public string Name { get; set; } = "";
+        public string? Description { get; set; }
+        public string Icon { get; set; } = "⚙️";
+        public string? Category { get; set; }
+        public Dictionary<string, ConfigSchemaField> ConfigSchema { get; set; } = new();
+    }
+
+    public class ConfigSchemaField
+    {
+        public string Type { get; set; } = "text";
+        public string Label { get; set; } = "";
+        public string[]? Options { get; set; }
+        public object? Default { get; set; }
+        public double? Min { get; set; }
+        public double? Max { get; set; }
+        public double? Step { get; set; }
+    }
+}

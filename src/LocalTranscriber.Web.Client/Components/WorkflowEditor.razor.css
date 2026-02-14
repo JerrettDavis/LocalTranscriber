@@ -346,3 +346,255 @@
     border-color: var(--danger);
     color: var(--danger);
 }
+
+/* Mode toggle */
+.mode-toggle {
+    display: flex;
+    gap: 0;
+    margin: 0.5rem 1rem;
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+}
+
+.mode-btn {
+    background: transparent;
+    border: none;
+    color: var(--ink-muted);
+    cursor: pointer;
+    flex: 1;
+    font-size: 0.78rem;
+    font-weight: 500;
+    padding: 0.45rem 0.75rem;
+    transition: background 0.15s ease, color 0.15s ease;
+}
+
+.mode-btn:hover {
+    background: var(--surface-elevated);
+}
+
+.mode-btn.active {
+    background: color-mix(in srgb, var(--accent) 15%, transparent);
+    color: var(--accent);
+    font-weight: 600;
+}
+
+.mode-btn:disabled {
+    cursor: not-allowed;
+    opacity: 0.4;
+}
+
+/* Preset picker */
+.preset-picker {
+    animation: menuFadeIn 0.2s ease;
+    background: var(--surface-elevated);
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-soft);
+    margin: 0.5rem 1rem;
+    padding: 0.75rem;
+}
+
+.preset-picker-header {
+    align-items: center;
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 0.75rem;
+}
+
+.preset-picker-header h4 {
+    font-size: 0.9rem;
+    font-weight: 600;
+    margin: 0;
+}
+
+.preset-option {
+    align-items: center;
+    background: transparent;
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    display: flex;
+    gap: 0.75rem;
+    justify-content: space-between;
+    margin-bottom: 0.5rem;
+    padding: 0.75rem;
+    text-align: left;
+    transition: background 0.15s ease, border-color 0.15s ease;
+    width: 100%;
+}
+
+.preset-option:last-of-type {
+    margin-bottom: 0;
+}
+
+.preset-option:hover {
+    background: var(--surface);
+    border-color: var(--accent);
+}
+
+.preset-info {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    min-width: 0;
+}
+
+.preset-name {
+    color: var(--ink-strong);
+    font-size: 0.88rem;
+    font-weight: 600;
+}
+
+.preset-desc {
+    color: var(--ink-muted);
+    font-size: 0.78rem;
+}
+
+.preset-phase-count {
+    background: var(--surface);
+    border-radius: 6px;
+    color: var(--ink-muted);
+    font-size: 0.72rem;
+    font-weight: 500;
+    padding: 0.2rem 0.5rem;
+    white-space: nowrap;
+}
+
+/* Phase mode layout */
+.workflow-phases {
+    padding: 1rem;
+}
+
+.add-phase-btn {
+    align-items: center;
+    background: transparent;
+    border: 2px dashed var(--border-soft);
+    border-radius: var(--radius-sm);
+    color: var(--ink-muted);
+    cursor: pointer;
+    display: flex;
+    gap: 0.5rem;
+    justify-content: center;
+    margin-top: 0.75rem;
+    padding: 0.75rem;
+    transition: border-color 0.15s ease, color 0.15s ease;
+    width: 100%;
+}
+
+.add-phase-btn:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+}
+
+/* Variables section */
+.variables-section {
+    border-top: 1px solid var(--border-soft);
+    margin-top: 1rem;
+    padding: 0.75rem 0 0;
+}
+
+.variables-section h4 {
+    color: var(--ink-muted);
+    font-size: 0.78rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    margin: 0 0 0.5rem;
+    text-transform: uppercase;
+}
+
+.variable-row {
+    align-items: center;
+    display: flex;
+    gap: 0.75rem;
+    margin-bottom: 0.35rem;
+    padding: 0.35rem 0.5rem;
+}
+
+.variable-name {
+    color: var(--accent);
+    font-family: var(--font-mono);
+    font-size: 0.82rem;
+    font-weight: 500;
+}
+
+.variable-type {
+    background: var(--surface);
+    border-radius: 4px;
+    color: var(--ink-muted);
+    font-size: 0.7rem;
+    padding: 0.1rem 0.35rem;
+}
+
+.variable-default {
+    color: var(--ink-subtle);
+    font-size: 0.78rem;
+}
+
+/* Plugin section */
+.plugin-section {
+    border-top: 1px solid var(--border-soft);
+    margin: 0.75rem 1rem 0;
+    padding: 0.75rem 0;
+}
+
+.plugin-toggle {
+    background: transparent;
+    border: none;
+    color: var(--ink-muted);
+    cursor: pointer;
+    font-size: 0.8rem;
+    font-weight: 500;
+    padding: 0.25rem 0;
+    transition: color 0.15s ease;
+}
+
+.plugin-toggle:hover {
+    color: var(--ink-strong);
+}
+
+.plugin-panel {
+    animation: menuFadeIn 0.2s ease;
+    margin-top: 0.5rem;
+}
+
+.plugin-row {
+    align-items: center;
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius-sm);
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 0.35rem;
+    padding: 0.45rem 0.65rem;
+}
+
+.plugin-row.disabled {
+    opacity: 0.5;
+}
+
+.plugin-name {
+    color: var(--ink-strong);
+    font-size: 0.82rem;
+    font-weight: 500;
+}
+
+.plugin-actions {
+    display: flex;
+    gap: 0.25rem;
+}
+
+.plugin-add-row {
+    display: flex;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+}
+
+.plugin-add-row input {
+    background: var(--surface-elevated);
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius-sm);
+    color: var(--ink-strong);
+    flex: 1;
+    font-size: 0.82rem;
+    padding: 0.4rem 0.6rem;
+}
