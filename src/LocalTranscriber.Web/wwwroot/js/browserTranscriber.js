@@ -890,7 +890,7 @@ Rules:
     throw new Error(helpMessage + "\n\nLast error: " + (lastError?.message || "Unknown"));
   }
 
-  async function formatWithWebLlm(webLlmModel, whisperModel, language, transcript, onProgress) {
+  async function formatWithWebLlm(webLlmModel, whisperModel, language, transcript, onProgress, options) {
     const cleanedModel = normalizeText(webLlmModel);
     if (!cleanedModel) {
       throw new Error("No WebLLM model was specified.");
@@ -905,22 +905,33 @@ Rules:
       onProgress?.(Math.min(94, Math.max(86, pct)), text);
     });
 
-    // Use customizable prompt templates and tuning options
-    const templates = getPromptTemplates();
-    const tuning = getTuningOptions();
-    const prompt = buildFormattingPrompt(transcript, whisperModel, language, {
-      strictTranscript: tuning.strictTranscript,
-      includeActionItems: tuning.includeActionItems,
-      summaryMinBullets: tuning.summaryMinBullets,
-      summaryMaxBullets: tuning.summaryMaxBullets
-    });
+    let systemMessage, userPrompt, temp;
+
+    if (options?.systemPrompt) {
+      // Custom mode: caller provides system prompt and user content directly
+      systemMessage = options.systemPrompt;
+      userPrompt = transcript;
+      temp = options.temperature ?? 0.3;
+    } else {
+      // Default formatting mode: build structured formatting prompt
+      const templates = getPromptTemplates();
+      const tuning = getTuningOptions();
+      systemMessage = templates.systemMessage;
+      userPrompt = buildFormattingPrompt(transcript, whisperModel, language, {
+        strictTranscript: tuning.strictTranscript,
+        includeActionItems: tuning.includeActionItems,
+        summaryMinBullets: tuning.summaryMinBullets,
+        summaryMaxBullets: tuning.summaryMaxBullets
+      });
+      temp = tuning.temperature;
+    }
 
     const completion = await engine.chat.completions.create({
       messages: [
-        { role: "system", content: templates.systemMessage },
-        { role: "user", content: prompt }
+        { role: "system", content: systemMessage },
+        { role: "user", content: userPrompt }
       ],
-      temperature: tuning.temperature,
+      temperature: temp,
     });
 
     const text = normalizeCompletionText(completion);
