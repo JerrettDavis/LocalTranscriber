@@ -211,29 +211,53 @@
                         <summary class="prompt-editor-toggle">
                             <span>✏️ Edit Prompts</span>
                         </summary>
-                        <div class="prompt-editor-content">
-                            <div class="prompt-field">
-                                <label>
-                                    <span>System Message</span>
-                                    <textarea @bind="_promptSystemMessage" rows="2" placeholder="You are a transcription editor."></textarea>
-                                </label>
+                        <div class="prompt-editor-layout">
+                            <div class="prompt-editor-content">
+                                <div class="prompt-field">
+                                    <label>
+                                        <span>System Message</span>
+                                        <textarea @bind="_promptSystemMessage" rows="2" placeholder="You are a transcription editor."></textarea>
+                                    </label>
+                                </div>
+                                <div class="prompt-field">
+                                    <label>
+                                        <span>Cleanup Prompt</span>
+                                        <textarea @bind="_promptCleanup" rows="8" placeholder="Rules for formatting..."></textarea>
+                                    </label>
+                                </div>
+                                <div class="prompt-field">
+                                    <label>
+                                        <span>Output Template</span>
+                                        <textarea @bind="_promptOutputTemplate" rows="8" placeholder="# Transcription..."></textarea>
+                                    </label>
+                                </div>
+                                <div class="prompt-actions">
+                                    <button class="chip-btn" type="button" @onclick="SavePromptsAsync">Save Prompts</button>
+                                    <button class="chip-btn ghost" type="button" @onclick="ResetPromptsAsync">Reset to Defaults</button>
+                                </div>
                             </div>
-                            <div class="prompt-field">
-                                <label>
-                                    <span>Cleanup Prompt</span>
-                                    <textarea @bind="_promptCleanup" rows="8" placeholder="Rules for formatting..."></textarea>
-                                </label>
-                            </div>
-                            <div class="prompt-field">
-                                <label>
-                                    <span>Output Template</span>
-                                    <textarea @bind="_promptOutputTemplate" rows="8" placeholder="# Transcription..."></textarea>
-                                </label>
-                            </div>
-                            <div class="prompt-actions">
-                                <button class="chip-btn" type="button" @onclick="SavePromptsAsync">Save Prompts</button>
-                                <button class="chip-btn ghost" type="button" @onclick="ResetPromptsAsync">Reset to Defaults</button>
-                            </div>
+                            <aside class="prompt-placeholders">
+                                <strong>Available Placeholders</strong>
+                                <dl>
+                                    <dt><code>{strictness}</code></dt>
+                                    <dd>Wording strictness rule (based on settings)</dd>
+                                    
+                                    <dt><code>{actionItemRule}</code></dt>
+                                    <dd>Action items inclusion rule</dd>
+                                    
+                                    <dt><code>{summaryMinBullets}</code></dt>
+                                    <dd>Minimum summary bullet points</dd>
+                                    
+                                    <dt><code>{summaryMaxBullets}</code></dt>
+                                    <dd>Maximum summary bullet points</dd>
+                                    
+                                    <dt><code>{model}</code></dt>
+                                    <dd>Whisper model used (e.g., "small.en")</dd>
+                                    
+                                    <dt><code>{language}</code></dt>
+                                    <dd>Detected/specified language</dd>
+                                </dl>
+                            </aside>
                         </div>
                     </details>
 
