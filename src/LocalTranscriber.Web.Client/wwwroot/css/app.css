@@ -82,6 +82,149 @@ textarea {
     font: inherit;
 }
 
+/* ═══════════════════════════════════════════════════════════════
+   App Loader - Shown during WASM initialization
+   ═══════════════════════════════════════════════════════════════ */
+
+.app-loader {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+}
+
+.loader-backdrop {
+    position: absolute;
+    inset: 0;
+    background:
+        radial-gradient(circle at 8% 12%, rgba(94, 164, 255, 0.18), transparent 36%),
+        radial-gradient(circle at 88% 2%, rgba(88, 214, 199, 0.17), transparent 30%),
+        linear-gradient(145deg, var(--bg-primary) 0%, var(--bg-secondary) 48%, var(--bg-tertiary) 100%);
+}
+
+@media (prefers-color-scheme: light) {
+    .loader-backdrop {
+        background:
+            radial-gradient(circle at 8% 12%, rgba(37, 99, 235, 0.12), transparent 36%),
+            radial-gradient(circle at 88% 2%, rgba(8, 145, 178, 0.1), transparent 30%),
+            linear-gradient(145deg, var(--bg-primary) 0%, var(--bg-secondary) 48%, var(--bg-tertiary) 100%);
+    }
+}
+
+.loader-content {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1.25rem;
+    padding: 2.5rem;
+    background: var(--surface);
+    backdrop-filter: blur(20px);
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-soft);
+    animation: loaderFadeIn 0.4s ease-out;
+}
+
+@keyframes loaderFadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(12px) scale(0.96);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+.loader-icon {
+    position: relative;
+    width: 64px;
+    height: 64px;
+    color: var(--accent);
+}
+
+.loader-icon svg {
+    width: 100%;
+    height: 100%;
+    animation: loaderBreathe 2s ease-in-out infinite;
+}
+
+@keyframes loaderBreathe {
+    0%, 100% { transform: scale(1); opacity: 1; }
+    50% { transform: scale(1.05); opacity: 0.85; }
+}
+
+.loader-pulse {
+    position: absolute;
+    inset: -8px;
+    border-radius: 50%;
+    background: var(--accent);
+    opacity: 0;
+    animation: loaderPulse 2s ease-out infinite;
+}
+
+@keyframes loaderPulse {
+    0% {
+        transform: scale(0.8);
+        opacity: 0.5;
+    }
+    100% {
+        transform: scale(1.6);
+        opacity: 0;
+    }
+}
+
+.loader-text {
+    font-size: 1.5rem;
+    font-weight: 600;
+    color: var(--ink-strong);
+    letter-spacing: -0.01em;
+}
+
+.loader-bar {
+    width: 180px;
+    height: 4px;
+    background: var(--border-soft);
+    border-radius: 2px;
+    overflow: hidden;
+}
+
+.loader-bar-fill {
+    height: 100%;
+    width: 30%;
+    background: linear-gradient(90deg, var(--accent), var(--accent-alt));
+    border-radius: 2px;
+    animation: loaderProgress 1.8s ease-in-out infinite;
+}
+
+@keyframes loaderProgress {
+    0% {
+        width: 0%;
+        margin-left: 0%;
+    }
+    50% {
+        width: 60%;
+        margin-left: 20%;
+    }
+    100% {
+        width: 0%;
+        margin-left: 100%;
+    }
+}
+
+.loader-status {
+    font-size: 0.875rem;
+    color: var(--ink-muted);
+}
+
+/* Hide loader once Blazor renders */
+.app-loader:has(+ *:not(script):not(#blazor-error-ui)) {
+    display: none;
+}
+
 /* Blazor error UI - hidden by default, shown on critical errors */
 #blazor-error-ui {
     background: var(--danger);

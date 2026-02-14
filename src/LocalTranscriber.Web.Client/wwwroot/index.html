@@ -23,11 +23,24 @@
 
 <body>
     <div id="app">
-        <svg class="loading-progress">
-            <circle r="40%" cx="50%" cy="50%" />
-            <circle r="40%" cx="50%" cy="50%" />
-        </svg>
-        <div class="loading-progress-text"></div>
+        <div class="app-loader">
+            <div class="loader-backdrop"></div>
+            <div class="loader-content">
+                <div class="loader-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                        <path d="M12 2a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/>
+                        <path d="M19 10v1a7 7 0 0 1-14 0v-1"/>
+                        <line x1="12" y1="19" x2="12" y2="22"/>
+                    </svg>
+                    <div class="loader-pulse"></div>
+                </div>
+                <div class="loader-text">LocalTranscriber</div>
+                <div class="loader-bar">
+                    <div class="loader-bar-fill"></div>
+                </div>
+                <div class="loader-status">Initializing...</div>
+            </div>
+        </div>
     </div>
 
     <div id="blazor-error-ui">

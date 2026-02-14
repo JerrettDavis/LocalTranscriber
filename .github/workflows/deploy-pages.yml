@@ -37,10 +37,26 @@ jobs:
       - name: Publish
         run: dotnet publish src/LocalTranscriber.Web.Client/LocalTranscriber.Web.Client.csproj -c Release -o release --nologo
 
+      - name: Install NBGV
+        run: dotnet tool install --global nbgv
+
+      - name: Get version
+        id: version
+        run: |
+          VERSION=$(nbgv get-version -v SimpleVersion)
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Building version: $VERSION"
+
       - name: Update base href for GitHub Pages
         run: |
           REPO_NAME=$(echo "${{ github.repository }}" | cut -d'/' -f2)
           sed -i "s|<base href=\"/\" />|<base href=\"/${REPO_NAME}/\" />|g" release/wwwroot/index.html
+
+      - name: Inject version into service worker (cache busting)
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          sed -i "s|{{VERSION}}|${VERSION}|g" release/wwwroot/sw.js
+          echo "Injected version ${VERSION} into sw.js"
 
       - name: Add .nojekyll
         run: touch release/wwwroot/.nojekyll
