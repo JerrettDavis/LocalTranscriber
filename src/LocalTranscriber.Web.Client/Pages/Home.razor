@@ -308,6 +308,128 @@
                     <LocalTranscriber.Web.Client.Components.WorkflowEditor 
                         @bind-IsExpanded="_workflowEditorExpanded" 
                         OnWorkflowChanged="OnActiveWorkflowChanged" />
+
+                    @* Diagnostics / Nerd Stats *@
+                    <details class="settings-accordion">
+                        <summary class="settings-accordion-toggle" @onclick="LoadDiagnosticsAsync">
+                            <span>📊 Diagnostics & Stats</span>
+                        </summary>
+                        <div class="settings-accordion-content">
+                            @if (_diagnostics == null)
+                            {
+                                <div class="diagnostics-loading">Loading stats...</div>
+                            }
+                            else
+                            {
+                                <div class="diagnostics-grid">
+                                    <div class="stat-card">
+                                        <div class="stat-icon">💾</div>
+                                        <div class="stat-content">
+                                            <div class="stat-value">@FormatBytes(_diagnostics.StorageUsage)</div>
+                                            <div class="stat-label">Storage Used</div>
+                                            <div class="stat-detail">@(_diagnostics.StoragePercent)% of @FormatBytes(_diagnostics.StorageQuota)</div>
+                                        </div>
+                                    </div>
+
+                                    <div class="stat-card">
+                                        <div class="stat-icon">🧠</div>
+                                        <div class="stat-content">
+                                            <div class="stat-value">@FormatBytes(_diagnostics.ModelCacheSize)</div>
+                                            <div class="stat-label">Model Cache</div>
+                                            <div class="stat-detail">@(_diagnostics.CachedModelCount) model(s) cached</div>
+                                        </div>
+                                    </div>
+
+                                    <div class="stat-card">
+                                        <div class="stat-icon">📝</div>
+                                        <div class="stat-content">
+                                            <div class="stat-value">@(_diagnostics.SessionCount)</div>
+                                            <div class="stat-label">Transcriptions</div>
+                                            <div class="stat-detail">@(_diagnostics.TotalWords.ToString("N0")) words total</div>
+                                        </div>
+                                    </div>
+
+                                    <div class="stat-card">
+                                        <div class="stat-icon">⚡</div>
+                                        <div class="stat-content">
+                                            <div class="stat-value">@(_diagnostics.EstimatedMemoryMB) MB</div>
+                                            <div class="stat-label">Est. Memory</div>
+                                            <div class="stat-detail">@(_diagnostics.HardwareConcurrency) CPU cores</div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <details class="nested-details">
+                                    <summary>🔧 Browser Capabilities</summary>
+                                    <div class="capabilities-list">
+                                        <div class="cap-item @(_diagnostics.HasWebGpu ? "supported" : "unsupported")">
+                                            <span class="cap-icon">@(_diagnostics.HasWebGpu ? "✓" : "✗")</span>
+                                            <span>WebGPU</span>
+                                        </div>
+                                        <div class="cap-item @(_diagnostics.HasAudioContext ? "supported" : "unsupported")">
+                                            <span class="cap-icon">@(_diagnostics.HasAudioContext ? "✓" : "✗")</span>
+                                            <span>AudioContext</span>
+                                        </div>
+                                        <div class="cap-item @(_diagnostics.HasMediaRecorder ? "supported" : "unsupported")">
+                                            <span class="cap-icon">@(_diagnostics.HasMediaRecorder ? "✓" : "✗")</span>
+                                            <span>MediaRecorder</span>
+                                        </div>
+                                        <div class="cap-item @(_diagnostics.ServiceWorkerActive ? "supported" : "unsupported")">
+                                            <span class="cap-icon">@(_diagnostics.ServiceWorkerActive ? "✓" : "✗")</span>
+                                            <span>Service Worker</span>
+                                        </div>
+                                        <div class="cap-item info">
+                                            <span class="cap-icon">📱</span>
+                                            <span>@(_diagnostics.IsMobile ? "Mobile" : "Desktop")</span>
+                                        </div>
+                                    </div>
+                                </details>
+
+                                @if (_diagnostics.CachedModels?.Count > 0)
+                                {
+                                    <details class="nested-details">
+                                        <summary>📦 Cached Models (@_diagnostics.CachedModels.Count files)</summary>
+                                        <div class="cached-models-list">
+                                            @foreach (var model in _diagnostics.CachedModels.Take(20))
+                                            {
+                                                <div class="cached-model-item">
+                                                    <span class="model-name">@model.Model</span>
+                                                    <span class="model-host">@model.Host</span>
+                                                </div>
+                                            }
+                                            @if (_diagnostics.CachedModels.Count > 20)
+                                            {
+                                                <div class="more-items">+ @(_diagnostics.CachedModels.Count - 20) more files</div>
+                                            }
+                                        </div>
+                                    </details>
+                                }
+
+                                @if (_diagnostics.RecentSessions?.Count > 0)
+                                {
+                                    <details class="nested-details">
+                                        <summary>📜 Recent History</summary>
+                                        <div class="history-list">
+                                            @foreach (var session in _diagnostics.RecentSessions)
+                                            {
+                                                <div class="history-item">
+                                                    <span class="history-date">@FormatDate(session.Date)</span>
+                                                    <span class="history-model">@session.Model</span>
+                                                    <span class="history-words">@session.WordCount words</span>
+                                                </div>
+                                            }
+                                        </div>
+                                    </details>
+                                }
+
+                                <div class="diagnostics-actions">
+                                    <button class="chip-btn" type="button" @onclick="LoadDiagnosticsAsync">🔄 Refresh</button>
+                                    <button class="chip-btn ghost" type="button" @onclick="ClearModelCacheAsync">🗑️ Clear Model Cache</button>
+                                    <button class="chip-btn danger" type="button" @onclick="ClearAllDataAsync">⚠️ Clear All Data</button>
+                                </div>
+                            }
+                        </div>
+                    </details>
                         </div>
                     </details>
 
@@ -367,6 +489,7 @@
     private bool _isSubmitting;
     private bool _isLaunchAnimating;
     private bool _workflowEditorExpanded;
+    private DiagnosticsData? _diagnostics;
     private string? _activeJobId;
     private string _statusMessage = "Ready";
     private string? _markdownOutput;
@@ -829,7 +952,69 @@
     {
         if (bytes < 1024) return $"{bytes} B";
         if (bytes < 1024 * 1024) return $"{bytes / 1024.0:F1} KB";
-        return $"{bytes / (1024.0 * 1024.0):F1} MB";
+        if (bytes < 1024L * 1024 * 1024) return $"{bytes / (1024.0 * 1024.0):F1} MB";
+        return $"{bytes / (1024.0 * 1024.0 * 1024.0):F2} GB";
+    }
+
+    private static string FormatDate(long? timestamp)
+    {
+        if (timestamp == null) return "—";
+        var dt = DateTimeOffset.FromUnixTimeMilliseconds(timestamp.Value).LocalDateTime;
+        return dt.ToString("MMM d, h:mm tt");
+    }
+
+    private async Task LoadDiagnosticsAsync()
+    {
+        try
+        {
+            var stats = await JS.InvokeAsync<StatsJs>("localTranscriberBrowser.getStats");
+            _diagnostics = new DiagnosticsData
+            {
+                StorageUsage = stats.Storage?.Usage ?? 0,
+                StorageQuota = stats.Storage?.Quota ?? 0,
+                StoragePercent = stats.Storage?.UsagePercent ?? 0,
+                LocalStorageSize = stats.Storage?.LocalStorage ?? 0,
+                ModelCacheSize = stats.Cache?.ModelCacheSize ?? 0,
+                CachedModelCount = stats.Cache?.CachedModelCount ?? 0,
+                CachedModels = stats.Cache?.CachedModels?.Select(m => new CachedModelInfo(m.Model ?? "", m.Host ?? "")).ToList() ?? [],
+                SessionCount = stats.Sessions?.Count ?? 0,
+                TotalWords = stats.Sessions?.TotalWords ?? 0,
+                RecentSessions = stats.Sessions?.Recent?.Select(s => new SessionInfo(s.Date, s.Model, s.WordCount)).ToList() ?? [],
+                HasWebGpu = stats.Browser?.WebGpu ?? false,
+                HasAudioContext = stats.Browser?.AudioContext ?? false,
+                HasMediaRecorder = stats.Browser?.MediaRecorder ?? false,
+                IsMobile = stats.Browser?.IsMobile ?? false,
+                EstimatedMemoryMB = stats.Browser?.EstimatedMemoryMB ?? 0,
+                HardwareConcurrency = stats.Browser?.HardwareConcurrency ?? 0,
+                ServiceWorkerActive = stats.ServiceWorker?.State == "activated",
+            };
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Failed to load diagnostics: {ex.Message}");
+        }
+    }
+
+    private async Task ClearModelCacheAsync()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("localTranscriberBrowser.clearModelCache");
+            await LoadDiagnosticsAsync();
+        }
+        catch { }
+    }
+
+    private async Task ClearAllDataAsync()
+    {
+        try
+        {
+            await JS.InvokeAsync<object>("localTranscriberBrowser.clearAllData");
+            _diagnostics = null;
+            await LoadDiagnosticsAsync();
+        }
+        catch { }
     }
 
     public ValueTask DisposeAsync()
@@ -853,4 +1038,39 @@
     private record BrowserTranscriptionRequest(string JobId, string FileName, string MimeType, string Base64, string Model, string Language, bool EnableSpeakerLabels, bool UseWebLlm, string WebLlmModel);
     private record BrowserTranscriptionResult(string? RawWhisperText, string? SpeakerLabeledText, string? FormatterOutput, string? FormatterUsed, string? Markdown, int? DetectedSpeakerCount, object? SubtitleSegments);
     public record BrowserProgressMessage(string JobId, int Percent, string Stage, string Message, bool IsCompleted, bool IsError, string? RawWhisperText, string? SpeakerLabeledText, string? FormatterOutput, string? FormatterUsed, string? Markdown, int? DetectedSpeakerCount, object? SubtitleSegments);
+
+    // Diagnostics
+    private class DiagnosticsData
+    {
+        public long StorageUsage { get; set; }
+        public long StorageQuota { get; set; }
+        public int StoragePercent { get; set; }
+        public long LocalStorageSize { get; set; }
+        public long ModelCacheSize { get; set; }
+        public int CachedModelCount { get; set; }
+        public List<CachedModelInfo> CachedModels { get; set; } = [];
+        public int SessionCount { get; set; }
+        public int TotalWords { get; set; }
+        public List<SessionInfo> RecentSessions { get; set; } = [];
+        public bool HasWebGpu { get; set; }
+        public bool HasAudioContext { get; set; }
+        public bool HasMediaRecorder { get; set; }
+        public bool IsMobile { get; set; }
+        public int EstimatedMemoryMB { get; set; }
+        public int HardwareConcurrency { get; set; }
+        public bool ServiceWorkerActive { get; set; }
+    }
+
+    private record CachedModelInfo(string Model, string Host);
+    private record SessionInfo(long? Date, string? Model, int? WordCount);
+
+    // JS interop for stats
+    private record StatsJs(BrowserStatsJs? Browser, StorageStatsJs? Storage, CacheStatsJs? Cache, SessionsStatsJs? Sessions, ServiceWorkerStatsJs? ServiceWorker);
+    private record BrowserStatsJs(bool WebGpu, bool AudioContext, bool MediaRecorder, bool IsMobile, int EstimatedMemoryMB, int? HardwareConcurrency);
+    private record StorageStatsJs(long Quota, long Usage, int UsagePercent, long LocalStorage);
+    private record CacheStatsJs(long ModelCacheSize, int CachedModelCount, CachedModelJs[]? CachedModels);
+    private record CachedModelJs(string? Model, string? Host);
+    private record SessionsStatsJs(int Count, int TotalWords, RecentSessionJs[]? Recent);
+    private record RecentSessionJs(long? Date, string? Model, int? WordCount);
+    private record ServiceWorkerStatsJs(bool Registered, string? Scope, string? State);
 }

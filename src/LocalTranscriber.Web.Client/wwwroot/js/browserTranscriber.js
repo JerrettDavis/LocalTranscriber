@@ -1545,5 +1545,191 @@ Rules:
       console.log("\n=== End Diagnostics ===");
       return { capabilities: caps, mirrors: probeResults };
     },
+
+    // Comprehensive stats for UI
+    async getStats() {
+      const stats = {
+        timestamp: Date.now(),
+        browser: {},
+        storage: {},
+        cache: {},
+        sessions: {},
+        models: {},
+        workflows: {},
+      };
+
+      // Browser info
+      stats.browser = {
+        userAgent: navigator.userAgent,
+        platform: navigator.platform,
+        language: navigator.language,
+        cookiesEnabled: navigator.cookieEnabled,
+        onLine: navigator.onLine,
+        deviceMemory: navigator.deviceMemory || null,
+        hardwareConcurrency: navigator.hardwareConcurrency || null,
+        maxTouchPoints: navigator.maxTouchPoints || 0,
+      };
+
+      // Capabilities
+      const caps = getCapabilities();
+      stats.browser.webGpu = caps.hasWebGpu;
+      stats.browser.audioContext = caps.hasAudioContext;
+      stats.browser.mediaRecorder = caps.hasMediaRecorder;
+      stats.browser.isMobile = caps.isMobile;
+      stats.browser.estimatedMemoryMB = caps.estimatedMemoryMB;
+
+      // Storage estimates
+      try {
+        if (navigator.storage && navigator.storage.estimate) {
+          const estimate = await navigator.storage.estimate();
+          stats.storage.quota = estimate.quota || 0;
+          stats.storage.usage = estimate.usage || 0;
+          stats.storage.usagePercent = estimate.quota ? Math.round((estimate.usage / estimate.quota) * 100) : 0;
+        }
+      } catch (e) {
+        stats.storage.error = e.message;
+      }
+
+      // localStorage size
+      try {
+        let localStorageSize = 0;
+        for (let i = 0; i < localStorage.length; i++) {
+          const key = localStorage.key(i);
+          const value = localStorage.getItem(key);
+          localStorageSize += (key.length + value.length) * 2; // UTF-16
+        }
+        stats.storage.localStorage = localStorageSize;
+        stats.storage.localStorageItems = localStorage.length;
+      } catch (e) {
+        stats.storage.localStorageError = e.message;
+      }
+
+      // Model cache (via service worker)
+      try {
+        stats.cache.modelCacheSize = await getModelCacheSize();
+      } catch (e) {
+        stats.cache.modelCacheError = e.message;
+      }
+
+      // Cached models list
+      try {
+        if ('caches' in window) {
+          const cache = await caches.open('localtranscriber-models-v1');
+          const keys = await cache.keys();
+          stats.cache.cachedModels = keys.map(req => {
+            const url = new URL(req.url);
+            // Extract model name from URL
+            const match = url.pathname.match(/whisper-([^/]+)/);
+            return {
+              url: req.url,
+              model: match ? `whisper-${match[1]}` : url.pathname.split('/').pop(),
+              host: url.host,
+            };
+          });
+          stats.cache.cachedModelCount = keys.length;
+        }
+      } catch (e) {
+        stats.cache.cachedModelsError = e.message;
+      }
+
+      // Sessions/history
+      try {
+        const sessions = loadSessions();
+        stats.sessions.count = sessions.length;
+        stats.sessions.totalDuration = sessions.reduce((sum, s) => sum + (s.durationMs || 0), 0);
+        stats.sessions.recent = sessions.slice(0, 5).map(s => ({
+          id: s.id,
+          date: s.startedAt,
+          model: s.model,
+          durationMs: s.durationMs,
+          wordCount: s.wordCount,
+        }));
+        
+        // Calculate total words transcribed
+        stats.sessions.totalWords = sessions.reduce((sum, s) => sum + (s.wordCount || 0), 0);
+      } catch (e) {
+        stats.sessions.error = e.message;
+      }
+
+      // Workflows
+      try {
+        if (window.localTranscriberWorkflow) {
+          const workflows = window.localTranscriberWorkflow.getWorkflows();
+          stats.workflows.count = workflows.length;
+          stats.workflows.activeId = window.localTranscriberWorkflow.getActiveWorkflowId();
+          stats.workflows.list = workflows.map(w => ({
+            id: w.id,
+            name: w.name,
+            stepCount: w.steps?.length || 0,
+          }));
+        }
+      } catch (e) {
+        stats.workflows.error = e.message;
+      }
+
+      // Service Worker status
+      try {
+        if ('serviceWorker' in navigator) {
+          const reg = await navigator.serviceWorker.getRegistration();
+          stats.serviceWorker = {
+            registered: !!reg,
+            scope: reg?.scope,
+            state: reg?.active?.state,
+          };
+        }
+      } catch (e) {
+        stats.serviceWorker = { error: e.message };
+      }
+
+      // Preferred mirror
+      stats.models.preferredMirror = getMirrorPreference() || 'default';
+
+      return stats;
+    },
+
+    // Clear all data
+    async clearAllData() {
+      const results = { cleared: [], errors: [] };
+
+      // Clear localStorage
+      try {
+        const keys = [];
+        for (let i = 0; i < localStorage.length; i++) {
+          const key = localStorage.key(i);
+          if (key.startsWith('localtranscriber') || key.startsWith('localTranscriber') || key.startsWith('transformers')) {
+            keys.push(key);
+          }
+        }
+        keys.forEach(k => localStorage.removeItem(k));
+        results.cleared.push(`localStorage (${keys.length} items)`);
+      } catch (e) {
+        results.errors.push(`localStorage: ${e.message}`);
+      }
+
+      // Clear model cache
+      try {
+        await clearModelCache();
+        results.cleared.push('Model cache');
+      } catch (e) {
+        results.errors.push(`Model cache: ${e.message}`);
+      }
+
+      // Clear app cache
+      try {
+        if ('caches' in window) {
+          const keys = await caches.keys();
+          for (const key of keys) {
+            if (key.startsWith('localtranscriber')) {
+              await caches.delete(key);
+              results.cleared.push(`Cache: ${key}`);
+            }
+          }
+        }
+      } catch (e) {
+        results.errors.push(`Caches: ${e.message}`);
+      }
+
+      return results;
+    },
   };
 })();

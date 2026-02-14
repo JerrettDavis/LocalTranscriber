@@ -2139,3 +2139,190 @@ audio {
         width: 100%;
     }
 }
+
+/* ---------------------------------------------------------------
+   Diagnostics & Stats Section
+   --------------------------------------------------------------- */
+
+.diagnostics-loading {
+    color: var(--ink-muted);
+    padding: 1rem;
+    text-align: center;
+}
+
+.diagnostics-grid {
+    display: grid;
+    gap: 0.75rem;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    margin-bottom: 1rem;
+}
+
+.stat-card {
+    align-items: center;
+    background: var(--surface);
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius-sm);
+    display: flex;
+    gap: 0.75rem;
+    padding: 0.75rem;
+}
+
+.stat-icon {
+    font-size: 1.5rem;
+    line-height: 1;
+}
+
+.stat-content {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    min-width: 0;
+}
+
+.stat-value {
+    color: var(--ink-strong);
+    font-size: 1.1rem;
+    font-weight: 600;
+}
+
+.stat-label {
+    color: var(--ink-muted);
+    font-size: 0.75rem;
+    font-weight: 500;
+}
+
+.stat-detail {
+    color: var(--ink-subtle);
+    font-size: 0.7rem;
+}
+
+.nested-details {
+    background: var(--surface);
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius-sm);
+    margin-bottom: 0.75rem;
+}
+
+.nested-details summary {
+    cursor: pointer;
+    font-size: 0.85rem;
+    font-weight: 500;
+    padding: 0.6rem 0.75rem;
+}
+
+.nested-details summary:hover {
+    background: var(--surface-elevated);
+}
+
+.capabilities-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    padding: 0 0.75rem 0.75rem;
+}
+
+.cap-item {
+    align-items: center;
+    background: var(--surface-elevated);
+    border-radius: 6px;
+    display: flex;
+    font-size: 0.8rem;
+    gap: 0.4rem;
+    padding: 0.35rem 0.6rem;
+}
+
+.cap-item.supported {
+    color: var(--success);
+}
+
+.cap-item.unsupported {
+    color: var(--ink-subtle);
+}
+
+.cap-item.info {
+    color: var(--accent);
+}
+
+.cap-icon {
+    font-weight: 600;
+}
+
+.cached-models-list,
+.history-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    max-height: 200px;
+    overflow-y: auto;
+    padding: 0 0.75rem 0.75rem;
+}
+
+.cached-model-item,
+.history-item {
+    align-items: center;
+    background: var(--surface-elevated);
+    border-radius: 6px;
+    display: flex;
+    font-size: 0.8rem;
+    gap: 0.5rem;
+    padding: 0.4rem 0.6rem;
+}
+
+.model-name {
+    color: var(--ink-strong);
+    flex: 1;
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.model-host {
+    color: var(--ink-subtle);
+    font-size: 0.7rem;
+}
+
+.history-date {
+    color: var(--ink-muted);
+    font-size: 0.75rem;
+    min-width: 90px;
+}
+
+.history-model {
+    color: var(--accent);
+    flex: 1;
+    font-size: 0.75rem;
+}
+
+.history-words {
+    color: var(--ink-subtle);
+    font-size: 0.75rem;
+}
+
+.more-items {
+    color: var(--ink-subtle);
+    font-size: 0.75rem;
+    font-style: italic;
+    padding: 0.25rem 0;
+}
+
+.diagnostics-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+}
+
+.diagnostics-actions .chip-btn {
+    font-size: 0.8rem;
+}
+
+.diagnostics-actions .chip-btn.danger {
+    color: var(--danger);
+}
+
+.diagnostics-actions .chip-btn.danger:hover {
+    background: color-mix(in srgb, var(--danger) 15%, var(--surface));
+    border-color: var(--danger);
+}
