@@ -295,17 +295,24 @@ Rules:
     const entry = modelRegistry[normalized];
     const required = entry ? entry.memoryMB : 500;
     const available = caps.estimatedMemoryMB;
-    
-    const blocked = caps.isMobile && available < required;
+
+    // WASM inference needs ~2x the model weight size for intermediate tensors,
+    // attention matrices, and KV cache. Block if available memory is too low.
+    // On mobile: block if available < model size.
+    // On desktop: block if available < model size (inference still needs headroom,
+    // but desktop WASM can usually allocate more than navigator.deviceMemory reports).
+    const blocked = caps.isMobile
+      ? available < required
+      : available > 0 && available < required * 0.8; // only block desktop if clearly too small
 
     return {
       modelName,
       requiredMB: required,
       availableMB: available,
-      isSafe: available >= required * 1.2, // 20% headroom
+      isSafe: available >= required * 1.5, // 50% headroom for inference overhead
       blocked,
-      warning: available < required * 1.2
-        ? `⚠️ ${modelName} needs ~${required}MB but device may only have ~${available}MB available. Consider using a smaller model.`
+      warning: available < required * 1.5
+        ? `${modelName} needs ~${required}MB (plus inference overhead) but device reports ~${available}MB available. Consider using a smaller model.`
         : null,
     };
   }
@@ -633,28 +640,24 @@ Rules:
 
       console.warn("[LocalTranscriber] OrtRun error detected — evicting cached pipeline and retrying...");
 
-      // Evict the broken pipeline
+      // Evict the broken in-memory pipeline (but NOT the persistent model cache —
+      // the downloaded model files are fine, only the WASM runtime state is bad)
       const modelId = resolveWhisperModel(modelName);
       const cacheKey = `webgpu:${modelId}`;
       asrPipelineCache.delete(cacheKey);
 
-      // Also clear the browser model cache in case files are corrupted
-      try { await clearModelCache(); } catch { /* best-effort */ }
-
-      // Reset the transformers module in case internal state is corrupted
-      transformersModulePromise = null;
-
-      // Reload pipeline from scratch
+      // Try to reload the pipeline from the (still-cached) model files.
+      // If this fails, the WASM runtime is likely corrupted beyond recovery.
       let freshAsr;
       try {
         freshAsr = await getWhisperPipeline(modelName, onProgress);
       } catch (reloadErr) {
-        // Model reload failed — WASM runtime is likely corrupted
+        // Model reload failed — WASM runtime is corrupted
         wasmRuntimeCorrupted = true;
-        console.error("[LocalTranscriber] Model reload failed after OrtRun error. WASM runtime may be corrupted.", reloadErr);
+        console.error("[LocalTranscriber] Model reload failed after OrtRun error. WASM runtime is corrupted.", reloadErr);
         throw new Error(
-          "Model reload failed after a runtime error. The WebAssembly runtime may be corrupted. " +
-          "Please reload the page and try a smaller model (e.g. SmallEn or TinyEn)."
+          "Transcription failed — the WebAssembly runtime crashed and cannot recover in this session. " +
+          "Please reload the page. If this keeps happening, switch to a smaller model (e.g. SmallEn)."
         );
       }
 
@@ -667,8 +670,8 @@ Rules:
           wasmRuntimeCorrupted = true;
           console.error("[LocalTranscriber] WASM runtime crashed on retry. Page reload required.", retryErr);
           throw new Error(
-            "The WebAssembly runtime crashed again on retry. " +
-            "Please reload the page and try a smaller model (e.g. SmallEn or TinyEn)."
+            "Transcription failed — the model crashed again on retry. " +
+            "Please reload the page and switch to a smaller model (e.g. SmallEn)."
           );
         }
         throw retryErr;

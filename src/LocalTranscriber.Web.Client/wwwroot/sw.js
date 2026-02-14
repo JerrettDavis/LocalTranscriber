@@ -97,10 +97,14 @@ function isModelFile(url) {
     /config\.json$/i,
     // WebLLM / MLC model patterns
     /huggingface\.co.*mlc/i,
-    /\.wasm$/i,
     /ndarray-cache/i,
     /mlc-chat-config\.json/i,
   ];
+  // Match model-specific .wasm files (e.g. MLC model shards) but NOT the ONNX
+  // Runtime binary (ort-wasm*.wasm) which should stay in the app asset cache.
+  if (/\.wasm$/i.test(url.href) && !/ort-wasm/i.test(url.href)) {
+    return true;
+  }
   return modelPatterns.some((pattern) => pattern.test(url.href));
 }
 
