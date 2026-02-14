@@ -119,10 +119,6 @@
                     <div class="error-box">@_errorMessage</div>
                 }
 
-                <LocalTranscriber.Web.Client.Components.WorkflowEditor 
-                    @bind-IsExpanded="_workflowEditorExpanded" 
-                    OnWorkflowChanged="OnActiveWorkflowChanged" />
-
                 <div class="capture-hub">
                     @if (_hasAudio && !_isRecording)
                     {
@@ -333,6 +329,11 @@
                             </aside>
                         </div>
                     </details>
+
+                    @* Workflow Editor *@
+                    <LocalTranscriber.Web.Client.Components.WorkflowEditor 
+                        @bind-IsExpanded="_workflowEditorExpanded" 
+                        OnWorkflowChanged="OnActiveWorkflowChanged" />
                         </div>
                     </details>
 
