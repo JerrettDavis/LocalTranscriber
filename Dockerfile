@@ -80,7 +80,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # ----------------------------------------------------------------------------
 # Runtime: CUDA variant (GPU acceleration)
 # ----------------------------------------------------------------------------
-FROM mcr.microsoft.com/dotnet/aspnet:${DOTNET_VERSION} AS runtime-cuda-base
+FROM mcr.microsoft.com/dotnet/aspnet:${DOTNET_VERSION} AS runtime-cuda
 
 # Install CUDA runtime + audio dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
