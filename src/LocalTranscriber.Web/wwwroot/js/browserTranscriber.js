@@ -10,8 +10,8 @@ window.localTranscriberBrowser = (() => {
     mediumen: "Xenova/whisper-medium.en",
     largev1: "Xenova/whisper-large-v1",
     largev2: "Xenova/whisper-large-v2",
-    largev3: "Xenova/whisper-large-v3",
-    largev3turbo: "Xenova/whisper-large-v3-turbo",
+    largev3: "onnx-community/whisper-large-v3",
+    largev3turbo: "onnx-community/whisper-large-v3-turbo",
   };
 
   // Mirror configuration for model downloads
@@ -679,8 +679,8 @@ Rules:
       
       const [, org, model, filePath] = pathMatch;
       
-      // Only rewrite Xenova whisper models
-      if (org !== "Xenova" || !model.startsWith("whisper-")) {
+      // Only rewrite Xenova or onnx-community whisper models
+      if ((org !== "Xenova" && org !== "onnx-community") || !model.startsWith("whisper-")) {
         return url;
       }
       
@@ -710,7 +710,7 @@ Rules:
         console.log(`[LocalTranscriber] Intercepted fetch: ${url?.substring(0, 100)}...`);
       }
       
-      if (url && url.includes("huggingface.co") && url.includes("Xenova/whisper-")) {
+      if (url && url.includes("huggingface.co") && (url.includes("Xenova/whisper-") || url.includes("onnx-community/whisper-"))) {
         const newUrl = rewriteUrlForJsDelivr(url);
         if (newUrl !== url) {
           console.log(`[LocalTranscriber] Rewriting to: ${newUrl}`);
@@ -890,10 +890,12 @@ Rules:
           lastError = cpuError;
           const errorMsg = cpuError?.message || String(cpuError);
           
-          // Check for network/CORS errors - try next mirror
-          if (errorMsg.includes("CORS") || errorMsg.includes("NetworkError") || 
+          // Check for network/CORS/auth errors - try next mirror
+          if (errorMsg.includes("CORS") || errorMsg.includes("NetworkError") ||
               errorMsg.includes("Failed to fetch") || errorMsg.includes("blocked") ||
-              errorMsg.includes("TypeError") || errorMsg.includes("404")) {
+              errorMsg.includes("TypeError") || errorMsg.includes("404") ||
+              errorMsg.includes("401") || errorMsg.includes("403") ||
+              errorMsg.includes("Unauthorized") || errorMsg.includes("Forbidden")) {
             console.warn(`[LocalTranscriber] ✗ ${mirrorName} failed (${errorMsg.slice(0, 50)}), trying next...`);
             disableJsDelivrProxy(); // Clean up before trying next
             continue;
@@ -1562,6 +1564,16 @@ Rules:
     return { text, segments };
   }
 
+  // Lightweight wrapper for inline transcription (used by InteractiveStepHost).
+  // Takes raw base64 + mimeType, returns { text }.
+  async function transcribeAudioBase64(base64, mimeType) {
+    const result = await transcribeAudio(
+      { base64, mimeType, fileName: "recording.webm" },
+      null, null, null
+    );
+    return { text: result?.text || "" };
+  }
+
   async function validateMobileReadiness() {
     const caps = getCapabilities();
     const issues = [];
@@ -1628,6 +1640,7 @@ Rules:
 
     // Workflow step APIs (used by workflowEngine.js step handlers)
     transcribeAudio,
+    transcribeAudioBase64,
     buildSpeakerLabeledTranscript,
     formatWithWebLlm,
     
