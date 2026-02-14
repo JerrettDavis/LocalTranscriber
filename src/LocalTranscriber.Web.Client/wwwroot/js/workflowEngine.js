@@ -2088,6 +2088,116 @@ window.localTranscriberWorkflow = (() => {
   }
 
   // ═══════════════════════════════════════════════════════════════
+  // Server Availability & YouTube Submit
+  // ═══════════════════════════════════════════════════════════════
+
+  async function checkServerAvailable() {
+    try {
+      const resp = await fetch("/api/health", { method: "GET", signal: AbortSignal.timeout(3000) });
+      return resp.ok;
+    } catch {
+      return false;
+    }
+  }
+
+  async function submitYouTubeUrl(url, dotNetRef, jobId) {
+    // Post YouTube URL to server
+    const formData = new FormData();
+    formData.append("youtubeUrl", url);
+    formData.append("jobId", jobId);
+
+    if (dotNetRef?.invokeMethodAsync) {
+      await dotNetRef.invokeMethodAsync("OnWorkflowProgress", {
+        jobId,
+        percent: 5,
+        stage: "youtube",
+        message: "Submitting YouTube URL to server...",
+        isCompleted: false,
+        isError: false,
+      });
+    }
+
+    const resp = await fetch("/api/transcriptions/youtube", {
+      method: "POST",
+      body: formData,
+    });
+
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({ error: "Unknown error" }));
+      throw new Error(err.error || `Server returned ${resp.status}`);
+    }
+
+    const accepted = await resp.json();
+    const serverJobId = accepted.jobId || jobId;
+
+    if (dotNetRef?.invokeMethodAsync) {
+      const titleMsg = accepted.videoTitle
+        ? `Downloading: ${accepted.videoTitle}`
+        : "Processing YouTube audio...";
+      await dotNetRef.invokeMethodAsync("OnWorkflowProgress", {
+        jobId,
+        percent: 15,
+        stage: "youtube",
+        message: titleMsg,
+        isCompleted: false,
+        isError: false,
+      });
+    }
+
+    // Poll for completion via SignalR or polling
+    return pollForResult(serverJobId, dotNetRef, jobId);
+  }
+
+  async function pollForResult(serverJobId, dotNetRef, clientJobId) {
+    const maxAttempts = 600; // 10 minutes at 1s intervals
+    for (let i = 0; i < maxAttempts; i++) {
+      await new Promise(r => setTimeout(r, 1000));
+
+      try {
+        const resp = await fetch(`/api/transcriptions/${serverJobId}`);
+        if (!resp.ok) continue;
+
+        const msg = await resp.json();
+
+        if (dotNetRef?.invokeMethodAsync) {
+          await dotNetRef.invokeMethodAsync("OnWorkflowProgress", {
+            jobId: clientJobId,
+            percent: msg.percent || 0,
+            stage: msg.stage || "processing",
+            message: msg.message || "Processing...",
+            isCompleted: msg.isCompleted || false,
+            isError: msg.isError || false,
+            rawWhisperText: msg.rawWhisperText,
+            speakerLabeledText: msg.speakerLabeledText,
+            markdown: msg.markdown,
+            detectedSpeakerCount: msg.detectedSpeakerCount,
+          });
+        }
+
+        if (msg.isError) {
+          throw new Error(msg.message || "Transcription failed on server");
+        }
+
+        if (msg.isCompleted) {
+          return {
+            rawWhisperText: msg.rawWhisperText,
+            speakerLabeledText: msg.speakerLabeledText,
+            markdown: msg.markdown,
+            detectedSpeakerCount: msg.detectedSpeakerCount,
+          };
+        }
+      } catch (e) {
+        if (e.message && !e.message.includes("Failed to fetch")) {
+          throw e;
+        }
+        // Network error — retry
+      }
+    }
+
+    throw new Error("Transcription timed out after 10 minutes");
+  }
+
+  // ═══════════════════════════════════════════════════════════════
   // Public API
   // ═══════════════════════════════════════════════════════════════
 
@@ -2154,6 +2264,10 @@ window.localTranscriberWorkflow = (() => {
     // Presets
     getPresetWorkflows,
     createFromPreset,
+
+    // Server / YouTube
+    checkServerAvailable,
+    submitYouTubeUrl,
 
     // Utilities (exposed for plugins)
     resolveTemplate,

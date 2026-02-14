@@ -1,3 +1,4 @@
+using LocalTranscriber.Cli.Services;
 using LocalTranscriber.Web.Components;
 using LocalTranscriber.Web.Plugins;
 using LocalTranscriber.Web.Transcription;
@@ -45,6 +46,8 @@ app.UseAntiforgery();
 app.MapStaticAssets();
 app.MapHub<TranscriptionHub>("/hubs/transcription");
 
+app.MapGet("/api/health", () => Results.Ok(new { status = "ok" }));
+
 app.MapGet("/api/transcriptions/{jobId}", async (string jobId, TranscriptionJobProcessor processor) =>
 {
     var result = await processor.TryGetLastMessageAsync(jobId);
@@ -81,11 +84,90 @@ app.MapPost("/api/transcriptions", async (
     }
     var inputChecksum = await FileHashing.ComputeFileChecksumAsync(tempInput, ct);
 
+    var req = BuildRequestFromForm(form, jobId, tempInput, inputChecksum);
+
+    _ = Task.Run(async () =>
+    {
+        try
+        {
+            await processor.ProcessAsync(req);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Unhandled background failure for job {JobId}", req.JobId);
+        }
+    });
+
+    return Results.Accepted($"/api/transcriptions/{jobId}", new { jobId });
+}).DisableAntiforgery();
+
+app.MapPost("/api/transcriptions/youtube", async (
+    HttpRequest request,
+    TranscriptionJobProcessor processor,
+    ILoggerFactory loggerFactory,
+    CancellationToken ct) =>
+{
+    var logger = loggerFactory.CreateLogger("TranscriptionApi");
+    var form = await request.ReadFormAsync(ct);
+    var youtubeUrl = form["youtubeUrl"].ToString();
+
+    if (string.IsNullOrWhiteSpace(youtubeUrl))
+        return Results.BadRequest(new { error = "Missing 'youtubeUrl' form field." });
+
+    if (!YouTubeAudioService.IsYouTubeUrl(youtubeUrl))
+        return Results.BadRequest(new { error = "Invalid YouTube URL." });
+
+    var jobId = form["jobId"].ToString();
+    if (string.IsNullOrWhiteSpace(jobId))
+        jobId = Guid.NewGuid().ToString("N");
+
+    var tempDir = Path.Combine(Path.GetTempPath(), "LocalTranscriber", "youtube");
+    Directory.CreateDirectory(tempDir);
+
+    var ytService = new YouTubeAudioService();
+    YouTubeAudioService.YouTubeAudioResult ytResult;
+    try
+    {
+        ytResult = await ytService.DownloadAudioAsync(youtubeUrl, tempDir, ct: ct);
+    }
+    catch (Exception ex)
+    {
+        return Results.BadRequest(new { error = $"YouTube download failed: {ex.Message}" });
+    }
+
+    var inputChecksum = await FileHashing.ComputeFileChecksumAsync(ytResult.AudioFilePath, ct);
+
+    var req = BuildRequestFromForm(form, jobId, ytResult.AudioFilePath, inputChecksum);
+
+    _ = Task.Run(async () =>
+    {
+        try
+        {
+            await processor.ProcessAsync(req);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Unhandled background failure for job {JobId}", req.JobId);
+        }
+    });
+
+    return Results.Accepted($"/api/transcriptions/{jobId}",
+        new { jobId, videoTitle = ytResult.VideoTitle, duration = ytResult.Duration.TotalSeconds });
+}).DisableAntiforgery();
+
+app.MapRazorComponents<App>()
+    .AddInteractiveServerRenderMode();
+
+app.Run();
+
+static TranscriptionJobRequest BuildRequestFromForm(
+    IFormCollection form, string jobId, string audioPath, string checksum)
+{
     var formatProvider = ParseFormatProvider(form["formatProvider"]);
-    var req = new TranscriptionJobRequest(
+    return new TranscriptionJobRequest(
         JobId: jobId,
-        InputAudioPath: tempInput,
-        InputChecksum: inputChecksum,
+        InputAudioPath: audioPath,
+        InputChecksum: checksum,
         Model: form["model"].ToString().NullIfEmpty() ?? "SmallEn",
         Language: form["language"].ToString().NullIfEmpty() ?? "auto",
         MaxSegmentLength: ParseInt(form["maxSegLength"], 0),
@@ -117,26 +199,7 @@ app.MapPost("/api/transcriptions", async (
         HuggingFaceApiKey: form["hfApiKey"].ToString().NullIfEmpty() ?? Environment.GetEnvironmentVariable("HF_TOKEN"),
         ModelMirrorName: form["modelMirrorName"].ToString().NullIfEmpty(),
         ModelMirrorUrl: form["modelMirrorUrl"].ToString().NullIfEmpty());
-
-    _ = Task.Run(async () =>
-    {
-        try
-        {
-            await processor.ProcessAsync(req);
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "Unhandled background failure for job {JobId}", req.JobId);
-        }
-    });
-
-    return Results.Accepted($"/api/transcriptions/{jobId}", new { jobId });
-}).DisableAntiforgery();
-
-app.MapRazorComponents<App>()
-    .AddInteractiveServerRenderMode();
-
-app.Run();
+}
 
 static bool ParseBool(string? value, bool defaultValue)
     => bool.TryParse(value, out var parsed) ? parsed : defaultValue;

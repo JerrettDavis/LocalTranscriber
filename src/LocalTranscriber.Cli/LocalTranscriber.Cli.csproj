@@ -21,5 +21,6 @@
     <PackageReference Include="Whisper.net" Version="1.9.0" />
     <PackageReference Include="Whisper.net.Runtime" Version="1.9.0" />
     <PackageReference Include="Whisper.net.Runtime.Cuda" Version="1.9.0" />
+    <PackageReference Include="YoutubeExplode" Version="6.*" />
   </ItemGroup>
 </Project>

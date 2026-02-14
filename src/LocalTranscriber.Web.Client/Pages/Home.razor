@@ -207,6 +207,19 @@
                         </label>
                     </div>
 
+                    <div class="youtube-input-row">
+                        <input type="url" @bind="_youtubeUrl" placeholder="Paste YouTube URL..."
+                               disabled="@(_isRecording || _isSubmitting || !_isServerAvailable)" />
+                        <button class="chip-btn" type="button" @onclick="SubmitYouTubeAsync"
+                                disabled="@(string.IsNullOrWhiteSpace(_youtubeUrl) || _isSubmitting || !_isServerAvailable)">
+                            Transcribe URL
+                        </button>
+                        @if (!_isServerAvailable)
+                        {
+                            <span class="tag server-tag">Requires server</span>
+                        }
+                    </div>
+
                     @if (_mobileReadiness is { Ready: false })
                     {
                         <div class="error-box">
@@ -548,6 +561,9 @@
     private BrowserAudioPayload? _browserRecording;
     private UploadedAudioPayload? _uploadedAudio;
 
+    private string _youtubeUrl = "";
+    private bool _isServerAvailable;
+
     private string? _selectedDeviceId;
     private string _model = "SmallEn";
     private string _webLlmModel = "Llama-3.1-8B-Instruct-q4f16_1-MLC";
@@ -601,7 +617,9 @@
     private List<string> _phaseNames = new();
     private int _currentPhaseIndex = -1;
 
-    private bool _hasAudio => _browserRecording is not null || _uploadedAudio is not null;
+    private bool _hasAudio => _browserRecording is not null
+        || _uploadedAudio is not null
+        || (!string.IsNullOrWhiteSpace(_youtubeUrl) && _isServerAvailable);
 
     private string? _sourceDescription
     {
@@ -627,6 +645,7 @@
             await RefreshMirrorsAsync();
             await LoadPromptsAsync();
             await LoadTuningAsync();
+            _isServerAvailable = await CheckServerAvailableAsync();
             StateHasChanged();
             
             // Focus record button after initial render
@@ -766,6 +785,55 @@
             _mirrorStatus = "";
             InvokeAsync(StateHasChanged);
         });
+    }
+
+    private async Task<bool> CheckServerAvailableAsync()
+    {
+        try
+        {
+            return await JS.InvokeAsync<bool>("localTranscriberWorkflow.checkServerAvailable");
+        }
+        catch { return false; }
+    }
+
+    private async Task SubmitYouTubeAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_youtubeUrl) || _isSubmitting || !_isServerAvailable) return;
+
+        _isSubmitting = true;
+        _errorMessage = null;
+        _timeline.Clear();
+        _markdownOutput = null;
+        _rawWhisperText = null;
+        _activeJobId = Guid.NewGuid().ToString("N");
+        _minimalStage = MinimalStage.Processing;
+        _statusMessage = "Downloading YouTube audio...";
+        StateHasChanged();
+
+        try
+        {
+            var result = await JS.InvokeAsync<WorkflowExecutionResult>(
+                "localTranscriberWorkflow.submitYouTubeUrl",
+                _youtubeUrl,
+                _dotNetRef,
+                _activeJobId);
+
+            if (result.Navigated == true) return;
+
+            _rawWhisperText = result.RawWhisperText;
+            _markdownOutput = result.Markdown ?? result.SpeakerLabeledText ?? result.RawWhisperText;
+            _statusMessage = "Complete!";
+            _minimalStage = MinimalStage.Results;
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"YouTube transcription failed: {ex.Message}";
+            _minimalStage = MinimalStage.Capture;
+        }
+        finally
+        {
+            _isSubmitting = false;
+        }
     }
 
     private async Task LoadPromptsAsync()
@@ -1185,6 +1253,7 @@
         _errorMessage = null;
         _browserRecording = null;
         _uploadedAudio = null;
+        _youtubeUrl = "";
         ClearInteractiveState();
         _phaseNames.Clear();
         _currentPhaseIndex = -1;

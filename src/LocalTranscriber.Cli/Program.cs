@@ -67,6 +67,7 @@ internal static class Program
         Console.WriteLine("\n  record-and-transcribe --device <index> --wav <path.wav> --out <path.md> [options]");
         Console.WriteLine("      Convenience: record to a wav and then transcribe it.");
         Console.WriteLine("\nTranscribe options:");
+        Console.WriteLine("  --youtube <url>                                                               Download audio from a YouTube video URL");
         Console.WriteLine("  --model <Tiny|TinyEn|Base|BaseEn|Small|SmallEn|Medium|MediumEn|LargeV1|LargeV2|LargeV3|LargeV3Turbo> (default: SmallEn)");
         Console.WriteLine("  --language <auto|en|...>                                                      (default: auto)");
         Console.WriteLine("  --max-seg-length <int>                                                        (default: 0, means whisper default)");
@@ -109,6 +110,7 @@ internal static class Program
         Console.WriteLine("  localtranscriber record --device 0 --out output\\mic.wav");
         Console.WriteLine("  localtranscriber transcribe --in output\\mic.wav --out output\\mic.md --model SmallEn");
         Console.WriteLine("  localtranscriber transcribe --in output\\mic.wav --out output\\mic.md --format-provider auto --speakers 2");
+        Console.WriteLine("  localtranscriber transcribe --youtube \"https://www.youtube.com/watch?v=dQw4w9WgXcQ\" --out output\\yt.md");
         Console.WriteLine("  localtranscriber record-and-transcribe --device 0 --wav output\\note.wav --out output\\note.md");
     }
 
@@ -175,7 +177,27 @@ internal static class Program
 
     private static async Task<int> TranscribeAsync(SimpleArgs opts)
     {
-        var input = opts.GetString("in") ?? throw new ArgumentException("Missing --in <path>");
+        var youtubeUrl = opts.GetString("youtube");
+        string input;
+        if (!string.IsNullOrWhiteSpace(youtubeUrl))
+        {
+            var ytService = new YouTubeAudioService();
+            Console.WriteLine("Downloading audio from YouTube...");
+            var tempDir = Path.Combine(Path.GetTempPath(), "LocalTranscriber", "youtube");
+            Directory.CreateDirectory(tempDir);
+            var ytResult = await ytService.DownloadAudioAsync(
+                youtubeUrl, tempDir,
+                new Progress<double>(p => Console.Write($"\rDownloading: {p:P0}")),
+                CancellationToken.None);
+            Console.WriteLine();
+            Console.WriteLine($"Video: {ytResult.VideoTitle} ({ytResult.Duration:hh\\:mm\\:ss})");
+            input = ytResult.AudioFilePath;
+        }
+        else
+        {
+            input = opts.GetString("in") ?? throw new ArgumentException("Missing --in <path> or --youtube <url>");
+        }
+
         var output = opts.GetString("out") ?? throw new ArgumentException("Missing --out <path.md>");
 
         var model = opts.GetString("model") ?? "SmallEn";
@@ -349,6 +371,7 @@ internal static class Program
         CopyOptionalArg(opts, transcribeArgs, "trust-all-certs");
         CopyOptionalArg(opts, transcribeArgs, "mirror");
         CopyOptionalArg(opts, transcribeArgs, "mirror-url");
+        CopyOptionalArg(opts, transcribeArgs, "youtube");
 
         return await TranscribeAsync(SimpleArgs.FromDictionary(transcribeArgs));
     }
