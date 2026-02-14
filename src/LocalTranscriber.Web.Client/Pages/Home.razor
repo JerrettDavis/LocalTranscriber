@@ -205,20 +205,35 @@
                             <span class="upload-text">Upload</span>
                             <InputFile class="upload-input" OnChange="HandleUploadAsync" accept="audio/*,.wav,.mp3,.m4a,.webm" disabled="@(_isRecording || _isSubmitting)" />
                         </label>
-                    </div>
 
-                    <div class="youtube-input-row">
-                        <input type="url" @bind="_youtubeUrl" placeholder="Paste YouTube URL..."
-                               disabled="@(_isRecording || _isSubmitting || !_isServerAvailable)" />
-                        <button class="chip-btn" type="button" @onclick="SubmitYouTubeAsync"
-                                disabled="@(string.IsNullOrWhiteSpace(_youtubeUrl) || _isSubmitting || !_isServerAvailable)">
-                            Transcribe URL
-                        </button>
-                        @if (!_isServerAvailable)
+                        @if (_isServerAvailable)
                         {
-                            <span class="tag server-tag">Requires server</span>
+                            <button class="youtube-fab @(_showYouTubeInput ? "active" : "")" type="button"
+                                    title="Transcribe YouTube video" aria-label="Transcribe YouTube video"
+                                    @onclick="ToggleYouTubeInput"
+                                    disabled="@(_isRecording || _isSubmitting)">
+                                <span class="youtube-icon" aria-hidden="true">
+                                    <svg class="icon-svg" viewBox="0 0 24 24" aria-hidden="true">
+                                        <path d="m10 8 6 4-6 4z" />
+                                        <rect x="2" y="4" width="20" height="16" rx="4" ry="4" fill="none" stroke="currentColor" stroke-width="1.6" />
+                                    </svg>
+                                </span>
+                                <span class="youtube-text">YouTube</span>
+                            </button>
                         }
                     </div>
+
+                    @if (_showYouTubeInput && _isServerAvailable)
+                    {
+                        <div class="youtube-url-panel">
+                            <input type="url" @bind="_youtubeUrl" @bind:event="oninput" placeholder="Paste YouTube URL..."
+                                   disabled="@_isSubmitting" />
+                            <button class="chip-btn" type="button" @onclick="SubmitYouTubeAsync"
+                                    disabled="@(string.IsNullOrWhiteSpace(_youtubeUrl) || _isSubmitting)">
+                                Transcribe
+                            </button>
+                        </div>
+                    }
 
                     @if (_mobileReadiness is { Ready: false })
                     {
@@ -563,6 +578,7 @@
 
     private string _youtubeUrl = "";
     private bool _isServerAvailable;
+    private bool _showYouTubeInput;
 
     private string? _selectedDeviceId;
     private string _model = "SmallEn";
@@ -785,6 +801,13 @@
             _mirrorStatus = "";
             InvokeAsync(StateHasChanged);
         });
+    }
+
+    private void ToggleYouTubeInput()
+    {
+        _showYouTubeInput = !_showYouTubeInput;
+        if (!_showYouTubeInput)
+            _youtubeUrl = "";
     }
 
     private async Task<bool> CheckServerAvailableAsync()
@@ -1254,6 +1277,7 @@
         _browserRecording = null;
         _uploadedAudio = null;
         _youtubeUrl = "";
+        _showYouTubeInput = false;
         ClearInteractiveState();
         _phaseNames.Clear();
         _currentPhaseIndex = -1;

@@ -1646,6 +1646,14 @@ audio {
     .upload-text {
         right: 2.5rem;
     }
+
+    .youtube-fab {
+        left: -2.85rem;
+    }
+
+    .youtube-text {
+        left: 2.5rem;
+    }
     
     .tab-panel,
     .log-stream,
@@ -1691,6 +1699,12 @@ audio {
     .upload-fab {
         height: 2rem;
         right: -2.4rem;
+        width: 2rem;
+    }
+
+    .youtube-fab {
+        height: 2rem;
+        left: -2.4rem;
         width: 2rem;
     }
 
@@ -2048,6 +2062,15 @@ audio {
     .screen-root.minimal .upload-text {
         right: 2.55rem;
     }
+
+    .screen-root.minimal .youtube-fab {
+        left: -3.25rem;
+        top: 0.95rem;
+    }
+
+    .screen-root.minimal .youtube-text {
+        left: 2.55rem;
+    }
 }
 
 /* Studio Density Pass: less stretch, more whitespace, tighter panel geometry */
@@ -2379,18 +2402,114 @@ button.phase-pill.completed:hover {
     color: var(--ink-strong);
 }
 
-/* YouTube URL Input */
-.youtube-input-row {
+/* YouTube Circle Button */
+.youtube-fab {
+    align-items: center;
+    animation: controlMaterialize 0.5s cubic-bezier(0.2, 0.88, 0.28, 1) both;
+    background: var(--surface-elevated);
+    border: 1px solid var(--border-soft);
+    border-radius: 999px;
+    color: var(--ink-strong);
+    cursor: pointer;
+    display: inline-flex;
+    font-size: 0.73rem;
+    height: 2.25rem;
+    justify-content: center;
+    letter-spacing: 0.04em;
+    left: -3.75rem;
+    position: absolute;
+    text-transform: uppercase;
+    top: 1.1rem;
+    transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+    width: 2.25rem;
+}
+
+.youtube-fab.active {
+    border-color: #ff4444;
+    box-shadow: 0 0 0 0.16rem color-mix(in srgb, #ff4444 28%, transparent);
+}
+
+.youtube-fab:hover,
+.youtube-fab:focus-visible {
+    background: color-mix(in srgb, var(--surface-elevated) 60%, #ff4444 40%);
+    border-color: color-mix(in srgb, #ff4444 65%, transparent);
+    transform: translateY(-1px);
+}
+
+.youtube-fab:disabled {
+    cursor: not-allowed;
+    opacity: 0.45;
+}
+
+.youtube-fab:disabled:hover {
+    background: var(--surface-elevated);
+    border-color: var(--border-soft);
+    transform: none;
+}
+
+.youtube-icon {
     align-items: center;
     display: flex;
-    gap: 0.5rem;
-    max-width: 480px;
+    height: 1.1rem;
+    justify-content: center;
+    width: 1.1rem;
+}
+
+.youtube-icon .icon-svg {
+    fill: currentColor;
+    height: 100%;
+    stroke: none;
     width: 100%;
 }
 
-.youtube-input-row input[type="url"] {
+.youtube-icon .icon-svg rect {
+    fill: none;
+    stroke: currentColor;
+}
+
+.youtube-text {
+    font-size: 0.62rem;
+    font-weight: 700;
+    left: 2.85rem;
+    opacity: 0;
+    pointer-events: none;
+    position: absolute;
+    top: 0.2rem;
+    transform: translateX(-6px);
+    transition: opacity 0.2s ease, transform 0.2s ease;
+    white-space: nowrap;
+}
+
+.youtube-fab:hover .youtube-text,
+.youtube-fab:focus-visible .youtube-text {
+    opacity: 1;
+    transform: translateX(0);
+}
+
+/* YouTube URL Panel */
+.youtube-url-panel {
+    align-items: center;
+    animation: youtubeSlideIn 0.32s cubic-bezier(0.2, 0.88, 0.28, 1) both;
+    display: flex;
+    gap: 0.5rem;
+    max-width: 420px;
+    width: 100%;
+}
+
+@keyframes youtubeSlideIn {
+    from {
+        opacity: 0;
+        transform: translateY(-8px) scale(0.97);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+.youtube-url-panel input[type="url"] {
     background: color-mix(in srgb, var(--surface-elevated) 90%, transparent);
-    border: 1px solid var(--border-soft);
+    border: 1px solid color-mix(in srgb, #ff4444 30%, var(--border-soft));
     border-radius: 10px;
     color: var(--ink-strong);
     flex: 1;
@@ -2400,26 +2519,32 @@ button.phase-pill.completed:hover {
     transition: border-color 0.18s ease, box-shadow 0.18s ease;
 }
 
-.youtube-input-row input[type="url"]:focus {
-    border-color: var(--accent);
-    box-shadow: 0 0 0 0.14rem color-mix(in srgb, var(--accent) 16%, transparent);
+.youtube-url-panel input[type="url"]:focus {
+    border-color: #ff4444;
+    box-shadow: 0 0 0 0.14rem color-mix(in srgb, #ff4444 20%, transparent);
     outline: none;
 }
 
-.youtube-input-row input[type="url"]:disabled {
+.youtube-url-panel input[type="url"]::placeholder {
+    color: var(--ink-muted);
+}
+
+.youtube-url-panel input[type="url"]:disabled {
     cursor: not-allowed;
     opacity: 0.5;
 }
 
-.youtube-input-row input[type="url"]::placeholder {
-    color: var(--ink-muted);
+/* Minimal screen overrides for YouTube fab */
+.screen-root.minimal .youtube-fab {
+    background: color-mix(in srgb, var(--surface-elevated) 97%, transparent);
+    border-color: color-mix(in srgb, var(--border-strong) 72%, transparent);
+    height: 2.45rem;
+    left: -4.1rem;
+    top: 1.05rem;
+    width: 2.45rem;
 }
 
-.tag.server-tag {
-    background: color-mix(in srgb, var(--ink-muted) 12%, transparent);
-    border-radius: 6px;
-    color: var(--ink-muted);
-    font-size: 0.7rem;
-    padding: 0.18rem 0.45rem;
-    white-space: nowrap;
+.screen-root.minimal .youtube-fab:focus-visible {
+    box-shadow: 0 0 0 0.2rem color-mix(in srgb, #ff4444 22%, transparent), var(--shadow-soft);
+    outline: none;
 }
