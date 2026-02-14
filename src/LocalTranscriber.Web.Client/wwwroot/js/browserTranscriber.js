@@ -195,6 +195,24 @@ Rules:
   let preferredMirror = null; // Set by user or auto-detected
   let originalFetch = null; // For GitHub Releases URL rewriting
 
+  // Timeout wrapper for CDN imports — mobile networks are slower
+  function withTimeout(promise, ms, label) {
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        reject(new Error(`${label} timed out after ${ms}ms. Check your network connection and try again.`));
+      }, ms);
+      promise.then(
+        (val) => { clearTimeout(timer); resolve(val); },
+        (err) => { clearTimeout(timer); reject(err); }
+      );
+    });
+  }
+
+  function getImportTimeoutMs() {
+    const caps = getCapabilities();
+    return caps.isMobile ? 30000 : 60000;
+  }
+
   function getCapabilities() {
     const hasWebGpu = typeof navigator !== "undefined" && !!navigator.gpu;
     const hasAudioContext =
@@ -269,12 +287,15 @@ Rules:
     const required = modelMemory[normalized] || 500;
     const available = caps.estimatedMemoryMB;
     
+    const blocked = caps.isMobile && available < required;
+
     return {
       modelName,
       requiredMB: required,
       availableMB: available,
       isSafe: available >= required * 1.2, // 20% headroom
-      warning: available < required * 1.2 
+      blocked,
+      warning: available < required * 1.2
         ? `⚠️ ${modelName} needs ~${required}MB but device may only have ~${available}MB available. Consider using a smaller model.`
         : null,
     };
@@ -337,6 +358,13 @@ Rules:
 
     // Check memory before loading model
     const memCheck = checkMemoryForModel(request.model);
+    if (memCheck.blocked) {
+      const recommended = capabilities.recommendedModels;
+      throw new Error(
+        `${request.model} requires ~${memCheck.requiredMB}MB but this device only has ~${memCheck.availableMB}MB available. ` +
+        `Please use a smaller model${recommended.length ? ` (try ${recommended[0]})` : ""} to avoid crashing.`
+      );
+    }
     if (memCheck.warning && capabilities.isMobile) {
       console.warn(memCheck.warning);
       await emitProgress(dotNetRef, request, 2, "prepare", memCheck.warning);
@@ -563,9 +591,14 @@ Rules:
 
   async function getTransformersModule() {
     if (!transformersModulePromise) {
-      transformersModulePromise = import(
-        "https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2"
+      const timeoutMs = getImportTimeoutMs();
+      transformersModulePromise = withTimeout(
+        import("https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2"),
+        timeoutMs,
+        "Transformers.js import"
       );
+      // Reset promise on failure so a retry can re-attempt
+      transformersModulePromise.catch(() => { transformersModulePromise = null; });
     }
 
     return transformersModulePromise;
@@ -947,6 +980,18 @@ Rules:
       return webLlmEngineCache.get(model);
     }
 
+    // Evict all cached engines to free memory (keep at most 1 loaded)
+    for (const [cachedModel, cachedEngine] of webLlmEngineCache) {
+      try {
+        if (typeof cachedEngine.unload === "function") {
+          await cachedEngine.unload();
+        }
+      } catch (e) {
+        console.warn(`[LocalTranscriber] Failed to unload engine ${cachedModel}:`, e);
+      }
+    }
+    webLlmEngineCache.clear();
+
     const webllm = await getWebLlmModule();
     const createEngine = webllm.CreateMLCEngine || webllm.CreateWebWorkerMLCEngine;
     if (typeof createEngine !== "function") {
@@ -963,7 +1008,14 @@ Rules:
 
   async function getWebLlmModule() {
     if (!webLlmModulePromise) {
-      webLlmModulePromise = import("https://esm.run/@mlc-ai/web-llm");
+      const timeoutMs = getImportTimeoutMs();
+      webLlmModulePromise = withTimeout(
+        import("https://esm.run/@mlc-ai/web-llm"),
+        timeoutMs,
+        "WebLLM import"
+      );
+      // Reset promise on failure so a retry can re-attempt
+      webLlmModulePromise.catch(() => { webLlmModulePromise = null; });
     }
 
     return webLlmModulePromise;
@@ -1332,7 +1384,7 @@ Rules:
     const decodeContext = new AudioContextCtor();
     let decoded;
     try {
-      decoded = await decodeContext.decodeAudioData(arrayBuffer.slice(0));
+      decoded = await decodeContext.decodeAudioData(arrayBuffer);
     } finally {
       if (typeof decodeContext.close === "function") {
         await decodeContext.close();
@@ -1354,6 +1406,11 @@ Rules:
     source.connect(offline.destination);
     source.start(0);
     const rendered = await offline.startRendering();
+
+    // Release memory: disconnect source and drop decoded buffer reference
+    source.disconnect();
+    decoded = null;
+
     return rendered.getChannelData(0);
   }
 
@@ -1461,6 +1518,16 @@ Rules:
     const resolvedModel = model || "SmallEn";
     const resolvedLang = language && language.toLowerCase() !== "auto" ? language : undefined;
 
+    // Block models too large for this mobile device
+    const memCheck = checkMemoryForModel(resolvedModel);
+    if (memCheck.blocked) {
+      const caps = getCapabilities();
+      throw new Error(
+        `${resolvedModel} requires ~${memCheck.requiredMB}MB but this device only has ~${memCheck.availableMB}MB available. ` +
+        `Please use a smaller model${caps.recommendedModels.length ? ` (try ${caps.recommendedModels[0]})` : ""}.`
+      );
+    }
+
     if (onProgress) onProgress(5, "Decoding audio...");
     const audioData = await decodeToMono16kFloat32(audioInput.base64);
 
@@ -1495,6 +1562,65 @@ Rules:
     return { text, segments };
   }
 
+  async function validateMobileReadiness() {
+    const caps = getCapabilities();
+    const issues = [];
+    const warnings = [];
+
+    // WebGPU check
+    if (!caps.hasWebGpu) {
+      issues.push("WebGPU is not available. Browser-based transcription requires WebGPU (Chrome 113+, Edge 113+).");
+    }
+
+    // AudioContext check
+    if (!caps.hasAudioContext) {
+      issues.push("AudioContext is not available. Cannot decode audio in this browser.");
+    }
+
+    // MediaRecorder check
+    if (!caps.hasMediaRecorder) {
+      issues.push("MediaRecorder is not available. Cannot record audio in this browser.");
+    }
+
+    // Memory check
+    if (caps.estimatedMemoryMB < 150) {
+      issues.push(`Estimated available memory (~${caps.estimatedMemoryMB}MB) is too low. At least 150MB is needed for the smallest model.`);
+    } else if (caps.isMobile && caps.estimatedMemoryMB < 300) {
+      warnings.push(`Low memory (~${caps.estimatedMemoryMB}MB). Only Tiny models are recommended.`);
+    }
+
+    // Storage quota check
+    let storageOk = true;
+    try {
+      if (navigator.storage && navigator.storage.estimate) {
+        const estimate = await navigator.storage.estimate();
+        const usagePercent = estimate.quota ? (estimate.usage / estimate.quota) * 100 : 0;
+        if (usagePercent > 90) {
+          warnings.push(`Storage is ${Math.round(usagePercent)}% full. Model caching may fail. Consider clearing cached data.`);
+          storageOk = false;
+        }
+      }
+    } catch {
+      // storage.estimate not available, not a blocking issue
+    }
+
+    // Network check
+    if (typeof navigator.onLine !== "undefined" && !navigator.onLine) {
+      warnings.push("Device appears to be offline. Model downloads will fail unless already cached.");
+    }
+
+    const ready = issues.length === 0;
+
+    return {
+      ready,
+      isMobile: caps.isMobile,
+      estimatedMemoryMB: caps.estimatedMemoryMB,
+      issues,
+      warnings,
+      recommendedModels: caps.recommendedModels,
+    };
+  }
+
   return {
     // Core functionality
     getCapabilities,
@@ -1508,6 +1634,7 @@ Rules:
     // Mobile / Memory management
     checkMemoryForModel,
     getRecommendedModels: () => getCapabilities().recommendedModels,
+    validateMobileReadiness,
     
     // PWA / Service Worker
     registerServiceWorker,

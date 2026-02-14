@@ -95,6 +95,11 @@ function isModelFile(url) {
     /\.onnx$/i,
     /tokenizer.*\.json$/i,
     /config\.json$/i,
+    // WebLLM / MLC model patterns
+    /huggingface\.co.*mlc/i,
+    /\.wasm$/i,
+    /ndarray-cache/i,
+    /mlc-chat-config\.json/i,
   ];
   return modelPatterns.some((pattern) => pattern.test(url.href));
 }
@@ -132,23 +137,42 @@ async function staleWhileRevalidate(request) {
 
 async function handleModelFetch(request) {
   const cache = await caches.open(MODEL_CACHE_NAME);
-  
+
   // Check cache first for models
   const cached = await cache.match(request);
   if (cached) {
     console.log('[SW] Serving model from cache:', request.url.substring(0, 80));
     return cached;
   }
-  
+
   // Fetch from network
   console.log('[SW] Fetching model:', request.url.substring(0, 80));
   try {
     const response = await fetch(request);
     if (response.ok) {
-      const responseClone = response.clone();
-      cache.put(request, responseClone).catch((err) => {
-        console.warn('[SW] Failed to cache model (storage full?):', err);
-      });
+      // Check storage quota before caching — skip if >85% full
+      let shouldCache = true;
+      try {
+        if (navigator.storage && navigator.storage.estimate) {
+          const estimate = await navigator.storage.estimate();
+          if (estimate.quota && estimate.usage) {
+            const usagePercent = (estimate.usage / estimate.quota) * 100;
+            if (usagePercent > 85) {
+              console.warn(`[SW] Storage ${Math.round(usagePercent)}% full, skipping cache for:`, request.url.substring(0, 80));
+              shouldCache = false;
+            }
+          }
+        }
+      } catch {
+        // storage.estimate not available in SW context on some browsers, proceed with caching
+      }
+
+      if (shouldCache) {
+        const responseClone = response.clone();
+        cache.put(request, responseClone).catch((err) => {
+          console.warn('[SW] Failed to cache model (storage full?):', err);
+        });
+      }
     }
     return response;
   } catch (err) {

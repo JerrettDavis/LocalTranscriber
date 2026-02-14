@@ -207,7 +207,34 @@
                         </label>
                     </div>
 
-                    @if (_browserCapabilities.IsMobile)
+                    @if (_mobileReadiness is { Ready: false })
+                    {
+                        <div class="error-box">
+                            <strong>Device Not Ready</strong>
+                            @foreach (var issue in _mobileReadiness.Issues ?? [])
+                            {
+                                <p>@issue</p>
+                            }
+                        </div>
+                    }
+                    else if (_mobileReadiness is { IsMobile: true } && (_mobileReadiness.Warnings?.Length > 0 || _mobileReadiness.RecommendedModels?.Length > 0))
+                    {
+                        <div class="mobile-notice">
+                            <strong>📱 Mobile Mode</strong>
+                            @if (_mobileReadiness.Warnings?.Length > 0)
+                            {
+                                @foreach (var warn in _mobileReadiness.Warnings)
+                                {
+                                    <span>@warn</span>
+                                }
+                            }
+                            @if (_mobileReadiness.RecommendedModels?.Length > 0)
+                            {
+                                <span>Recommended models: @string.Join(", ", _mobileReadiness.RecommendedModels). Using @_model.</span>
+                            }
+                        </div>
+                    }
+                    else if (_browserCapabilities.IsMobile)
                     {
                         <div class="mobile-notice">
                             <strong>📱 Mobile Mode</strong>
@@ -539,6 +566,7 @@
     private int _tuningSensitivity = 50;
 
     private BrowserExecutionCapabilities _browserCapabilities = new(false, false, false, false, false, 0, null, "Checking...");
+    private MobileReadinessResult? _mobileReadiness;
 
     private bool _isRecording;
     private bool _isSubmitting;
@@ -587,6 +615,7 @@
         {
             _dotNetRef = DotNetObjectReference.Create(this);
             await RefreshBrowserCapabilitiesAsync();
+            await RefreshMobileReadinessAsync();
             await RefreshDevicesAsync();
             await RefreshWebLlmModelsAsync();
             await RefreshMirrorsAsync();
@@ -622,6 +651,32 @@
         catch (Exception ex)
         {
             _browserCapabilities = new(false, false, false, false, false, 0, null, $"Error: {ex.Message}");
+        }
+    }
+
+    private async Task RefreshMobileReadinessAsync()
+    {
+        try
+        {
+            _mobileReadiness = await JS.InvokeAsync<MobileReadinessResult>("localTranscriberBrowser.validateMobileReadiness");
+
+            // Force model to recommended when current model is blocked
+            if (_mobileReadiness is { Ready: true, IsMobile: true } && _mobileReadiness.RecommendedModels?.Length > 0)
+            {
+                var memCheck = await JS.InvokeAsync<MemoryCheckResult>("localTranscriberBrowser.checkMemoryForModel", _model);
+                if (memCheck.Blocked && _mobileReadiness.RecommendedModels.Length > 0)
+                {
+                    var recommended = _mobileReadiness.RecommendedModels[0];
+                    if (_models.Contains(recommended))
+                    {
+                        _model = recommended;
+                    }
+                }
+            }
+        }
+        catch
+        {
+            // validateMobileReadiness not available — continue without it
         }
     }
 
@@ -1315,4 +1370,8 @@
         string? InputText, List<WorkflowInteractiveChoice>? Choices, List<string>? Prompts);
     public record WorkflowInteractiveChoice(string Label, string? Target);
     public record WorkflowPhaseProgressEvent(List<string>? PhaseNames, int CurrentIndex);
+
+    // Mobile readiness
+    private record MobileReadinessResult(bool Ready, bool IsMobile, int EstimatedMemoryMB, string[]? Issues, string[]? Warnings, string[]? RecommendedModels);
+    private record MemoryCheckResult(string ModelName, int RequiredMB, int AvailableMB, bool IsSafe, bool Blocked, string? Warning);
 }
