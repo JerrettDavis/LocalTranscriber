@@ -103,7 +103,7 @@
     }
     else
     {
-        <section class="minimal-capture">
+        <section class="minimal-capture @(_isLaunchAnimating ? "launching" : "")">
             @if (!_browserCapabilities.Supported)
             {
                 <div class="error-box">
@@ -122,7 +122,7 @@
                 <div class="capture-hub">
                     @if (_hasAudio && !_isRecording)
                     {
-                        <button class="send-launch" type="button" title="Transcribe" @onclick="SubmitAsync" disabled="@_isSubmitting">
+                        <button class="send-launch" type="button" title="Transcribe" @onclick="LaunchAndSubmitAsync" disabled="@(_isSubmitting || _isLaunchAnimating)">
                             <span class="rocket launch-icon" aria-hidden="true">
                                 <svg class="icon-svg" viewBox="0 0 24 24" aria-hidden="true">
                                     <path d="M3 11.5 21 3l-8.5 18-1.9-7.6z" />
@@ -391,6 +391,7 @@
 
     private bool _isRecording;
     private bool _isSubmitting;
+    private bool _isLaunchAnimating;
     private bool _workflowEditorExpanded;
     private string? _activeJobId;
     private string _statusMessage = "Ready";
@@ -700,6 +701,27 @@
         catch (Exception ex)
         {
             _errorMessage = $"Upload failed: {ex.Message}";
+        }
+    }
+
+    private async Task LaunchAndSubmitAsync()
+    {
+        if (!_hasAudio || _isSubmitting || _isLaunchAnimating) return;
+
+        // Trigger launch animation
+        _isLaunchAnimating = true;
+        StateHasChanged();
+
+        // Wait for animation to complete (matches CSS duration)
+        await Task.Delay(720);
+
+        try
+        {
+            await SubmitAsync();
+        }
+        finally
+        {
+            _isLaunchAnimating = false;
         }
     }
 
