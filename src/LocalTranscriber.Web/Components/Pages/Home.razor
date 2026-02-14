@@ -451,34 +451,186 @@
                             <span class="upload-text">Upload</span>
                             <InputFile class="upload-input" OnChange="HandleUploadAsync" accept="audio/*,.wav,.mp3,.m4a,.webm" disabled="@(_isRecording || _isSubmitting)" />
                         </label>
+
+                        <button class="youtube-fab @(_showYouTubeInput ? "active" : "")" type="button"
+                                title="Transcribe YouTube video" aria-label="Transcribe YouTube video"
+                                @onclick="ToggleYouTubeInput"
+                                disabled="@(_isRecording || _isSubmitting)">
+                            <span class="youtube-icon" aria-hidden="true">
+                                <svg class="icon-svg" viewBox="0 0 24 24" aria-hidden="true">
+                                    <path d="m10 8 6 4-6 4z" />
+                                    <rect x="2" y="4" width="20" height="16" rx="4" ry="4" fill="none" stroke="currentColor" stroke-width="1.6" />
+                                </svg>
+                            </span>
+                            <span class="youtube-text">YouTube</span>
+                        </button>
                     </div>
 
-                    <label class="mic-select-wrap">
-                        <span>Microphone</span>
-                        <select @bind="_selectedDeviceId" disabled="@(_devices.Count == 0 || _isRecording || _isSubmitting)">
-                            @if (_devices.Count == 0)
-                            {
-                                <option value="">No microphone devices detected</option>
-                            }
-                            else
-                            {
-                                @foreach (var device in _devices)
-                                {
-                                    <option value="@device.DeviceId">@device.Label</option>
-                                }
-                            }
-                        </select>
-                    </label>
+                    @if (_showYouTubeInput)
+                    {
+                        <div class="youtube-url-panel">
+                            <input type="url" @bind="_youtubeUrl" @bind:event="oninput" placeholder="Paste YouTube URL..."
+                                   disabled="@_isSubmitting" />
+                            <button class="chip-btn" type="button" @onclick="SubmitYouTubeAsync"
+                                    disabled="@(string.IsNullOrWhiteSpace(_youtubeUrl) || _isSubmitting)">
+                                Transcribe
+                            </button>
+                        </div>
+                    }
 
                     <details class="settings-panel">
                         <summary class="settings-panel-toggle">
                             <svg class="icon-svg" viewBox="0 0 24 24"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
-                            <span>Settings & Workflow</span>
+                            <span>Settings</span>
                         </summary>
                         <div class="settings-panel-content">
+                            <label class="mic-select-wrap">
+                                <span>Microphone</span>
+                                <select @bind="_selectedDeviceId" disabled="@(_devices.Count == 0 || _isRecording || _isSubmitting)">
+                                    @if (_devices.Count == 0)
+                                    {
+                                        <option value="">No microphone devices detected</option>
+                                    }
+                                    else
+                                    {
+                                        @foreach (var device in _devices)
+                                        {
+                                            <option value="@device.DeviceId">@device.Label</option>
+                                        }
+                                    }
+                                </select>
+                            </label>
+
+                            <div class="settings-row compact">
+                                <label>
+                                    <span>Model Mirror @(_mirrorStatus)</span>
+                                    <select @bind="_selectedMirror" @bind:after="OnMirrorChangedAsync" disabled="@_isSubmitting">
+                                        @foreach (var mirror in _mirrors)
+                                        {
+                                            <option value="@mirror.Url">@mirror.Name (@mirror.Region)</option>
+                                        }
+                                    </select>
+                                </label>
+                            </div>
+
+                            <p class="settings-hint">Configure models and processing steps in the Workflow editor below.</p>
+
+                    @* Advanced Settings Section *@
+                    <details class="settings-accordion">
+                        <summary class="settings-accordion-toggle">
+                            <span>Advanced Settings</span>
+                        </summary>
+                        <div class="settings-accordion-content">
                             <div class="settings-grid">
                                 <label>
-                                    <span>Workflow</span>
+                                    <span>Strict Transcript</span>
+                                    <select @bind="_tuningStrictTranscript">
+                                        <option value="true">Preserve wording strictly</option>
+                                        <option value="false">Allow light smoothing</option>
+                                    </select>
+                                </label>
+
+                                <label>
+                                    <span>Include Action Items</span>
+                                    <select @bind="_tuningIncludeActionItems">
+                                        <option value="true">Yes - extract action items</option>
+                                        <option value="false">No - minimal actions</option>
+                                    </select>
+                                </label>
+
+                                <label>
+                                    <span>Summary Min Bullets</span>
+                                    <input type="number" @bind="_tuningSummaryMin" min="1" max="12" />
+                                </label>
+
+                                <label>
+                                    <span>Summary Max Bullets</span>
+                                    <input type="number" @bind="_tuningSummaryMax" min="1" max="20" />
+                                </label>
+
+                                <label>
+                                    <span>Temperature</span>
+                                    <input type="range" @bind="_tuningTemperature" min="0" max="1.0" step="0.05" />
+                                    <span class="range-value">@_tuningTemperature.ToString("F2")</span>
+                                </label>
+
+                                <label>
+                                    <span>Sensitivity</span>
+                                    <input type="range" @bind="_tuningSensitivity" min="0" max="100" step="5" />
+                                    <span class="range-value">@_tuningSensitivity%</span>
+                                </label>
+                            </div>
+                            <div class="settings-actions">
+                                <button class="chip-btn" type="button" @onclick="SaveTuningAsync">Save Settings</button>
+                                <button class="chip-btn ghost" type="button" @onclick="ResetTuningAsync">Reset to Defaults</button>
+                            </div>
+                        </div>
+                    </details>
+
+                    @* Prompt Editor Section *@
+                    <details class="settings-accordion">
+                        <summary class="settings-accordion-toggle">
+                            <span>Edit Prompts</span>
+                        </summary>
+                        <div class="prompt-editor-layout">
+                            <div class="prompt-editor-content">
+                                <div class="prompt-field">
+                                    <label>
+                                        <span>System Message</span>
+                                        <textarea @bind="_promptSystemMessage" rows="2" placeholder="You are a transcription editor."></textarea>
+                                    </label>
+                                </div>
+                                <div class="prompt-field">
+                                    <label>
+                                        <span>Cleanup Prompt</span>
+                                        <textarea @bind="_promptCleanup" rows="8" placeholder="Rules for formatting..."></textarea>
+                                    </label>
+                                </div>
+                                <div class="prompt-field">
+                                    <label>
+                                        <span>Output Template</span>
+                                        <textarea @bind="_promptOutputTemplate" rows="8" placeholder="# Transcription..."></textarea>
+                                    </label>
+                                </div>
+                                <div class="prompt-actions">
+                                    <button class="chip-btn" type="button" @onclick="SavePromptsAsync">Save Prompts</button>
+                                    <button class="chip-btn ghost" type="button" @onclick="ResetPromptsAsync">Reset to Defaults</button>
+                                </div>
+                            </div>
+                            <aside class="prompt-placeholders">
+                                <strong>Available Placeholders</strong>
+                                <dl>
+                                    <dt><code>{strictness}</code></dt>
+                                    <dd>Wording strictness rule (based on settings)</dd>
+
+                                    <dt><code>{actionItemRule}</code></dt>
+                                    <dd>Action items inclusion rule</dd>
+
+                                    <dt><code>{summaryMinBullets}</code></dt>
+                                    <dd>Minimum summary bullet points</dd>
+
+                                    <dt><code>{summaryMaxBullets}</code></dt>
+                                    <dd>Maximum summary bullet points</dd>
+
+                                    <dt><code>{model}</code></dt>
+                                    <dd>Whisper model used (e.g., "small.en")</dd>
+
+                                    <dt><code>{language}</code></dt>
+                                    <dd>Detected/specified language</dd>
+                                </dl>
+                            </aside>
+                        </div>
+                    </details>
+
+                    @* Workflow Preset *@
+                    <details class="settings-accordion">
+                        <summary class="settings-accordion-toggle">
+                            <span>Workflow</span>
+                        </summary>
+                        <div class="settings-accordion-content">
+                            <div class="settings-grid">
+                                <label>
+                                    <span>Workflow Preset</span>
                                     <select @bind="_selectedWorkflowPreset" @bind:after="ApplyWorkflowPresetAsync" disabled="@_isSubmitting">
                                         <option value="default">Standard Transcription</option>
                                         <option value="preset-meeting-notes">Meeting Notes</option>
@@ -486,41 +638,139 @@
                                         <option value="preset-blog-interview">Blog Interview (Ghostwriter)</option>
                                     </select>
                                 </label>
-
-                                <label>
-                                    <span>Whisper Model</span>
-                                    <select @bind="_model" disabled="@_isSubmitting">
-                                        @foreach (var model in _models)
-                                        {
-                                            <option value="@model">@model</option>
-                                        }
-                                    </select>
-                                </label>
-
-                                <label>
-                                    <span>Formatter</span>
-                                    <select @bind="_formatProvider" disabled="@(_isSubmitting || _runInBrowser)">
-                                        <option value="auto">auto</option>
-                                        <option value="local">local</option>
-                                        <option value="ollama">ollama</option>
-                                        <option value="huggingface">huggingface</option>
-                                    </select>
-                                </label>
-
-                                <label class="toggle-row">
-                                    <span>Speaker Labels</span>
-                                    <input type="checkbox" @bind="_enableSpeakerLabels" disabled="@_isSubmitting" />
-                                </label>
                             </div>
-
                             @if (_runInBrowser)
                             {
-                                <p class="settings-hint">Browser mode active. Workflows will execute entirely in your browser.</p>
+                                <p class="settings-hint">Browser mode active. Workflows execute in your browser.</p>
                             }
                             else
                             {
-                                <p class="settings-hint">Server mode. Switch to browser mode for workflow support, or use Studio view for full settings.</p>
+                                <p class="settings-hint">Server mode active. Use Studio view for full server settings.</p>
                             }
+                        </div>
+                    </details>
+
+                    @* Diagnostics & Stats *@
+                    <details class="settings-accordion">
+                        <summary class="settings-accordion-toggle" @onclick="LoadDiagnosticsAsync">
+                            <span>Diagnostics & Stats</span>
+                        </summary>
+                        <div class="settings-accordion-content">
+                            @if (_diagnostics == null)
+                            {
+                                <div class="diagnostics-loading">Loading stats...</div>
+                            }
+                            else
+                            {
+                                <div class="diagnostics-grid">
+                                    <div class="stat-card">
+                                        <div class="stat-icon">S</div>
+                                        <div class="stat-content">
+                                            <div class="stat-value">@FormatBytes(_diagnostics.StorageUsage)</div>
+                                            <div class="stat-label">Storage Used</div>
+                                            <div class="stat-detail">@(_diagnostics.StoragePercent)% of @FormatBytes(_diagnostics.StorageQuota)</div>
+                                        </div>
+                                    </div>
+
+                                    <div class="stat-card">
+                                        <div class="stat-icon">M</div>
+                                        <div class="stat-content">
+                                            <div class="stat-value">@FormatBytes(_diagnostics.ModelCacheSize)</div>
+                                            <div class="stat-label">Model Cache</div>
+                                            <div class="stat-detail">@(_diagnostics.CachedModelCount) model(s) cached</div>
+                                        </div>
+                                    </div>
+
+                                    <div class="stat-card">
+                                        <div class="stat-icon">T</div>
+                                        <div class="stat-content">
+                                            <div class="stat-value">@(_diagnostics.SessionCount)</div>
+                                            <div class="stat-label">Transcriptions</div>
+                                            <div class="stat-detail">@(_diagnostics.TotalWords.ToString("N0")) words total</div>
+                                        </div>
+                                    </div>
+
+                                    <div class="stat-card">
+                                        <div class="stat-icon">!</div>
+                                        <div class="stat-content">
+                                            <div class="stat-value">@(_diagnostics.EstimatedMemoryMB) MB</div>
+                                            <div class="stat-label">Est. Memory</div>
+                                            <div class="stat-detail">@(_diagnostics.HardwareConcurrency) CPU cores</div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <details class="nested-details">
+                                    <summary>Browser Capabilities</summary>
+                                    <div class="capabilities-list">
+                                        <div class="cap-item @(_diagnostics.HasWebGpu ? "supported" : "unsupported")">
+                                            <span class="cap-icon">@(_diagnostics.HasWebGpu ? "Y" : "N")</span>
+                                            <span>WebGPU</span>
+                                        </div>
+                                        <div class="cap-item @(_diagnostics.HasAudioContext ? "supported" : "unsupported")">
+                                            <span class="cap-icon">@(_diagnostics.HasAudioContext ? "Y" : "N")</span>
+                                            <span>AudioContext</span>
+                                        </div>
+                                        <div class="cap-item @(_diagnostics.HasMediaRecorder ? "supported" : "unsupported")">
+                                            <span class="cap-icon">@(_diagnostics.HasMediaRecorder ? "Y" : "N")</span>
+                                            <span>MediaRecorder</span>
+                                        </div>
+                                        <div class="cap-item @(_diagnostics.ServiceWorkerActive ? "supported" : "unsupported")">
+                                            <span class="cap-icon">@(_diagnostics.ServiceWorkerActive ? "Y" : "N")</span>
+                                            <span>Service Worker</span>
+                                        </div>
+                                        <div class="cap-item info">
+                                            <span class="cap-icon">D</span>
+                                            <span>@(_diagnostics.IsMobile ? "Mobile" : "Desktop")</span>
+                                        </div>
+                                    </div>
+                                </details>
+
+                                @if (_diagnostics.CachedModels?.Count > 0)
+                                {
+                                    <details class="nested-details">
+                                        <summary>Cached Models (@_diagnostics.CachedModels.Count files)</summary>
+                                        <div class="cached-models-list">
+                                            @foreach (var cachedModel in _diagnostics.CachedModels.Take(20))
+                                            {
+                                                <div class="cached-model-item">
+                                                    <span class="model-name">@cachedModel.Model</span>
+                                                    <span class="model-host">@cachedModel.Host</span>
+                                                </div>
+                                            }
+                                            @if (_diagnostics.CachedModels.Count > 20)
+                                            {
+                                                <div class="more-items">+ @(_diagnostics.CachedModels.Count - 20) more files</div>
+                                            }
+                                        </div>
+                                    </details>
+                                }
+
+                                @if (_diagnostics.RecentSessions?.Count > 0)
+                                {
+                                    <details class="nested-details">
+                                        <summary>Recent History</summary>
+                                        <div class="history-list">
+                                            @foreach (var session in _diagnostics.RecentSessions)
+                                            {
+                                                <div class="history-item">
+                                                    <span class="history-date">@FormatTimestamp(session.Date)</span>
+                                                    <span class="history-model">@session.Model</span>
+                                                    <span class="history-words">@session.WordCount words</span>
+                                                </div>
+                                            }
+                                        </div>
+                                    </details>
+                                }
+
+                                <div class="diagnostics-actions">
+                                    <button class="chip-btn" type="button" @onclick="LoadDiagnosticsAsync">Refresh</button>
+                                    <button class="chip-btn ghost" type="button" @onclick="ClearModelCacheAsync">Clear Model Cache</button>
+                                    <button class="chip-btn danger" type="button" @onclick="ClearAllDataAsync">Clear All Data</button>
+                                </div>
+                            }
+                        </div>
+                    </details>
                         </div>
                     </details>
 
@@ -1140,6 +1390,29 @@
     private BrowserAudioPayload? _browserRecording;
     private UploadedAudioPayload? _uploadedAudio;
 
+    private string _youtubeUrl = "";
+    private bool _showYouTubeInput;
+
+    // Mirror configuration
+    private readonly List<MirrorInfo> _mirrors = [];
+    private string _selectedMirror = "https://huggingface.co";
+    private string _mirrorStatus = "";
+
+    // Prompt templates (browser-side, stored in localStorage)
+    private string _promptSystemMessage = "";
+    private string _promptCleanup = "";
+    private string _promptOutputTemplate = "";
+
+    // Tuning options (browser-side, stored in localStorage)
+    private string _tuningStrictTranscript = "true";
+    private string _tuningIncludeActionItems = "true";
+    private int _tuningSummaryMin = 3;
+    private int _tuningSummaryMax = 8;
+    private double _tuningTemperature = 0.2;
+    private int _tuningSensitivity = 50;
+
+    private DiagnosticsData? _diagnostics;
+
     private string? _selectedDeviceId;
     private string _model = "SmallEn";
     private string _modelMirror = "auto";
@@ -1240,7 +1513,7 @@
     private string _activeTabDraft = string.Empty;
 
     private string? _previewUrl => _browserRecording?.PreviewUrl;
-    private bool _hasAudio => _browserRecording is not null || _uploadedAudio is not null;
+    private bool _hasAudio => _browserRecording is not null || _uploadedAudio is not null || !string.IsNullOrWhiteSpace(_youtubeUrl);
     private bool _isStudioMode => _layoutMode == LayoutMode.Studio;
     private bool _isWebLlmCleanup => string.Equals(_browserCleanupMode, "webllm", StringComparison.OrdinalIgnoreCase);
     private bool ShouldShowSubtitlePlayer =>
@@ -1277,6 +1550,9 @@
             _dotNetRef = DotNetObjectReference.Create(this);
             await RefreshBrowserCapabilitiesAsync();
             await RefreshWebLlmModelPresetsAsync();
+            await RefreshMirrorsAsync();
+            await LoadPromptsAsync();
+            await LoadTuningAsync();
             await LoadHistoryAsync();
             await InvokeAsync(StateHasChanged);
         }
@@ -1598,6 +1874,326 @@
         {
             Console.WriteLine($"Failed to apply workflow preset: {ex.Message}");
         }
+    }
+
+    private void ToggleYouTubeInput()
+    {
+        _showYouTubeInput = !_showYouTubeInput;
+        if (!_showYouTubeInput)
+            _youtubeUrl = "";
+    }
+
+    private async Task SubmitYouTubeAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_youtubeUrl) || _isSubmitting) return;
+
+        NormalizeTunableInputs();
+        PrepareForSubmission();
+        _activeJobId = Guid.NewGuid().ToString("N");
+        _isSubmitting = true;
+        _minimalStage = MinimalStage.Processing;
+        _statusMessage = "Downloading YouTube audio...";
+        StopJobStatusPolling();
+
+        try
+        {
+            if (_runInBrowser)
+            {
+                if (_dotNetRef is null)
+                    _dotNetRef = DotNetObjectReference.Create(this);
+
+                var result = await JS.InvokeAsync<WorkflowExecutionResult>(
+                    "localTranscriberWorkflow.submitYouTubeUrl",
+                    _youtubeUrl,
+                    _dotNetRef,
+                    _activeJobId);
+
+                if (result.Navigated == true) return;
+
+                _rawWhisperText = result.RawWhisperText ?? _rawWhisperText;
+                _speakerLabeledText = result.SpeakerLabeledText ?? _speakerLabeledText;
+                _markdownOutput = result.Markdown ?? result.SpeakerLabeledText ?? result.RawWhisperText ?? _markdownOutput;
+                _detectedSpeakerCount = result.DetectedSpeakerCount ?? _detectedSpeakerCount;
+                _percent = 100;
+                _statusMessage = "Workflow complete.";
+                _minimalStage = MinimalStage.Results;
+                _isSubmitting = false;
+                await SaveSnapshotAsync();
+                return;
+            }
+
+            await EnsureHubConnectedAsync();
+            await _hub!.InvokeAsync("JoinJob", _activeJobId);
+
+            using var content = new MultipartFormDataContent();
+            content.Add(new StringContent(_activeJobId), "jobId");
+            content.Add(new StringContent(_youtubeUrl), "youtubeUrl");
+            content.Add(new StringContent(_model), "model");
+            content.Add(new StringContent(_language), "language");
+            content.Add(new StringContent(_formatProvider), "formatProvider");
+            content.Add(new StringContent(Inv(_formatSensitivity)), "formatSensitivity");
+            content.Add(new StringContent(_formatStrictTranscript.ToString()), "formatStrictTranscript");
+            content.Add(new StringContent(_formatIncludeActionItems.ToString()), "formatIncludeActionItems");
+            content.Add(new StringContent(_enableSpeakerLabels.ToString()), "enableSpeakerLabels");
+            content.Add(new StringContent(Inv(_speakerSensitivity)), "speakerSensitivity");
+            content.Add(new StringContent(NormalizeTextInput(_ollamaUri, "http://localhost:11434")), "ollamaUri");
+            content.Add(new StringContent(NormalizeTextInput(_ollamaModel, "mistral-nemo:12b")), "ollamaModel");
+            content.Add(new StringContent(NormalizeTextInput(_hfEndpoint, "https://router.huggingface.co")), "hfEndpoint");
+            content.Add(new StringContent(NormalizeTextInput(_hfModel, "Qwen/Qwen2.5-14B-Instruct")), "hfModel");
+            content.Add(new StringContent(_hfApiKey ?? string.Empty), "hfApiKey");
+            content.Add(new StringContent(Inv(_maxSegmentLength)), "maxSegLength");
+
+            if (_useAdvancedFormatTuning)
+            {
+                content.Add(new StringContent(Inv(_formatOverlapThreshold)), "formatOverlapThreshold");
+                content.Add(new StringContent(Inv(_formatSummaryMinBullets)), "formatSummaryMinBullets");
+                content.Add(new StringContent(Inv(_formatSummaryMaxBullets)), "formatSummaryMaxBullets");
+                content.Add(new StringContent(Inv(_formatTemperature)), "formatTemperature");
+                content.Add(new StringContent(Inv(_formatMaxTokens)), "formatMaxTokens");
+                content.Add(new StringContent(Inv(_formatLocalBigGapSeconds)), "formatLocalBigGapSeconds");
+                content.Add(new StringContent(Inv(_formatLocalSmallGapSeconds)), "formatLocalSmallGapSeconds");
+            }
+
+            if (_useAdvancedSpeakerTuning)
+            {
+                content.Add(new StringContent(Inv(_speakerMinScoreGain)), "speakerMinScoreGain");
+                content.Add(new StringContent(Inv(_speakerMaxSwitchRate)), "speakerMaxSwitchRate");
+                content.Add(new StringContent(Inv(_speakerMinSeparation)), "speakerMinSeparation");
+                content.Add(new StringContent(Inv(_speakerMinClusterSize)), "speakerMinClusterSize");
+                content.Add(new StringContent(Inv(_speakerMaxAutoSpeakers)), "speakerMaxAutoSpeakers");
+                content.Add(new StringContent(Inv(_speakerGlobalVarianceGate)), "speakerGlobalVarianceGate");
+                content.Add(new StringContent(Inv(_speakerShortRunMergeSeconds)), "speakerShortRunMergeSeconds");
+            }
+
+            var client = HttpClientFactory.CreateClient();
+            client.BaseAddress = new Uri(Navigation.BaseUri);
+
+            var response = await client.PostAsync("api/transcriptions/youtube", content);
+            if (!response.IsSuccessStatusCode)
+            {
+                _errorMessage = $"YouTube submission failed: {(int)response.StatusCode} {response.ReasonPhrase}";
+                _isSubmitting = false;
+                _minimalStage = MinimalStage.Capture;
+            }
+            else
+            {
+                _statusMessage = "Job accepted. Downloading and transcribing...";
+                StartJobStatusPolling(_activeJobId);
+            }
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"YouTube transcription failed: {ex.Message}";
+            _isSubmitting = false;
+            _minimalStage = MinimalStage.Capture;
+            StopJobStatusPolling();
+        }
+    }
+
+    private async Task RefreshMirrorsAsync()
+    {
+        _mirrors.Clear();
+        try
+        {
+            var mirrors = await JS.InvokeAsync<MirrorInfo[]>("localTranscriberBrowser.listMirrors");
+            if (mirrors?.Length > 0)
+                _mirrors.AddRange(mirrors);
+
+            var pref = await JS.InvokeAsync<string?>("localTranscriberBrowser.getMirrorPreference");
+            if (!string.IsNullOrEmpty(pref))
+                _selectedMirror = pref;
+            else if (_mirrors.Count > 0)
+                _selectedMirror = _mirrors[0].Url;
+        }
+        catch { }
+
+        if (_mirrors.Count == 0)
+        {
+            _mirrors.Add(new MirrorInfo("https://huggingface.co", "HuggingFace", "Global"));
+            _mirrors.Add(new MirrorInfo("https://hf-mirror.com", "HF-Mirror", "China-friendly"));
+        }
+    }
+
+    private async Task OnMirrorChangedAsync()
+    {
+        if (string.IsNullOrEmpty(_selectedMirror)) return;
+
+        try
+        {
+            _mirrorStatus = "(setting...)";
+            StateHasChanged();
+
+            await JS.InvokeAsync<string?>("localTranscriberBrowser.setMirrorPreference", _selectedMirror);
+            _mirrorStatus = "set";
+        }
+        catch
+        {
+            _mirrorStatus = "failed";
+        }
+
+        _ = Task.Delay(2000).ContinueWith(_ =>
+        {
+            _mirrorStatus = "";
+            InvokeAsync(StateHasChanged);
+        });
+    }
+
+    private async Task LoadPromptsAsync()
+    {
+        try
+        {
+            var templates = await JS.InvokeAsync<PromptTemplatesJs>("localTranscriberBrowser.getPromptTemplates");
+            if (templates != null)
+            {
+                _promptSystemMessage = templates.SystemMessage ?? "";
+                _promptCleanup = templates.CleanupPrompt ?? "";
+                _promptOutputTemplate = templates.OutputTemplate ?? "";
+            }
+        }
+        catch { }
+    }
+
+    private async Task SavePromptsAsync()
+    {
+        try
+        {
+            var templates = new PromptTemplatesJs(_promptSystemMessage, _promptCleanup, _promptOutputTemplate);
+            await JS.InvokeVoidAsync("localTranscriberBrowser.setPromptTemplates", templates);
+        }
+        catch { }
+    }
+
+    private async Task ResetPromptsAsync()
+    {
+        try
+        {
+            var defaults = await JS.InvokeAsync<PromptTemplatesJs>("localTranscriberBrowser.resetPromptTemplates");
+            if (defaults != null)
+            {
+                _promptSystemMessage = defaults.SystemMessage ?? "";
+                _promptCleanup = defaults.CleanupPrompt ?? "";
+                _promptOutputTemplate = defaults.OutputTemplate ?? "";
+            }
+        }
+        catch { }
+    }
+
+    private async Task LoadTuningAsync()
+    {
+        try
+        {
+            var tuning = await JS.InvokeAsync<TuningOptionsJs>("localTranscriberBrowser.getTuningOptions");
+            if (tuning != null)
+            {
+                _tuningStrictTranscript = tuning.StrictTranscript ? "true" : "false";
+                _tuningIncludeActionItems = tuning.IncludeActionItems ? "true" : "false";
+                _tuningSummaryMin = tuning.SummaryMinBullets;
+                _tuningSummaryMax = tuning.SummaryMaxBullets;
+                _tuningTemperature = tuning.Temperature;
+                _tuningSensitivity = tuning.Sensitivity;
+            }
+        }
+        catch { }
+    }
+
+    private async Task SaveTuningAsync()
+    {
+        try
+        {
+            var tuning = new TuningOptionsJs(
+                _tuningStrictTranscript == "true",
+                _tuningIncludeActionItems == "true",
+                _tuningSummaryMin,
+                _tuningSummaryMax,
+                _tuningTemperature,
+                _tuningSensitivity
+            );
+            await JS.InvokeVoidAsync("localTranscriberBrowser.setTuningOptions", tuning);
+        }
+        catch { }
+    }
+
+    private async Task ResetTuningAsync()
+    {
+        try
+        {
+            var defaults = await JS.InvokeAsync<TuningOptionsJs>("localTranscriberBrowser.resetTuningOptions");
+            if (defaults != null)
+            {
+                _tuningStrictTranscript = defaults.StrictTranscript ? "true" : "false";
+                _tuningIncludeActionItems = defaults.IncludeActionItems ? "true" : "false";
+                _tuningSummaryMin = defaults.SummaryMinBullets;
+                _tuningSummaryMax = defaults.SummaryMaxBullets;
+                _tuningTemperature = defaults.Temperature;
+                _tuningSensitivity = defaults.Sensitivity;
+            }
+        }
+        catch { }
+    }
+
+    private void OnActiveWorkflowChanged()
+    {
+        StateHasChanged();
+    }
+
+    private async Task LoadDiagnosticsAsync()
+    {
+        try
+        {
+            var stats = await JS.InvokeAsync<StatsJs>("localTranscriberBrowser.getStats");
+            _diagnostics = new DiagnosticsData
+            {
+                StorageUsage = stats.Storage?.Usage ?? 0,
+                StorageQuota = stats.Storage?.Quota ?? 0,
+                StoragePercent = stats.Storage?.UsagePercent ?? 0,
+                ModelCacheSize = stats.Cache?.ModelCacheSize ?? 0,
+                CachedModelCount = stats.Cache?.CachedModelCount ?? 0,
+                CachedModels = stats.Cache?.CachedModels?.Select(m => new CachedModelEntryInfo(m.Model ?? "", m.Host ?? "")).ToList() ?? [],
+                SessionCount = stats.Sessions?.Count ?? 0,
+                TotalWords = stats.Sessions?.TotalWords ?? 0,
+                RecentSessions = stats.Sessions?.Recent?.Select(s => new SessionSummaryInfo(s.Date, s.Model, s.WordCount)).ToList() ?? [],
+                HasWebGpu = stats.Browser?.WebGpu ?? false,
+                HasAudioContext = stats.Browser?.AudioContext ?? false,
+                HasMediaRecorder = stats.Browser?.MediaRecorder ?? false,
+                IsMobile = stats.Browser?.IsMobile ?? false,
+                EstimatedMemoryMB = stats.Browser?.EstimatedMemoryMB ?? 0,
+                HardwareConcurrency = stats.Browser?.HardwareConcurrency ?? 0,
+                ServiceWorkerActive = stats.ServiceWorker?.State == "activated",
+            };
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Failed to load diagnostics: {ex.Message}");
+        }
+    }
+
+    private async Task ClearModelCacheAsync()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("localTranscriberBrowser.clearModelCache");
+            await LoadDiagnosticsAsync();
+        }
+        catch { }
+    }
+
+    private async Task ClearAllDataAsync()
+    {
+        try
+        {
+            await JS.InvokeAsync<object>("localTranscriberBrowser.clearAllData");
+            _diagnostics = null;
+            await LoadDiagnosticsAsync();
+        }
+        catch { }
+    }
+
+    private static string FormatTimestamp(long? timestamp)
+    {
+        if (timestamp == null) return "—";
+        var dt = DateTimeOffset.FromUnixTimeMilliseconds(timestamp.Value).LocalDateTime;
+        return dt.ToString("MMM d, h:mm tt");
     }
 
     private void ClearInteractiveState()
@@ -2153,6 +2749,8 @@
         _activeTab = ResultTab.Final;
         _minimalStage = MinimalStage.Capture;
         _isSubmitting = false;
+        _youtubeUrl = "";
+        _showYouTubeInput = false;
         ClearActiveTabEditor();
         ClearInteractiveState();
         _phaseNames.Clear();
@@ -3121,4 +3719,43 @@
     public sealed record WorkflowChoiceOption(string Label, string? Target);
     public sealed record PreviousRecordingEntry(string Question, string Answer);
     public sealed record OrphanedRecordingEntry(string Question, string Answer);
+
+    // Mirror/Prompt/Tuning records (for browser-side settings via localStorage)
+    private sealed record MirrorInfo(string Url, string Name, string Region);
+    private sealed record PromptTemplatesJs(string? SystemMessage, string? CleanupPrompt, string? OutputTemplate);
+    private sealed record TuningOptionsJs(bool StrictTranscript, bool IncludeActionItems, int SummaryMinBullets, int SummaryMaxBullets, double Temperature, int Sensitivity);
+
+    // Diagnostics
+    private class DiagnosticsData
+    {
+        public long StorageUsage { get; set; }
+        public long StorageQuota { get; set; }
+        public int StoragePercent { get; set; }
+        public long ModelCacheSize { get; set; }
+        public int CachedModelCount { get; set; }
+        public List<CachedModelEntryInfo> CachedModels { get; set; } = [];
+        public int SessionCount { get; set; }
+        public int TotalWords { get; set; }
+        public List<SessionSummaryInfo> RecentSessions { get; set; } = [];
+        public bool HasWebGpu { get; set; }
+        public bool HasAudioContext { get; set; }
+        public bool HasMediaRecorder { get; set; }
+        public bool IsMobile { get; set; }
+        public int EstimatedMemoryMB { get; set; }
+        public int HardwareConcurrency { get; set; }
+        public bool ServiceWorkerActive { get; set; }
+    }
+
+    private sealed record CachedModelEntryInfo(string Model, string Host);
+    private sealed record SessionSummaryInfo(long? Date, string? Model, int? WordCount);
+
+    // JS interop for stats
+    private sealed record StatsJs(BrowserStatsJs? Browser, StorageStatsJs? Storage, CacheStatsJs? Cache, SessionsStatsJs? Sessions, ServiceWorkerStatsJs? ServiceWorker);
+    private sealed record BrowserStatsJs(bool WebGpu, bool AudioContext, bool MediaRecorder, bool IsMobile, int EstimatedMemoryMB, int? HardwareConcurrency);
+    private sealed record StorageStatsJs(long Quota, long Usage, int UsagePercent, long LocalStorage);
+    private sealed record CacheStatsJs(long ModelCacheSize, int CachedModelCount, CachedModelJs[]? CachedModels);
+    private sealed record CachedModelJs(string? Model, string? Host);
+    private sealed record SessionsStatsJs(int Count, int TotalWords, RecentSessionJs[]? Recent);
+    private sealed record RecentSessionJs(long? Date, string? Model, int? WordCount);
+    private sealed record ServiceWorkerStatsJs(bool Registered, string? Scope, string? State);
 }
