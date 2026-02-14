@@ -10,7 +10,7 @@
     @if (IsExpanded)
     {
         <div class="workflow-toolbar">
-            <select class="workflow-select" @bind="_selectedWorkflowId" @bind:after="OnWorkflowChanged">
+            <select class="workflow-select" @bind="_selectedWorkflowId" @bind:after="HandleWorkflowSelectionChanged">
                 @foreach (var wf in _workflows)
                 {
                     <option value="@wf.Id">@wf.Name</option>
@@ -223,7 +223,7 @@
         IsExpandedChanged.InvokeAsync(IsExpanded);
     }
 
-    private async Task OnWorkflowChanged()
+    private async Task HandleWorkflowSelectionChanged()
     {
         await JS.InvokeVoidAsync("localTranscriberWorkflow.setActiveWorkflow", _selectedWorkflowId);
         _activeWorkflow = _workflows.Find(w => w.Id == _selectedWorkflowId);
@@ -296,7 +296,7 @@
         {
             _workflows.Add(MapWorkflow(result));
             _selectedWorkflowId = result.Id;
-            await OnWorkflowChanged();
+            await HandleWorkflowSelectionChanged();
         }
     }
 
@@ -307,7 +307,7 @@
         {
             _workflows.Add(MapWorkflow(result));
             _selectedWorkflowId = result.Id;
-            await OnWorkflowChanged();
+            await HandleWorkflowSelectionChanged();
         }
     }
 
@@ -317,7 +317,7 @@
         await JS.InvokeVoidAsync("localTranscriberWorkflow.deleteWorkflow", _selectedWorkflowId);
         _workflows.RemoveAll(w => w.Id == _selectedWorkflowId);
         _selectedWorkflowId = "default";
-        await OnWorkflowChanged();
+        await HandleWorkflowSelectionChanged();
     }
 
     private string GetStepIcon(string type) => _stepTypes.TryGetValue(type, out var def) ? def.Icon : "⚙️";
