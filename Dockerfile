@@ -95,7 +95,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN wget -qO - https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/3bf863cc.pub | gpg --dearmor -o /usr/share/keyrings/cuda-archive-keyring.gpg \
     && echo "deb [signed-by=/usr/share/keyrings/cuda-archive-keyring.gpg] https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/ /" > /etc/apt/sources.list.d/cuda.list \
     && apt-get update \
-    && apt-get install -y --no-install-recommends cuda-cudart-12-4 libcublas-12-4 \
+    && apt-get install -y --no-install-recommends cuda-cudart-13-1 libcublas-13-1 \
     && rm -rf /var/lib/apt/lists/*
 
 ENV LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH
