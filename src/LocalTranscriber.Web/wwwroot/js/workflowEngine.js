@@ -1744,18 +1744,20 @@ window.localTranscriberWorkflow = (() => {
         {
           id: "phase-questions",
           name: "Generate Questions",
-          description: "AI generates interview questions based on your topic",
+          description: "AI generates interview questions, then you review them before recording",
           steps: [
             { id: "s-q-1", type: "agentGenerate", name: "Generate Questions", config: { model: "Llama-3.1-8B-Instruct-q4f16_1-MLC", systemPrompt: "You are an expert interviewer. Generate insightful, open-ended questions that will help the user elaborate on their topic for a blog post. Output as a JSON array of strings.", userPromptTemplate: "Generate 5 interview questions about the following topic:\n\n{text.processed}", outputFormat: "json-array", outputVariable: "questions", temperature: 0.5 }, enabled: true, target: "browser" },
+            { id: "s-q-2", type: "userReview", name: "Review Questions", config: { title: "Review Interview Questions", instructions: "Review the generated questions. Edit or remove any that don't fit before recording your answers.", showPlayback: "no", showHighlighting: "no", requireApproval: "yes" }, enabled: true, target: "browser" },
           ],
           transitions: [{ id: "t-q-1", target: "phase-answers", condition: "auto" }],
         },
         {
           id: "phase-answers",
           name: "Record Answers",
-          description: "Record your answers to each interview question",
+          description: "Record your answers, then transcribe and correlate with questions",
           steps: [
             { id: "s-a-1", type: "multiRecord", name: "Answer Questions", config: { promptsVariable: "variables.questions", instructions: "Record your answer for each question. Take your time and speak naturally.", transcribeModel: "SmallEn", outputVariable: "answers", outputFormat: "qa-pairs" }, enabled: true, target: "browser" },
+            { id: "s-a-2", type: "agentGenerate", name: "Format Q&A", config: { model: "Llama-3.1-8B-Instruct-q4f16_1-MLC", systemPrompt: "You are a transcription editor. Take raw interview Q&A pairs and format them into clean, well-structured text. Preserve the question-answer format. Clean up speech artifacts, fix grammar, and ensure readability while keeping the speaker's original intent and meaning.", userPromptTemplate: "Format these interview Q&A pairs into clean, readable text:\n\n{text.processed}", outputFormat: "text", outputVariable: "formattedQA", temperature: 0.2 }, enabled: true, target: "browser" },
           ],
           transitions: [{ id: "t-a-1", target: "phase-review-qa", condition: "auto" }],
         },
@@ -1776,7 +1778,7 @@ window.localTranscriberWorkflow = (() => {
           name: "Write Blog Post",
           description: "AI writes a blog post from your accumulated Q&A content",
           steps: [
-            { id: "s-w-1", type: "agentGenerate", name: "Write Blog Post", config: { model: "Llama-3.1-8B-Instruct-q4f16_1-MLC", systemPrompt: "You are an expert blog writer. Write engaging, well-structured blog posts based on interview-style Q&A content. Use a conversational but informative tone.", userPromptTemplate: "Write a comprehensive blog post based on the following interview Q&A content. Create a compelling title, introduction, well-organized sections, and conclusion.\n\nTopic Introduction:\n{text.processed}\n\nQ&A Content:\n{variables.answers}", outputFormat: "text", outputVariable: "blogPost", temperature: 0.6 }, enabled: true, target: "browser" },
+            { id: "s-w-1", type: "agentGenerate", name: "Write Blog Post", config: { model: "Llama-3.1-8B-Instruct-q4f16_1-MLC", systemPrompt: "You are an expert blog writer. Write engaging, well-structured blog posts based on interview-style Q&A content. Use a conversational but informative tone.", userPromptTemplate: "Write a comprehensive blog post based on the following interview Q&A content. Create a compelling title, introduction, well-organized sections, and conclusion.\n\nTopic Introduction:\n{text.processed}\n\nQ&A Content:\n{variables.formattedQA}", outputFormat: "text", outputVariable: "blogPost", temperature: 0.6 }, enabled: true, target: "browser" },
           ],
           transitions: [{ id: "t-w-1", target: "phase-final-review", condition: "auto" }],
         },
