@@ -43,6 +43,23 @@
         </div>
     </div>
 
+    <script>
+        // Early mobile constraint check — shows banner before Blazor loads if device is clearly unsupported
+        (function() {
+            var isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || (navigator.maxTouchPoints > 0 && window.innerWidth < 768);
+            if (!isMobile) return;
+            var issues = [];
+            if (!navigator.gpu) issues.push('WebGPU not available');
+            if (navigator.deviceMemory && navigator.deviceMemory < 2) issues.push('Low memory (' + navigator.deviceMemory + 'GB)');
+            if (issues.length === 0) return;
+            var banner = document.createElement('div');
+            banner.id = 'mobile-constraint-banner';
+            banner.style.cssText = 'background:#dc2626;color:#fff;padding:10px 14px;font-size:14px;text-align:center;position:relative;z-index:9999;';
+            banner.innerHTML = '<strong>This device may not support browser transcription:</strong> ' + issues.join(', ') + '. <button onclick="this.parentElement.remove()" style="background:none;border:1px solid #fff;color:#fff;margin-left:8px;padding:2px 8px;border-radius:3px;cursor:pointer;">Dismiss</button>';
+            document.body.insertBefore(banner, document.body.firstChild);
+        })();
+    </script>
+
     <div id="blazor-error-ui">
         An unhandled error has occurred.
         <a href="." class="reload">Reload</a>
@@ -65,10 +82,10 @@
         });
     </script>
     
-    <script src="js/recorder.js"></script>
-    <script src="js/subtitleSync.js"></script>
-    <script src="js/browserTranscriber.js"></script>
-    <script src="js/workflowEngine.js"></script>
+    <script src="js/recorder.js" defer></script>
+    <script src="js/subtitleSync.js" defer></script>
+    <script src="js/browserTranscriber.js" defer></script>
+    <script src="js/workflowEngine.js" defer></script>
     <script type="module">
         import('./_framework/blazor.webassembly.js').then(() => {
             // Blazor auto-starts, but if it doesn't, this ensures it starts
