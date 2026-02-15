@@ -1,0 +1,600 @@
+.workflow-editor {
+    background: var(--surface);
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius-md);
+    margin-bottom: 1rem;
+    overflow: hidden;
+}
+
+.workflow-header {
+    align-items: center;
+    cursor: pointer;
+    display: flex;
+    gap: 0.75rem;
+    padding: 0.875rem 1rem;
+    transition: background 0.15s ease;
+}
+
+.workflow-header:hover {
+    background: var(--surface-elevated);
+}
+
+.workflow-toggle {
+    color: var(--ink-muted);
+    font-size: 0.75rem;
+}
+
+.workflow-header h3 {
+    flex: 1;
+    font-size: 0.95rem;
+    font-weight: 600;
+    margin: 0;
+}
+
+.workflow-steps-count {
+    background: var(--accent);
+    border-radius: 10px;
+    color: white;
+    font-size: 0.7rem;
+    font-weight: 600;
+    padding: 0.2rem 0.5rem;
+}
+
+.workflow-toolbar {
+    align-items: center;
+    border-bottom: 1px solid var(--border-soft);
+    display: flex;
+    gap: 0.5rem;
+    padding: 0.5rem 1rem;
+}
+
+.workflow-select {
+    background: var(--surface-elevated);
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius-sm);
+    color: var(--ink-strong);
+    flex: 1;
+    font-size: 0.85rem;
+    padding: 0.4rem 0.6rem;
+}
+
+.workflow-steps {
+    max-height: none;
+    overflow-y: visible;
+    padding: 1rem;
+}
+
+.workflow-step {
+    background: var(--surface-elevated);
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius-sm);
+    margin-bottom: 0.5rem;
+    overflow: hidden;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.workflow-step:hover {
+    border-color: var(--accent);
+}
+
+.workflow-step.disabled {
+    opacity: 0.5;
+}
+
+.workflow-step.editing {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 20%, transparent);
+}
+
+.step-header {
+    align-items: center;
+    cursor: pointer;
+    display: flex;
+    gap: 0.6rem;
+    padding: 0.65rem 0.75rem;
+}
+
+.step-icon {
+    font-size: 1.1rem;
+}
+
+.step-name {
+    flex: 1;
+    font-size: 0.85rem;
+    font-weight: 500;
+}
+
+.step-type {
+    background: var(--surface);
+    border-radius: 6px;
+    color: var(--ink-muted);
+    font-size: 0.7rem;
+    padding: 0.15rem 0.4rem;
+}
+
+.step-actions {
+    display: flex;
+    gap: 0.25rem;
+}
+
+.icon-btn {
+    align-items: center;
+    background: transparent;
+    border: none;
+    border-radius: 6px;
+    color: var(--ink-muted);
+    cursor: pointer;
+    display: flex;
+    font-size: 0.8rem;
+    height: 1.6rem;
+    justify-content: center;
+    transition: background 0.15s ease, color 0.15s ease;
+    width: 1.6rem;
+}
+
+.icon-btn:hover {
+    background: var(--surface);
+    color: var(--ink-strong);
+}
+
+.icon-btn.danger:hover {
+    background: color-mix(in srgb, var(--danger) 20%, transparent);
+    color: var(--danger);
+}
+
+.icon-btn:disabled {
+    cursor: not-allowed;
+    opacity: 0.3;
+}
+
+.step-config {
+    background: var(--surface);
+    border-top: 1px solid var(--border-soft);
+    padding: 0.75rem;
+}
+
+.config-field {
+    margin-bottom: 0.75rem;
+}
+
+.config-field:last-child {
+    margin-bottom: 0;
+}
+
+.config-field label {
+    color: var(--ink-muted);
+    display: block;
+    font-size: 0.75rem;
+    font-weight: 500;
+    margin-bottom: 0.35rem;
+}
+
+.config-field select,
+.config-field input[type="text"],
+.config-field input[type="number"],
+.config-field textarea {
+    background: var(--surface-elevated);
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius-sm);
+    color: var(--ink-strong);
+    font-size: 0.85rem;
+    padding: 0.45rem 0.6rem;
+    width: 100%;
+}
+
+.config-field textarea {
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    min-height: 60px;
+    resize: vertical;
+}
+
+.range-input {
+    align-items: center;
+    display: flex;
+    gap: 0.75rem;
+}
+
+.range-input input[type="range"] {
+    flex: 1;
+}
+
+.range-input span {
+    background: var(--surface-elevated);
+    border-radius: 6px;
+    font-size: 0.8rem;
+    min-width: 2.5rem;
+    padding: 0.2rem 0.4rem;
+    text-align: center;
+}
+
+.add-step-section {
+    margin-top: 0.5rem;
+    position: relative;
+}
+
+.add-step-btn {
+    align-items: center;
+    background: transparent;
+    border: 2px dashed var(--border-soft);
+    border-radius: var(--radius-sm);
+    color: var(--ink-muted);
+    cursor: pointer;
+    display: flex;
+    gap: 0.5rem;
+    justify-content: center;
+    padding: 0.75rem;
+    transition: border-color 0.15s ease, color 0.15s ease;
+    width: 100%;
+}
+
+.add-step-btn:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+}
+
+.add-step-menu {
+    animation: menuFadeIn 0.2s ease;
+    background: var(--surface-elevated);
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-soft);
+    margin-top: 0.5rem;
+    max-height: 450px;
+    overflow-y: auto;
+    padding: 0.75rem;
+    position: relative;
+    z-index: 10;
+}
+
+@keyframes menuFadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(-8px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.step-category {
+    margin-bottom: 1rem;
+}
+
+.step-category:last-child {
+    margin-bottom: 0;
+}
+
+.step-category + .step-category {
+    border-top: 1px solid var(--border-soft);
+    padding-top: 1rem;
+}
+
+.category-label {
+    background: var(--surface);
+    border-radius: 6px;
+    color: var(--ink-muted);
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    margin-bottom: 0.5rem;
+    padding: 0.4rem 0.6rem;
+    text-transform: uppercase;
+}
+
+.step-type-option {
+    align-items: flex-start;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    display: flex;
+    gap: 0.75rem;
+    padding: 0.75rem;
+    text-align: left;
+    transition: background 0.15s ease, border-color 0.15s ease;
+    width: 100%;
+}
+
+.step-type-option:hover {
+    background: var(--surface);
+    border-color: var(--border-soft);
+}
+
+.step-type-option .step-icon {
+    font-size: 1.5rem;
+    line-height: 1;
+}
+
+.step-type-option .step-info {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    min-width: 0;
+}
+
+.step-type-option .step-name {
+    color: var(--ink-strong);
+    font-size: 0.9rem;
+    font-weight: 600;
+}
+
+.step-type-option .step-desc {
+    color: var(--ink-muted);
+    font-size: 0.8rem;
+    line-height: 1.35;
+}
+
+.chip-btn {
+    background: var(--surface-elevated);
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius-sm);
+    color: var(--ink-strong);
+    cursor: pointer;
+    font-size: 0.8rem;
+    padding: 0.35rem 0.6rem;
+    transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.chip-btn:hover {
+    background: var(--surface);
+    border-color: var(--accent);
+}
+
+.chip-btn.danger:hover {
+    border-color: var(--danger);
+    color: var(--danger);
+}
+
+/* Mode toggle */
+.mode-toggle {
+    display: flex;
+    gap: 0;
+    margin: 0.5rem 1rem;
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+}
+
+.mode-btn {
+    background: transparent;
+    border: none;
+    color: var(--ink-muted);
+    cursor: pointer;
+    flex: 1;
+    font-size: 0.78rem;
+    font-weight: 500;
+    padding: 0.45rem 0.75rem;
+    transition: background 0.15s ease, color 0.15s ease;
+}
+
+.mode-btn:hover {
+    background: var(--surface-elevated);
+}
+
+.mode-btn.active {
+    background: color-mix(in srgb, var(--accent) 15%, transparent);
+    color: var(--accent);
+    font-weight: 600;
+}
+
+.mode-btn:disabled {
+    cursor: not-allowed;
+    opacity: 0.4;
+}
+
+/* Preset picker */
+.preset-picker {
+    animation: menuFadeIn 0.2s ease;
+    background: var(--surface-elevated);
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-soft);
+    margin: 0.5rem 1rem;
+    padding: 0.75rem;
+}
+
+.preset-picker-header {
+    align-items: center;
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 0.75rem;
+}
+
+.preset-picker-header h4 {
+    font-size: 0.9rem;
+    font-weight: 600;
+    margin: 0;
+}
+
+.preset-option {
+    align-items: center;
+    background: transparent;
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    display: flex;
+    gap: 0.75rem;
+    justify-content: space-between;
+    margin-bottom: 0.5rem;
+    padding: 0.75rem;
+    text-align: left;
+    transition: background 0.15s ease, border-color 0.15s ease;
+    width: 100%;
+}
+
+.preset-option:last-of-type {
+    margin-bottom: 0;
+}
+
+.preset-option:hover {
+    background: var(--surface);
+    border-color: var(--accent);
+}
+
+.preset-info {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    min-width: 0;
+}
+
+.preset-name {
+    color: var(--ink-strong);
+    font-size: 0.88rem;
+    font-weight: 600;
+}
+
+.preset-desc {
+    color: var(--ink-muted);
+    font-size: 0.78rem;
+}
+
+.preset-phase-count {
+    background: var(--surface);
+    border-radius: 6px;
+    color: var(--ink-muted);
+    font-size: 0.72rem;
+    font-weight: 500;
+    padding: 0.2rem 0.5rem;
+    white-space: nowrap;
+}
+
+/* Phase mode layout */
+.workflow-phases {
+    padding: 1rem;
+}
+
+.add-phase-btn {
+    align-items: center;
+    background: transparent;
+    border: 2px dashed var(--border-soft);
+    border-radius: var(--radius-sm);
+    color: var(--ink-muted);
+    cursor: pointer;
+    display: flex;
+    gap: 0.5rem;
+    justify-content: center;
+    margin-top: 0.75rem;
+    padding: 0.75rem;
+    transition: border-color 0.15s ease, color 0.15s ease;
+    width: 100%;
+}
+
+.add-phase-btn:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+}
+
+/* Variables section */
+.variables-section {
+    border-top: 1px solid var(--border-soft);
+    margin-top: 1rem;
+    padding: 0.75rem 0 0;
+}
+
+.variables-section h4 {
+    color: var(--ink-muted);
+    font-size: 0.78rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    margin: 0 0 0.5rem;
+    text-transform: uppercase;
+}
+
+.variable-row {
+    align-items: center;
+    display: flex;
+    gap: 0.75rem;
+    margin-bottom: 0.35rem;
+    padding: 0.35rem 0.5rem;
+}
+
+.variable-name {
+    color: var(--accent);
+    font-family: var(--font-mono);
+    font-size: 0.82rem;
+    font-weight: 500;
+}
+
+.variable-type {
+    background: var(--surface);
+    border-radius: 4px;
+    color: var(--ink-muted);
+    font-size: 0.7rem;
+    padding: 0.1rem 0.35rem;
+}
+
+.variable-default {
+    color: var(--ink-subtle);
+    font-size: 0.78rem;
+}
+
+/* Plugin section */
+.plugin-section {
+    border-top: 1px solid var(--border-soft);
+    margin: 0.75rem 1rem 0;
+    padding: 0.75rem 0;
+}
+
+.plugin-toggle {
+    background: transparent;
+    border: none;
+    color: var(--ink-muted);
+    cursor: pointer;
+    font-size: 0.8rem;
+    font-weight: 500;
+    padding: 0.25rem 0;
+    transition: color 0.15s ease;
+}
+
+.plugin-toggle:hover {
+    color: var(--ink-strong);
+}
+
+.plugin-panel {
+    animation: menuFadeIn 0.2s ease;
+    margin-top: 0.5rem;
+}
+
+.plugin-row {
+    align-items: center;
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius-sm);
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 0.35rem;
+    padding: 0.45rem 0.65rem;
+}
+
+.plugin-row.disabled {
+    opacity: 0.5;
+}
+
+.plugin-name {
+    color: var(--ink-strong);
+    font-size: 0.82rem;
+    font-weight: 500;
+}
+
+.plugin-actions {
+    display: flex;
+    gap: 0.25rem;
+}
+
+.plugin-add-row {
+    display: flex;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+}
+
+.plugin-add-row input {
+    background: var(--surface-elevated);
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius-sm);
+    color: var(--ink-strong);
+    flex: 1;
+    font-size: 0.82rem;
+    padding: 0.4rem 0.6rem;
+}

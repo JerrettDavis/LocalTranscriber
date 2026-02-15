@@ -1,0 +1,823 @@
+@inject IJSRuntime JS
+
+<div class="workflow-editor @(IsExpanded ? "expanded" : "collapsed")">
+    <div class="workflow-header" @onclick="ToggleExpanded">
+        <span class="workflow-toggle">@(IsExpanded ? "▼" : "▶")</span>
+        <h3>Workflow: @_activeWorkflow?.Name</h3>
+        <span class="workflow-steps-count">@GetStepCountLabel()</span>
+    </div>
+
+    @if (IsExpanded)
+    {
+        <div class="workflow-toolbar">
+            <select class="workflow-select" @bind="_selectedWorkflowId" @bind:after="HandleWorkflowSelectionChanged">
+                @foreach (var wf in _workflows)
+                {
+                    <option value="@wf.Id">@wf.Name</option>
+                }
+            </select>
+            <button class="chip-btn" type="button" @onclick="DuplicateWorkflow" title="Duplicate">📋</button>
+            <button class="chip-btn" type="button" @onclick="CreateNewWorkflow" title="New">➕</button>
+            <button class="chip-btn" type="button" @onclick="TogglePresetPicker" title="From Template">📦</button>
+            @if (_selectedWorkflowId != "default")
+            {
+                <button class="chip-btn danger" type="button" @onclick="DeleteWorkflow" title="Delete">🗑️</button>
+            }
+        </div>
+
+        @if (_showPresetPicker)
+        {
+            <div class="preset-picker">
+                <div class="preset-picker-header">
+                    <h4>Start from Template</h4>
+                    <button class="icon-btn" type="button" @onclick="() => _showPresetPicker = false">✕</button>
+                </div>
+                @foreach (var preset in _presets)
+                {
+                    <button class="preset-option" type="button" @onclick="() => CreateFromPreset(preset.Id)">
+                        <div class="preset-info">
+                            <span class="preset-name">@preset.Name</span>
+                            <span class="preset-desc">@preset.Description</span>
+                        </div>
+                        <span class="preset-phase-count">@preset.PhaseCount phases</span>
+                    </button>
+                }
+                @if (_presets.Count == 0)
+                {
+                    <p class="subtext">No preset templates available.</p>
+                }
+            </div>
+        }
+
+        <div class="mode-toggle">
+            <button class="mode-btn @(_viewMode == ViewMode.Simple ? "active" : "")" type="button"
+                    @onclick="() => SetViewMode(ViewMode.Simple)">Simple</button>
+            <button class="mode-btn @(_viewMode == ViewMode.Phase ? "active" : "")" type="button"
+                    @onclick="() => SetViewMode(ViewMode.Phase)">Phase</button>
+        </div>
+
+        @if (_viewMode == ViewMode.Simple)
+        {
+            <div class="workflow-steps">
+                @if (_flatSteps != null)
+                {
+                    @for (var i = 0; i < _flatSteps.Count; i++)
+                    {
+                        var step = _flatSteps[i];
+                        var index = i;
+                        <div class="workflow-step @(step.Enabled ? "" : "disabled") @(_expandedStepId == step.Id ? "editing" : "")">
+                            <div class="step-header" @onclick="() => ToggleStepEdit(step.Id)">
+                                <span class="step-icon">@GetStepIcon(step.Type)</span>
+                                <span class="step-name">@step.Name</span>
+                                <span class="step-type">@step.Type</span>
+                                <div class="step-actions">
+                                    <button class="icon-btn" type="button" @onclick:stopPropagation @onclick="() => ToggleStep(step.Id)" title="@(step.Enabled ? "Disable" : "Enable")">
+                                        @(step.Enabled ? "✓" : "○")
+                                    </button>
+                                    <button class="icon-btn" type="button" @onclick:stopPropagation @onclick="() => MoveStep(index, -1)" disabled="@(index == 0)" title="Move up">↑</button>
+                                    <button class="icon-btn" type="button" @onclick:stopPropagation @onclick="() => MoveStep(index, 1)" disabled="@(index == _flatSteps.Count - 1)" title="Move down">↓</button>
+                                    <button class="icon-btn danger" type="button" @onclick:stopPropagation @onclick="() => RemoveStep(step.Id)" title="Remove">✕</button>
+                                </div>
+                            </div>
+
+                            @if (_expandedStepId == step.Id)
+                            {
+                                <div class="step-config">
+                                    @if (_stepTypes.TryGetValue(step.Type, out var typeDef))
+                                    {
+                                        @foreach (var (key, schema) in typeDef.ConfigSchema)
+                                        {
+                                            <div class="config-field">
+                                                <label>@schema.Label</label>
+                                                @switch (schema.Type)
+                                                {
+                                                    case "select":
+                                                        <select value="@GetConfigValue(step, key)" @onchange="e => SetConfigValue(step, key, e.Value?.ToString())">
+                                                            @foreach (var opt in schema.Options ?? Array.Empty<string>())
+                                                            {
+                                                                <option value="@opt" selected="@(GetConfigValue(step, key) == opt)">@opt</option>
+                                                            }
+                                                        </select>
+                                                        break;
+                                                    case "textarea":
+                                                        <textarea rows="3" @onchange="e => SetConfigValue(step, key, e.Value?.ToString())">@GetConfigValue(step, key)</textarea>
+                                                        break;
+                                                    case "range":
+                                                        <div class="range-input">
+                                                            <input type="range" min="@schema.Min" max="@schema.Max" step="@(schema.Step ?? 1)"
+                                                                   value="@GetConfigValue(step, key)"
+                                                                   @onchange="e => SetConfigValue(step, key, e.Value?.ToString())" />
+                                                            <span>@GetConfigValue(step, key)</span>
+                                                        </div>
+                                                        break;
+                                                    case "number":
+                                                        <input type="number" min="@schema.Min" max="@schema.Max"
+                                                               value="@GetConfigValue(step, key)"
+                                                               @onchange="e => SetConfigValue(step, key, e.Value?.ToString())" />
+                                                        break;
+                                                    default:
+                                                        <input type="text" value="@GetConfigValue(step, key)"
+                                                               @onchange="e => SetConfigValue(step, key, e.Value?.ToString())" />
+                                                        break;
+                                                }
+                                            </div>
+                                        }
+                                    }
+                                </div>
+                            }
+                        </div>
+                    }
+                }
+
+                <div class="add-step-section">
+                    <button class="add-step-btn" type="button" @onclick="() => ToggleAddMenu(null)">
+                        <span>➕</span> Add Step
+                    </button>
+                </div>
+            </div>
+        }
+        else
+        {
+            <div class="workflow-phases">
+                @if (_activeWorkflow?.Phases != null)
+                {
+                    @for (var i = 0; i < _activeWorkflow.Phases.Count; i++)
+                    {
+                        var phase = _activeWorkflow.Phases[i];
+                        var index = i;
+                        <PhaseEditor
+                            Phase="@MapToEditorPhase(phase)"
+                            PhaseIndex="index"
+                            IsLast="@(index == _activeWorkflow.Phases.Count - 1)"
+                            StepTypes="@MapToEditorStepTypes()"
+                            OnPhaseChanged="p => HandlePhaseChanged(index, p)"
+                            OnMoveUp="() => MovePhase(index, -1)"
+                            OnMoveDown="() => MovePhase(index, 1)"
+                            OnDelete="() => RemovePhase(index)"
+                            OnAddStep="phaseId => ToggleAddMenu(phaseId)" />
+                    }
+                }
+
+                <button class="add-phase-btn" type="button" @onclick="AddPhase">
+                    <span>➕</span> Add Phase
+                </button>
+            </div>
+
+            @if (_activeWorkflow?.Variables != null && _activeWorkflow.Variables.Count > 0)
+            {
+                <div class="variables-section">
+                    <h4>Workflow Variables</h4>
+                    @foreach (var (name, variable) in _activeWorkflow.Variables)
+                    {
+                        <div class="variable-row">
+                            <span class="variable-name">@name</span>
+                            <span class="variable-type">@variable.Type</span>
+                            <span class="variable-default">@(variable.DefaultValue?.ToString() ?? "")</span>
+                        </div>
+                    }
+                </div>
+            }
+        }
+
+        @if (_showAddMenu)
+        {
+            <div class="add-step-menu">
+                @foreach (var category in _stepTypesByCategory)
+                {
+                    <div class="step-category">
+                        <div class="category-label">@category.Key</div>
+                        @foreach (var stepType in category.Value)
+                        {
+                            <button class="step-type-option" type="button" @onclick="() => AddStep(stepType.Id)">
+                                <span class="step-icon">@stepType.Icon</span>
+                                <div class="step-info">
+                                    <span class="step-name">@stepType.Name</span>
+                                    <span class="step-desc">@stepType.Description</span>
+                                </div>
+                            </button>
+                        }
+                    </div>
+                }
+            </div>
+        }
+
+        <div class="plugin-section">
+            <button class="plugin-toggle" type="button" @onclick="() => _showPluginPanel = !_showPluginPanel">
+                <span>@(_showPluginPanel ? "▼" : "▶")</span> Plugins (@_plugins.Count)
+            </button>
+
+            @if (_showPluginPanel)
+            {
+                <div class="plugin-panel">
+                    @foreach (var plugin in _plugins)
+                    {
+                        <div class="plugin-row @(plugin.Enabled ? "" : "disabled")">
+                            <span class="plugin-name">@plugin.Name</span>
+                            <div class="plugin-actions">
+                                <button class="icon-btn" type="button" @onclick="() => TogglePlugin(plugin.Url)" title="@(plugin.Enabled ? "Disable" : "Enable")">
+                                    @(plugin.Enabled ? "✓" : "○")
+                                </button>
+                                <button class="icon-btn danger" type="button" @onclick="() => RemovePlugin(plugin.Url)" title="Remove">✕</button>
+                            </div>
+                        </div>
+                    }
+
+                    <div class="plugin-add-row">
+                        <input type="text" placeholder="Plugin URL..." @bind="_newPluginUrl" />
+                        <button class="chip-btn" type="button" @onclick="AddPlugin" disabled="@string.IsNullOrWhiteSpace(_newPluginUrl)">Add</button>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public bool IsExpanded { get; set; }
+    [Parameter] public EventCallback<bool> IsExpandedChanged { get; set; }
+    [Parameter] public EventCallback<WorkflowModel> OnWorkflowChanged { get; set; }
+
+    private enum ViewMode { Simple, Phase }
+
+    private List<WorkflowModel> _workflows = new();
+    private WorkflowModel? _activeWorkflow;
+    private string _selectedWorkflowId = "default";
+    private string? _expandedStepId;
+    private bool _showAddMenu;
+    private string? _addStepPhaseId;
+    private Dictionary<string, StepTypeDefinition> _stepTypes = new();
+    private Dictionary<string, List<StepTypeDefinition>> _stepTypesByCategory = new();
+    private ViewMode _viewMode = ViewMode.Simple;
+    private bool _showPresetPicker;
+    private List<PresetInfo> _presets = new();
+    private List<PluginInfo> _plugins = new();
+    private bool _showPluginPanel;
+    private string _newPluginUrl = "";
+
+    private List<WorkflowStep>? _flatSteps => _activeWorkflow?.Phases?.Count > 0
+        ? _activeWorkflow.Phases.SelectMany(p => p.Steps).ToList()
+        : _activeWorkflow?.Steps;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await LoadWorkflowData();
+            StateHasChanged();
+        }
+    }
+
+    private async Task LoadWorkflowData()
+    {
+        try
+        {
+            var stepTypesJs = await JS.InvokeAsync<Dictionary<string, StepTypeDefinitionJs>>("localTranscriberWorkflow.getAllStepTypes");
+            _stepTypes = stepTypesJs.ToDictionary(
+                kv => kv.Key,
+                kv => new StepTypeDefinition
+                {
+                    Id = kv.Value.Id,
+                    Name = kv.Value.Name,
+                    Description = kv.Value.Description,
+                    Icon = kv.Value.Icon,
+                    Category = kv.Value.Category,
+                    ConfigSchema = kv.Value.ConfigSchema?.ToDictionary(
+                        c => c.Key,
+                        c => new ConfigSchemaField
+                        {
+                            Type = c.Value.Type,
+                            Label = c.Value.Label,
+                            Options = c.Value.Options,
+                            Default = c.Value.Default,
+                            Min = c.Value.Min,
+                            Max = c.Value.Max,
+                            Step = c.Value.Step,
+                        }) ?? new()
+                });
+
+            _stepTypesByCategory = _stepTypes.Values
+                .GroupBy(s => s.Category ?? "other")
+                .ToDictionary(g => g.Key, g => g.ToList());
+
+            var workflowsJs = await JS.InvokeAsync<WorkflowModelJs[]>("localTranscriberWorkflow.getWorkflows");
+            _workflows = workflowsJs.Select(MapWorkflow).ToList();
+
+            _selectedWorkflowId = await JS.InvokeAsync<string>("localTranscriberWorkflow.getActiveWorkflowId");
+            _activeWorkflow = _workflows.Find(w => w.Id == _selectedWorkflowId) ?? _workflows.FirstOrDefault();
+
+            if (_activeWorkflow?.Phases?.Count > 1)
+                _viewMode = ViewMode.Phase;
+
+            await LoadPresets();
+            await LoadPlugins();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Failed to load workflow data: {ex.Message}");
+        }
+    }
+
+    private async Task LoadPresets()
+    {
+        try
+        {
+            var presetsJs = await JS.InvokeAsync<PresetInfoJs[]>("localTranscriberWorkflow.getPresetWorkflows");
+            _presets = presetsJs.Select(p => new PresetInfo
+            {
+                Id = p.Id,
+                Name = p.Name,
+                Description = p.Description,
+                PhaseCount = p.PhaseCount
+            }).ToList();
+        }
+        catch { }
+    }
+
+    private async Task LoadPlugins()
+    {
+        try
+        {
+            var pluginsJs = await JS.InvokeAsync<PluginInfoJs[]>("localTranscriberWorkflow.getInstalledPlugins");
+            _plugins = pluginsJs.Select(p => new PluginInfo
+            {
+                Url = p.Url,
+                Name = p.Name,
+                Enabled = p.Enabled
+            }).ToList();
+        }
+        catch { }
+    }
+
+    private WorkflowModel MapWorkflow(WorkflowModelJs js) => new()
+    {
+        Id = js.Id,
+        Name = js.Name,
+        Description = js.Description,
+        Version = js.Version,
+        Steps = js.Steps?.Select(MapStep).ToList() ?? new(),
+        Phases = js.Phases?.Select(p => new WorkflowPhase
+        {
+            Id = p.Id,
+            Name = p.Name,
+            Description = p.Description,
+            Steps = p.Steps?.Select(MapStep).ToList() ?? new(),
+            Transitions = p.Transitions?.Select(t => new PhaseTransition
+            {
+                Id = t.Id,
+                Target = t.Target,
+                Condition = t.Condition,
+                Label = t.Label,
+                Expression = t.Expression,
+            }).ToList() ?? new()
+        }).ToList() ?? new(),
+        Variables = js.Variables?.ToDictionary(
+            kv => kv.Key,
+            kv => new VariableDefinition { Type = kv.Value.Type, DefaultValue = kv.Value.Default }
+        ) ?? new()
+    };
+
+    private WorkflowStep MapStep(WorkflowStepJs s) => new()
+    {
+        Id = s.Id,
+        Type = s.Type,
+        Name = s.Name,
+        Config = s.Config ?? new Dictionary<string, object>(),
+        Enabled = s.Enabled,
+    };
+
+    private string GetStepCountLabel()
+    {
+        if (_activeWorkflow == null) return "0 steps";
+        if (_viewMode == ViewMode.Phase && _activeWorkflow.Phases?.Count > 0)
+        {
+            var total = _activeWorkflow.Phases.Sum(p => p.Steps.Count);
+            return $"{_activeWorkflow.Phases.Count} phases, {total} steps";
+        }
+        return $"{_flatSteps?.Count ?? 0} steps";
+    }
+
+    private void SetViewMode(ViewMode mode)
+    {
+        _viewMode = mode;
+        _showAddMenu = false;
+    }
+
+    private void ToggleExpanded()
+    {
+        IsExpanded = !IsExpanded;
+        IsExpandedChanged.InvokeAsync(IsExpanded);
+    }
+
+    private async Task HandleWorkflowSelectionChanged()
+    {
+        await JS.InvokeVoidAsync("localTranscriberWorkflow.setActiveWorkflow", _selectedWorkflowId);
+        _activeWorkflow = _workflows.Find(w => w.Id == _selectedWorkflowId);
+
+        if (_activeWorkflow?.Phases?.Count > 1)
+            _viewMode = ViewMode.Phase;
+
+        await OnWorkflowChanged.InvokeAsync(_activeWorkflow);
+    }
+
+    // --- Simple mode step operations (v1 compat, operates on first phase) ---
+
+    private void ToggleStepEdit(string stepId)
+    {
+        _expandedStepId = _expandedStepId == stepId ? null : stepId;
+    }
+
+    private async Task ToggleStep(string stepId)
+    {
+        var step = _flatSteps?.Find(s => s.Id == stepId);
+        if (step == null) return;
+
+        step.Enabled = !step.Enabled;
+        await JS.InvokeVoidAsync("localTranscriberWorkflow.updateStep", _selectedWorkflowId, stepId, new { enabled = step.Enabled });
+    }
+
+    private async Task MoveStep(int index, int direction)
+    {
+        if (_flatSteps == null) return;
+
+        var newIndex = index + direction;
+        if (newIndex < 0 || newIndex >= _flatSteps.Count) return;
+
+        var step = _flatSteps[index];
+        _flatSteps.RemoveAt(index);
+        _flatSteps.Insert(newIndex, step);
+
+        var stepIds = _flatSteps.Select(s => s.Id).ToArray();
+        await JS.InvokeVoidAsync("localTranscriberWorkflow.reorderSteps", _selectedWorkflowId, stepIds);
+    }
+
+    private async Task RemoveStep(string stepId)
+    {
+        _flatSteps?.RemoveAll(s => s.Id == stepId);
+        await JS.InvokeVoidAsync("localTranscriberWorkflow.removeStep", _selectedWorkflowId, stepId);
+        if (_expandedStepId == stepId) _expandedStepId = null;
+    }
+
+    private void ToggleAddMenu(string? phaseId)
+    {
+        _addStepPhaseId = phaseId;
+        _showAddMenu = !_showAddMenu;
+    }
+
+    private async Task AddStep(string stepType)
+    {
+        if (_viewMode == ViewMode.Phase && _addStepPhaseId != null)
+        {
+            var result = await JS.InvokeAsync<WorkflowStepJs>("localTranscriberWorkflow.addStepToPhase",
+                _selectedWorkflowId, _addStepPhaseId, stepType, new { });
+            if (result != null && _activeWorkflow != null)
+            {
+                var phase = _activeWorkflow.Phases?.Find(p => p.Id == _addStepPhaseId);
+                phase?.Steps.Add(MapStep(result));
+            }
+        }
+        else
+        {
+            var result = await JS.InvokeAsync<WorkflowStepJs>("localTranscriberWorkflow.addStep",
+                _selectedWorkflowId, stepType, new { });
+            if (result != null && _activeWorkflow != null)
+            {
+                if (_activeWorkflow.Phases?.Count > 0)
+                    _activeWorkflow.Phases[0].Steps.Add(MapStep(result));
+                else
+                    _activeWorkflow.Steps.Add(MapStep(result));
+            }
+        }
+        _showAddMenu = false;
+        _addStepPhaseId = null;
+    }
+
+    // --- Phase operations ---
+
+    private async Task AddPhase()
+    {
+        if (_activeWorkflow == null) return;
+        var name = $"Phase {(_activeWorkflow.Phases?.Count ?? 0) + 1}";
+        var result = await JS.InvokeAsync<WorkflowPhaseJs>("localTranscriberWorkflow.addPhase", _selectedWorkflowId, name, "");
+        if (result != null)
+        {
+            _activeWorkflow.Phases ??= new();
+            _activeWorkflow.Phases.Add(new WorkflowPhase
+            {
+                Id = result.Id,
+                Name = result.Name,
+                Description = result.Description,
+                Steps = result.Steps?.Select(MapStep).ToList() ?? new(),
+                Transitions = result.Transitions?.Select(t => new PhaseTransition
+                {
+                    Id = t.Id,
+                    Target = t.Target,
+                    Condition = t.Condition,
+                    Label = t.Label,
+                    Expression = t.Expression,
+                }).ToList() ?? new()
+            });
+        }
+    }
+
+    private async Task MovePhase(int index, int direction)
+    {
+        if (_activeWorkflow?.Phases == null) return;
+        var newIndex = index + direction;
+        if (newIndex < 0 || newIndex >= _activeWorkflow.Phases.Count) return;
+
+        var phase = _activeWorkflow.Phases[index];
+        _activeWorkflow.Phases.RemoveAt(index);
+        _activeWorkflow.Phases.Insert(newIndex, phase);
+
+        var phaseIds = _activeWorkflow.Phases.Select(p => p.Id).ToArray();
+        await JS.InvokeVoidAsync("localTranscriberWorkflow.reorderPhases", _selectedWorkflowId, phaseIds);
+    }
+
+    private async Task RemovePhase(int index)
+    {
+        if (_activeWorkflow?.Phases == null || index < 0 || index >= _activeWorkflow.Phases.Count) return;
+        var phaseId = _activeWorkflow.Phases[index].Id;
+        _activeWorkflow.Phases.RemoveAt(index);
+        await JS.InvokeVoidAsync("localTranscriberWorkflow.removePhase", _selectedWorkflowId, phaseId);
+    }
+
+    private async Task HandlePhaseChanged(int index, PhaseEditor.PhaseModel updatedPhase)
+    {
+        if (_activeWorkflow?.Phases == null || index < 0 || index >= _activeWorkflow.Phases.Count) return;
+
+        var phase = _activeWorkflow.Phases[index];
+        phase.Name = updatedPhase.Name;
+        phase.Description = updatedPhase.Description;
+        phase.Steps = updatedPhase.Steps?.Select(s => new WorkflowStep
+        {
+            Id = s.Id, Type = s.Type, Name = s.Name,
+            Config = s.Config, Enabled = s.Enabled
+        }).ToList() ?? new();
+
+        await JS.InvokeVoidAsync("localTranscriberWorkflow.updatePhase", _selectedWorkflowId, phase.Id,
+            new { name = phase.Name, description = phase.Description, steps = phase.Steps.Select(s => new { s.Id, s.Type, s.Name, s.Config, s.Enabled }) });
+    }
+
+    // --- Workflow CRUD ---
+
+    private async Task CreateNewWorkflow()
+    {
+        var name = $"Custom Workflow {_workflows.Count}";
+        var result = await JS.InvokeAsync<WorkflowModelJs>("localTranscriberWorkflow.createWorkflow", name, "");
+        if (result != null)
+        {
+            _workflows.Add(MapWorkflow(result));
+            _selectedWorkflowId = result.Id;
+            await HandleWorkflowSelectionChanged();
+        }
+    }
+
+    private async Task DuplicateWorkflow()
+    {
+        var result = await JS.InvokeAsync<WorkflowModelJs>("localTranscriberWorkflow.duplicateWorkflow", _selectedWorkflowId, null);
+        if (result != null)
+        {
+            _workflows.Add(MapWorkflow(result));
+            _selectedWorkflowId = result.Id;
+            await HandleWorkflowSelectionChanged();
+        }
+    }
+
+    private async Task DeleteWorkflow()
+    {
+        if (_selectedWorkflowId == "default") return;
+        await JS.InvokeVoidAsync("localTranscriberWorkflow.deleteWorkflow", _selectedWorkflowId);
+        _workflows.RemoveAll(w => w.Id == _selectedWorkflowId);
+        _selectedWorkflowId = "default";
+        await HandleWorkflowSelectionChanged();
+    }
+
+    // --- Presets ---
+
+    private void TogglePresetPicker()
+    {
+        _showPresetPicker = !_showPresetPicker;
+    }
+
+    private async Task CreateFromPreset(string presetId)
+    {
+        var result = await JS.InvokeAsync<WorkflowModelJs>("localTranscriberWorkflow.createFromPreset", presetId);
+        if (result != null)
+        {
+            _workflows.Add(MapWorkflow(result));
+            _selectedWorkflowId = result.Id;
+            await HandleWorkflowSelectionChanged();
+        }
+        _showPresetPicker = false;
+    }
+
+    // --- Plugins ---
+
+    private async Task AddPlugin()
+    {
+        if (string.IsNullOrWhiteSpace(_newPluginUrl)) return;
+        try
+        {
+            await JS.InvokeVoidAsync("localTranscriberWorkflow.addPlugin", _newPluginUrl, "Custom Plugin");
+            await JS.InvokeVoidAsync("localTranscriberWorkflow.loadPlugin", _newPluginUrl);
+            await LoadPlugins();
+            await ReloadStepTypes();
+            _newPluginUrl = "";
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Failed to add plugin: {ex.Message}");
+        }
+    }
+
+    private async Task RemovePlugin(string url)
+    {
+        await JS.InvokeVoidAsync("localTranscriberWorkflow.removePlugin", url);
+        await LoadPlugins();
+        await ReloadStepTypes();
+    }
+
+    private async Task TogglePlugin(string url)
+    {
+        await JS.InvokeVoidAsync("localTranscriberWorkflow.togglePlugin", url);
+        await LoadPlugins();
+        await ReloadStepTypes();
+    }
+
+    private async Task ReloadStepTypes()
+    {
+        var stepTypesJs = await JS.InvokeAsync<Dictionary<string, StepTypeDefinitionJs>>("localTranscriberWorkflow.getAllStepTypes");
+        _stepTypes = stepTypesJs.ToDictionary(
+            kv => kv.Key,
+            kv => new StepTypeDefinition
+            {
+                Id = kv.Value.Id,
+                Name = kv.Value.Name,
+                Description = kv.Value.Description,
+                Icon = kv.Value.Icon,
+                Category = kv.Value.Category,
+                ConfigSchema = kv.Value.ConfigSchema?.ToDictionary(
+                    c => c.Key,
+                    c => new ConfigSchemaField
+                    {
+                        Type = c.Value.Type, Label = c.Value.Label, Options = c.Value.Options,
+                        Default = c.Value.Default, Min = c.Value.Min, Max = c.Value.Max, Step = c.Value.Step,
+                    }) ?? new()
+            });
+
+        _stepTypesByCategory = _stepTypes.Values
+            .GroupBy(s => s.Category ?? "other")
+            .ToDictionary(g => g.Key, g => g.ToList());
+    }
+
+    // --- Helpers ---
+
+    private string GetStepIcon(string type) => _stepTypes.TryGetValue(type, out var def) ? def.Icon : "⚙️";
+
+    private string GetConfigValue(WorkflowStep step, string key)
+    {
+        if (step.Config.TryGetValue(key, out var val))
+            return val?.ToString() ?? "";
+        if (_stepTypes.TryGetValue(step.Type, out var def) && def.ConfigSchema.TryGetValue(key, out var schema))
+            return schema.Default?.ToString() ?? "";
+        return "";
+    }
+
+    private async Task SetConfigValue(WorkflowStep step, string key, string? value)
+    {
+        step.Config[key] = value ?? "";
+        await JS.InvokeVoidAsync("localTranscriberWorkflow.updateStep", _selectedWorkflowId, step.Id, new { config = step.Config });
+    }
+
+    // --- PhaseEditor type mapping ---
+
+    private PhaseEditor.PhaseModel MapToEditorPhase(WorkflowPhase phase) => new()
+    {
+        Id = phase.Id,
+        Name = phase.Name,
+        Description = phase.Description,
+        Steps = phase.Steps.Select(s => new PhaseEditor.WorkflowStep
+        {
+            Id = s.Id, Type = s.Type, Name = s.Name,
+            Config = s.Config, Enabled = s.Enabled
+        }).ToList(),
+        Transitions = phase.Transitions.Select(t => new PhaseEditor.TransitionModel
+        {
+            Id = t.Id, Target = t.Target, Condition = t.Condition,
+            Label = t.Label, Expression = t.Expression
+        }).ToList()
+    };
+
+    private Dictionary<string, PhaseEditor.StepTypeDefinition> MapToEditorStepTypes() =>
+        _stepTypes.ToDictionary(
+            kv => kv.Key,
+            kv => new PhaseEditor.StepTypeDefinition
+            {
+                Id = kv.Value.Id, Name = kv.Value.Name,
+                Description = kv.Value.Description, Icon = kv.Value.Icon,
+                Category = kv.Value.Category,
+                ConfigSchema = kv.Value.ConfigSchema.ToDictionary(
+                    c => c.Key,
+                    c => new PhaseEditor.ConfigSchemaField
+                    {
+                        Type = c.Value.Type, Label = c.Value.Label, Options = c.Value.Options,
+                        Default = c.Value.Default, Min = c.Value.Min, Max = c.Value.Max, Step = c.Value.Step
+                    })
+            });
+
+    // Models
+    public class WorkflowModel
+    {
+        public string Id { get; set; } = "";
+        public string Name { get; set; } = "";
+        public string? Description { get; set; }
+        public int Version { get; set; } = 1;
+        public List<WorkflowStep> Steps { get; set; } = new();
+        public List<WorkflowPhase> Phases { get; set; } = new();
+        public Dictionary<string, VariableDefinition> Variables { get; set; } = new();
+    }
+
+    public class WorkflowPhase
+    {
+        public string Id { get; set; } = "";
+        public string Name { get; set; } = "";
+        public string? Description { get; set; }
+        public List<WorkflowStep> Steps { get; set; } = new();
+        public List<PhaseTransition> Transitions { get; set; } = new();
+    }
+
+    public class PhaseTransition
+    {
+        public string Id { get; set; } = "";
+        public string? Target { get; set; }
+        public string Condition { get; set; } = "auto";
+        public string? Label { get; set; }
+        public string? Expression { get; set; }
+    }
+
+    public class WorkflowStep
+    {
+        public string Id { get; set; } = "";
+        public string Type { get; set; } = "";
+        public string Name { get; set; } = "";
+        public Dictionary<string, object> Config { get; set; } = new();
+        public bool Enabled { get; set; } = true;
+    }
+
+    public class VariableDefinition
+    {
+        public string Type { get; set; } = "string";
+        public object? DefaultValue { get; set; }
+    }
+
+    public class StepTypeDefinition
+    {
+        public string Id { get; set; } = "";
+        public string Name { get; set; } = "";
+        public string? Description { get; set; }
+        public string Icon { get; set; } = "⚙️";
+        public string? Category { get; set; }
+        public Dictionary<string, ConfigSchemaField> ConfigSchema { get; set; } = new();
+    }
+
+    public class ConfigSchemaField
+    {
+        public string Type { get; set; } = "text";
+        public string Label { get; set; } = "";
+        public string[]? Options { get; set; }
+        public object? Default { get; set; }
+        public double? Min { get; set; }
+        public double? Max { get; set; }
+        public double? Step { get; set; }
+    }
+
+    public class PresetInfo
+    {
+        public string Id { get; set; } = "";
+        public string Name { get; set; } = "";
+        public string? Description { get; set; }
+        public int PhaseCount { get; set; }
+    }
+
+    public class PluginInfo
+    {
+        public string Url { get; set; } = "";
+        public string Name { get; set; } = "";
+        public bool Enabled { get; set; }
+    }
+
+    // JS interop models
+    private record WorkflowModelJs(string Id, string Name, string? Description, int Version,
+        WorkflowStepJs[]? Steps, WorkflowPhaseJs[]? Phases, Dictionary<string, VariableDefinitionJs>? Variables);
+    private record WorkflowPhaseJs(string Id, string Name, string? Description,
+        WorkflowStepJs[]? Steps, PhaseTransitionJs[]? Transitions);
+    private record PhaseTransitionJs(string Id, string? Target, string Condition, string? Label, string? Expression);
+    private record WorkflowStepJs(string Id, string Type, string Name, Dictionary<string, object>? Config, bool Enabled);
+    private record StepTypeDefinitionJs(string Id, string Name, string? Description, string Icon, string? Category,
+        Dictionary<string, ConfigSchemaFieldJs>? ConfigSchema);
+    private record ConfigSchemaFieldJs(string Type, string Label, string[]? Options, object? Default,
+        double? Min, double? Max, double? Step);
+    private record PresetInfoJs(string Id, string Name, string? Description, int PhaseCount);
+    private record PluginInfoJs(string Url, string Name, bool Enabled, string? AddedAt);
+    private record VariableDefinitionJs(string Type, object? Default);
+}
