@@ -1621,6 +1621,9 @@ Rules:
     const sessions = loadSessions();
     const next = sessions.filter((x) => x?.id !== id);
     localStorage.setItem("localtranscriber.sessions.v1", JSON.stringify(next));
+
+    // Also remove associated audio blob from IndexedDB
+    deleteAudioBlob(id).catch(() => {});
   }
 
   function downloadText(fileName, content, mimeType) {
@@ -1640,6 +1643,168 @@ Rules:
     anchor.remove();
 
     setTimeout(() => URL.revokeObjectURL(url), 0);
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // IndexedDB Audio Blob Persistence
+  // ═══════════════════════════════════════════════════════════════
+
+  const AUDIO_DB_NAME = "localtranscriber-audio";
+  const AUDIO_DB_VERSION = 1;
+  const AUDIO_STORE_NAME = "recordings";
+  const MAX_AUDIO_RECORDINGS = 10;
+
+  function openAudioDb() {
+    return new Promise((resolve, reject) => {
+      const request = indexedDB.open(AUDIO_DB_NAME, AUDIO_DB_VERSION);
+      request.onupgradeneeded = (event) => {
+        const db = event.target.result;
+        if (!db.objectStoreNames.contains(AUDIO_STORE_NAME)) {
+          db.createObjectStore(AUDIO_STORE_NAME, { keyPath: "id" });
+        }
+      };
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  async function saveAudioBlob(sessionId, base64, mimeType, fileName) {
+    try {
+      const blob = await fetch(`data:${mimeType || "audio/webm"};base64,${base64}`).then(r => r.blob());
+      const db = await openAudioDb();
+      const record = {
+        id: sessionId,
+        blob,
+        mimeType: mimeType || "audio/webm",
+        fileName: fileName || "recording.webm",
+        size: blob.size,
+        createdAt: new Date().toISOString(),
+      };
+
+      await new Promise((resolve, reject) => {
+        const tx = db.transaction(AUDIO_STORE_NAME, "readwrite");
+        tx.objectStore(AUDIO_STORE_NAME).put(record);
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      });
+      db.close();
+
+      // Enforce retention limit
+      await purgeOldAudioBlobs();
+
+      return {
+        sessionId,
+        fileName: record.fileName,
+        mimeType: record.mimeType,
+        size: record.size,
+        createdAt: record.createdAt,
+        purged: false,
+      };
+    } catch (e) {
+      console.warn("[LocalTranscriber] Failed to save audio blob:", e);
+      return null;
+    }
+  }
+
+  async function getAudioBlob(sessionId) {
+    try {
+      const db = await openAudioDb();
+      const result = await new Promise((resolve, reject) => {
+        const tx = db.transaction(AUDIO_STORE_NAME, "readonly");
+        const req = tx.objectStore(AUDIO_STORE_NAME).get(sessionId);
+        req.onsuccess = () => resolve(req.result || null);
+        req.onerror = () => reject(req.error);
+      });
+      db.close();
+      return result;
+    } catch (e) {
+      console.warn("[LocalTranscriber] Failed to get audio blob:", e);
+      return null;
+    }
+  }
+
+  async function deleteAudioBlob(sessionId) {
+    try {
+      const db = await openAudioDb();
+      await new Promise((resolve, reject) => {
+        const tx = db.transaction(AUDIO_STORE_NAME, "readwrite");
+        tx.objectStore(AUDIO_STORE_NAME).delete(sessionId);
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      });
+      db.close();
+    } catch (e) {
+      console.warn("[LocalTranscriber] Failed to delete audio blob:", e);
+    }
+  }
+
+  async function purgeOldAudioBlobs() {
+    try {
+      const db = await openAudioDb();
+      const allRecords = await new Promise((resolve, reject) => {
+        const tx = db.transaction(AUDIO_STORE_NAME, "readonly");
+        const req = tx.objectStore(AUDIO_STORE_NAME).getAll();
+        req.onsuccess = () => resolve(req.result || []);
+        req.onerror = () => reject(req.error);
+      });
+
+      if (allRecords.length <= MAX_AUDIO_RECORDINGS) {
+        db.close();
+        return;
+      }
+
+      // Sort oldest first
+      allRecords.sort((a, b) => {
+        const aTime = Date.parse(a.createdAt || "") || 0;
+        const bTime = Date.parse(b.createdAt || "") || 0;
+        return aTime - bTime;
+      });
+
+      const toDelete = allRecords.slice(0, allRecords.length - MAX_AUDIO_RECORDINGS);
+      const tx = db.transaction(AUDIO_STORE_NAME, "readwrite");
+      const store = tx.objectStore(AUDIO_STORE_NAME);
+      for (const record of toDelete) {
+        store.delete(record.id);
+      }
+
+      await new Promise((resolve, reject) => {
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      });
+      db.close();
+
+      // Mark purged sessions' audioRef
+      const sessions = loadSessions();
+      let modified = false;
+      for (const session of sessions) {
+        if (session.audioRef && toDelete.some(d => d.id === session.id)) {
+          session.audioRef.purged = true;
+          modified = true;
+        }
+      }
+      if (modified) {
+        localStorage.setItem("localtranscriber.sessions.v1", JSON.stringify(sessions));
+      }
+
+      console.log(`[LocalTranscriber] Purged ${toDelete.length} old audio recording(s)`);
+    } catch (e) {
+      console.warn("[LocalTranscriber] Failed to purge old audio blobs:", e);
+    }
+  }
+
+  async function replaySessionAudio(sessionId) {
+    const record = await getAudioBlob(sessionId);
+    if (!record?.blob) {
+      console.warn("[LocalTranscriber] No audio found for session:", sessionId);
+      return false;
+    }
+
+    const url = URL.createObjectURL(record.blob);
+    const audio = new Audio(url);
+    audio.onended = () => URL.revokeObjectURL(url);
+    audio.onerror = () => URL.revokeObjectURL(url);
+    audio.play();
+    return true;
   }
 
   // Standalone transcription function for workflow engine step handlers.
@@ -1825,6 +1990,12 @@ Rules:
     saveSession,
     deleteSession,
     downloadText,
+
+    // Audio persistence (IndexedDB)
+    saveAudioBlob,
+    getAudioBlob,
+    deleteAudioBlob,
+    replaySessionAudio,
     
     // Diagnostics
     async diagnose() {
@@ -1978,7 +2149,7 @@ Rules:
         stats.sessions.totalDuration = sessions.reduce((sum, s) => sum + (s.durationMs || 0), 0);
         stats.sessions.recent = sessions.slice(0, 5).map(s => ({
           id: s.id,
-          date: s.startedAt,
+          date: s.createdAt || s.startedAt,
           model: s.model,
           durationMs: s.durationMs,
           wordCount: s.wordCount,
@@ -2051,6 +2222,14 @@ Rules:
         results.cleared.push('Model cache');
       } catch (e) {
         results.errors.push(`Model cache: ${e.message}`);
+      }
+
+      // Clear audio IndexedDB
+      try {
+        indexedDB.deleteDatabase(AUDIO_DB_NAME);
+        results.cleared.push('Audio recordings (IndexedDB)');
+      } catch (e) {
+        results.errors.push(`Audio IndexedDB: ${e.message}`);
       }
 
       // Clear app cache
