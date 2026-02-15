@@ -116,48 +116,54 @@
                 <div class="error-box">@_errorMessage</div>
             }
 
-            @if (ShouldShowSubtitlePlayer)
+            @if (ShouldShowAudioPlayer)
             {
                 <div class="subtitle-sync-card">
                     <div class="subtitle-sync-head">
-                        <strong>Playback + Synced Subtitles</strong>
-                        <div class="subtitle-sync-meta">
-                            <span>@GetSubtitleStatusText()</span>
-                            <label class="subtitle-autoscroll">
-                                <input type="checkbox" @bind="_subtitleAutoScroll" />
-                                <span>Auto-scroll</span>
-                            </label>
-                        </div>
+                        <strong>@(HasSubtitleSegments ? "Playback + Synced Subtitles" : "Audio Playback")</strong>
+                        @if (HasSubtitleSegments)
+                        {
+                            <div class="subtitle-sync-meta">
+                                <span>@GetSubtitleStatusText()</span>
+                                <label class="subtitle-autoscroll">
+                                    <input type="checkbox" @bind="_subtitleAutoScroll" />
+                                    <span>Auto-scroll</span>
+                                </label>
+                            </div>
+                        }
                     </div>
                     <audio @ref="_subtitleAudioRef" controls preload="metadata" src="@_inputDownloadHref"></audio>
-                    <div class="subtitle-now">
-                        @if (ActiveSubtitleSegment is { } now)
-                        {
-                            <div class="subtitle-now-meta">
-                                <span>@FormatSubtitleTimestamp(now.StartSeconds)</span>
-                                @if (!string.IsNullOrWhiteSpace(now.Speaker))
-                                {
-                                    <span>@now.Speaker</span>
-                                }
-                            </div>
-                            <p class="subtitle-live-line">@((MarkupString)BuildHighlightedSubtitleMarkup(now, _subtitleCurrentSeconds))</p>
-                        }
-                        else
-                        {
-                            <p class="subtext">Press play to start subtitle playback.</p>
-                        }
-                    </div>
-                    <div class="subtitle-list" @ref="_subtitleListRef">
-                        @for (var i = 0; i < _subtitleSegments.Count; i++)
-                        {
-                            var segment = _subtitleSegments[i];
-                            var idx = i;
-                            <button class="subtitle-line @(i == _activeSubtitleIndex ? "active" : "")" type="button" data-subtitle-index="@i" @onclick="() => SeekToSubtitleAsync(idx)">
-                                <span class="subtitle-time">@FormatSubtitleTimestamp(segment.StartSeconds)</span>
-                                <span class="subtitle-copy">@segment.Text</span>
-                            </button>
-                        }
-                    </div>
+                    @if (HasSubtitleSegments)
+                    {
+                        <div class="subtitle-now">
+                            @if (ActiveSubtitleSegment is { } now)
+                            {
+                                <div class="subtitle-now-meta">
+                                    <span>@FormatSubtitleTimestamp(now.StartSeconds)</span>
+                                    @if (!string.IsNullOrWhiteSpace(now.Speaker))
+                                    {
+                                        <span>@now.Speaker</span>
+                                    }
+                                </div>
+                                <p class="subtitle-live-line">@((MarkupString)BuildHighlightedSubtitleMarkup(now, _subtitleCurrentSeconds))</p>
+                            }
+                            else
+                            {
+                                <p class="subtext">Press play to start subtitle playback.</p>
+                            }
+                        </div>
+                        <div class="subtitle-list" @ref="_subtitleListRef">
+                            @for (var i = 0; i < _subtitleSegments.Count; i++)
+                            {
+                                var segment = _subtitleSegments[i];
+                                var idx = i;
+                                <button class="subtitle-line @(i == _activeSubtitleIndex ? "active" : "")" type="button" data-subtitle-index="@i" @onclick="() => SeekToSubtitleAsync(idx)">
+                                    <span class="subtitle-time">@FormatSubtitleTimestamp(segment.StartSeconds)</span>
+                                    <span class="subtitle-copy">@segment.Text</span>
+                                </button>
+                            }
+                        </div>
+                    }
                 </div>
             }
 
@@ -537,7 +543,7 @@
                                                         <button class="chip-btn" type="button" @onclick="() => LoadSessionTranscriptAsync(s)">View Full Transcript</button>
                                                         @if (s.AudioRef != null && s.AudioRef.Purged != true)
                                                         {
-                                                            <button class="chip-btn" type="button" @onclick="() => LoadSessionWithSubtitlesAsync(s)">Play with Subtitles</button>
+                                                            <button class="chip-btn" type="button" @onclick="() => LoadSessionWithSubtitlesAsync(s)">@(s.Segments != null ? "Play with Subtitles" : "Play Audio")</button>
                                                             <button class="chip-btn" type="button" @onclick="() => DownloadSessionAudioAsync(s.Id!)">Download Audio</button>
                                                         }
                                                         <button class="chip-btn danger" type="button" @onclick="() => DeleteSessionAsync(s.Id!)">Delete</button>
@@ -1779,10 +1785,13 @@
     private sealed record TimedWord(string Text, double StartSeconds, double EndSeconds);
 
     // Subtitle properties
-    private bool ShouldShowSubtitlePlayer =>
+    private bool ShouldShowAudioPlayer =>
         !string.IsNullOrWhiteSpace(_inputDownloadHref) &&
-        _subtitleSegments.Count > 0 &&
         _minimalStage == MinimalStage.Results;
+
+    private bool HasSubtitleSegments => _subtitleSegments.Count > 0;
+
+    private bool ShouldShowSubtitlePlayer => ShouldShowAudioPlayer && HasSubtitleSegments;
 
     private TranscriptionSubtitleSegment? ActiveSubtitleSegment =>
         _activeSubtitleIndex >= 0 && _activeSubtitleIndex < _subtitleSegments.Count
