@@ -783,6 +783,7 @@ window.localTranscriberWorkflow = (() => {
   }
 
   async function executeWorkflowV2(workflow, audioInput, dotNetRef, jobId, startPhaseIndex = 0, existingContext = null) {
+    const startTime = Date.now();
     const context = existingContext || buildV2Context(audioInput, workflow.variables);
     const phases = workflow.phases || [];
     if (phases.length === 0) {
@@ -939,6 +940,13 @@ window.localTranscriberWorkflow = (() => {
 
     activeExecution = null;
 
+    // Auto-save session record
+    try {
+      await saveSessionRecord(workflow, context, startTime, finalText);
+    } catch (e) {
+      console.warn("[Workflow] Failed to save session record:", e);
+    }
+
     await emitProgress(dotNetRef, jobId, 100, "done", "Workflow complete.", {
       isCompleted: true,
       rawWhisperText: context.rawText,
@@ -959,6 +967,89 @@ window.localTranscriberWorkflow = (() => {
       phaseOutputs: context.phaseOutputs,
       variables: context.variables,
     };
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // Session Persistence
+  // ═══════════════════════════════════════════════════════════════
+
+  function buildSessionRecord(workflow, context, startTime, finalText) {
+    const now = Date.now();
+    const rawText = context.rawText || "";
+    const wordCount = rawText.split(/\s+/).filter(Boolean).length;
+
+    // Extract model/language from transcribe step config
+    let model = null;
+    let language = null;
+    let llmModel = null;
+    const allSteps = (workflow.phases || []).flatMap(p => p.steps || []).concat(workflow.steps || []);
+    for (const step of allSteps) {
+      if (step.type === "transcribe" && step.enabled !== false) {
+        model = step.config?.model || model;
+        language = step.config?.language || language;
+      }
+      if ((step.type === "llmFormat" || step.type === "llmTransform") && step.enabled !== false) {
+        llmModel = step.config?.model || llmModel;
+      }
+    }
+
+    // Determine source type
+    let sourceType = "recording";
+    let sourceFileName = context.audio?.fileName || null;
+    if (sourceFileName && /\.(mp3|wav|m4a|ogg|flac)$/i.test(sourceFileName)) {
+      sourceType = "upload";
+    }
+
+    // Capture current prompts and tuning
+    let prompts = null;
+    let tuning = null;
+    const browser = window.localTranscriberBrowser;
+    if (browser) {
+      try { prompts = browser.getPromptTemplates(); } catch {}
+      try { tuning = browser.getTuningOptions(); } catch {}
+    }
+
+    return {
+      id: `session-${now}-${Math.random().toString(36).slice(2, 8)}`,
+      createdAt: new Date(startTime).toISOString(),
+      completedAt: new Date(now).toISOString(),
+      sourceType,
+      sourceFileName,
+      workflowId: workflow.id || null,
+      workflowName: workflow.name || null,
+      model: model || "unknown",
+      language: language || "auto",
+      rawText,
+      processedText: finalText || "",
+      wordCount,
+      prompts: prompts || null,
+      tuning: tuning || null,
+      audioRef: null,
+      llmModel: llmModel || null,
+      durationMs: now - startTime,
+    };
+  }
+
+  async function saveSessionRecord(workflow, context, startTime, finalText) {
+    const session = buildSessionRecord(workflow, context, startTime, finalText);
+    const browser = window.localTranscriberBrowser;
+    if (!browser) return;
+
+    // Save audio blob to IndexedDB if available
+    if (context.audio?.base64 && browser.saveAudioBlob) {
+      const audioRef = await browser.saveAudioBlob(
+        session.id,
+        context.audio.base64,
+        context.audio.mimeType,
+        context.audio.fileName
+      );
+      if (audioRef) {
+        session.audioRef = audioRef;
+      }
+    }
+
+    browser.saveSession(session);
+    console.log(`[Workflow] Session saved: ${session.id} (${session.wordCount} words, ${session.durationMs}ms)`);
   }
 
   async function resolveTransition(phase, allPhases, context, dotNetRef, jobId) {
@@ -2179,6 +2270,37 @@ window.localTranscriberWorkflow = (() => {
         }
 
         if (msg.isCompleted) {
+          // Save YouTube session record
+          try {
+            const rawText = msg.rawWhisperText || "";
+            const ytSession = {
+              id: `session-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+              createdAt: new Date().toISOString(),
+              completedAt: new Date().toISOString(),
+              sourceType: "youtube",
+              sourceFileName: null,
+              workflowId: null,
+              workflowName: "YouTube Transcription",
+              model: "server",
+              language: "auto",
+              rawText,
+              processedText: msg.markdown || msg.speakerLabeledText || rawText,
+              wordCount: rawText.split(/\s+/).filter(Boolean).length,
+              prompts: null,
+              tuning: null,
+              audioRef: null,
+              llmModel: null,
+              durationMs: 0,
+            };
+            const browser = window.localTranscriberBrowser;
+            if (browser?.saveSession) {
+              browser.saveSession(ytSession);
+              console.log(`[Workflow] YouTube session saved: ${ytSession.id}`);
+            }
+          } catch (e) {
+            console.warn("[Workflow] Failed to save YouTube session:", e);
+          }
+
           return {
             rawWhisperText: msg.rawWhisperText,
             speakerLabeledText: msg.speakerLabeledText,

@@ -419,6 +419,90 @@
                         @bind-IsExpanded="_workflowEditorExpanded" 
                         OnWorkflowChanged="OnActiveWorkflowChanged" />
 
+                    @* Session History *@
+                    <details class="settings-accordion">
+                        <summary class="settings-accordion-toggle" @onclick="LoadSessionHistoryAsync">
+                            <span>📜 Session History</span>
+                        </summary>
+                        <div class="settings-accordion-content">
+                            @if (_sessionHistoryLoading)
+                            {
+                                <div class="diagnostics-loading">Loading sessions...</div>
+                            }
+                            else if (_sessionHistory.Count == 0)
+                            {
+                                <div class="diagnostics-loading">No sessions yet. Complete a transcription to see it here.</div>
+                            }
+                            else
+                            {
+                                <div class="session-history-list">
+                                    @foreach (var session in _sessionHistory.Take(20))
+                                    {
+                                        var s = session;
+                                        <div class="session-history-card">
+                                            <button class="session-card-header" type="button" @onclick="() => ToggleSessionDetail(s)">
+                                                <span class="history-date">@FormatSessionDate(s.CreatedAt)</span>
+                                                <span class="history-model">@(s.Model ?? "—")</span>
+                                                <span class="history-workflow">@(s.WorkflowName ?? "—")</span>
+                                                <span class="history-words">@(s.WordCount) words</span>
+                                                <span class="history-source @(s.SourceType ?? "recording")">@(s.SourceType ?? "recording")</span>
+                                            </button>
+
+                                            @if (_expandedSessionId == s.Id)
+                                            {
+                                                <div class="session-detail">
+                                                    @if (!string.IsNullOrWhiteSpace(s.RawText))
+                                                    {
+                                                        <div class="session-transcript-preview">
+                                                            <strong>Transcript Preview</strong>
+                                                            <pre>@(s.RawText.Length > 500 ? s.RawText[..500] + "..." : s.RawText)</pre>
+                                                        </div>
+                                                    }
+
+                                                    @if (s.Prompts != null)
+                                                    {
+                                                        <div class="session-prompts">
+                                                            <strong>Prompts Used</strong>
+                                                            @if (!string.IsNullOrWhiteSpace(s.Prompts.SystemMessage))
+                                                            {
+                                                                <div><span class="session-meta-label">System:</span> @s.Prompts.SystemMessage</div>
+                                                            }
+                                                            @if (!string.IsNullOrWhiteSpace(s.Prompts.CleanupPrompt))
+                                                            {
+                                                                <div><span class="session-meta-label">Cleanup:</span> @(s.Prompts.CleanupPrompt.Length > 120 ? s.Prompts.CleanupPrompt[..120] + "..." : s.Prompts.CleanupPrompt)</div>
+                                                            }
+                                                        </div>
+                                                    }
+
+                                                    @if (s.Tuning != null)
+                                                    {
+                                                        <div class="session-tuning">
+                                                            <strong>Settings Used</strong>
+                                                            <div>
+                                                                <span class="session-meta-label">Strict:</span> @(s.Tuning.StrictTranscript ? "Yes" : "No")
+                                                                <span class="session-meta-label">Actions:</span> @(s.Tuning.IncludeActionItems ? "Yes" : "No")
+                                                                <span class="session-meta-label">Temp:</span> @s.Tuning.Temperature.ToString("F1")
+                                                            </div>
+                                                        </div>
+                                                    }
+
+                                                    <div class="session-actions">
+                                                        <button class="chip-btn" type="button" @onclick="() => LoadSessionTranscriptAsync(s)">View Full Transcript</button>
+                                                        @if (s.AudioRef != null && s.AudioRef.Purged != true)
+                                                        {
+                                                            <button class="chip-btn" type="button" @onclick="() => ReplayAudioAsync(s.Id!)">Play Audio</button>
+                                                        }
+                                                        <button class="chip-btn danger" type="button" @onclick="() => DeleteSessionAsync(s.Id!)">Delete</button>
+                                                    </div>
+                                                </div>
+                                            }
+                                        </div>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    </details>
+
                     @* Diagnostics / Nerd Stats *@
                     <details class="settings-accordion">
                         <summary class="settings-accordion-toggle" @onclick="LoadDiagnosticsAsync">
@@ -515,23 +599,6 @@
                                     </details>
                                 }
 
-                                @if (_diagnostics.RecentSessions?.Count > 0)
-                                {
-                                    <details class="nested-details">
-                                        <summary>📜 Recent History</summary>
-                                        <div class="history-list">
-                                            @foreach (var session in _diagnostics.RecentSessions)
-                                            {
-                                                <div class="history-item">
-                                                    <span class="history-date">@FormatDate(session.Date)</span>
-                                                    <span class="history-model">@session.Model</span>
-                                                    <span class="history-words">@session.WordCount words</span>
-                                                </div>
-                                            }
-                                        </div>
-                                    </details>
-                                }
-
                                 <div class="diagnostics-actions">
                                     <button class="chip-btn" type="button" @onclick="LoadDiagnosticsAsync">🔄 Refresh</button>
                                     <button class="chip-btn ghost" type="button" @onclick="ClearModelCacheAsync">🗑️ Clear Model Cache</button>
@@ -610,6 +677,9 @@
     private bool _isSubmitting;
     private bool _isLaunchAnimating;
     private bool _workflowEditorExpanded;
+    private List<SessionHistoryItem> _sessionHistory = new();
+    private string? _expandedSessionId;
+    private bool _sessionHistoryLoading;
     private DiagnosticsData? _diagnostics;
     private string? _activeJobId;
     private string _statusMessage = "Ready";
@@ -1338,6 +1408,72 @@
         return dt.ToString("MMM d, h:mm tt");
     }
 
+    private async Task LoadSessionHistoryAsync()
+    {
+        if (_sessionHistoryLoading) return;
+        _sessionHistoryLoading = true;
+        StateHasChanged();
+
+        try
+        {
+            var sessions = await JS.InvokeAsync<SessionHistoryItem[]>("localTranscriberBrowser.loadSessions");
+            _sessionHistory = sessions?.ToList() ?? new();
+        }
+        catch
+        {
+            _sessionHistory = new();
+        }
+        finally
+        {
+            _sessionHistoryLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private void ToggleSessionDetail(SessionHistoryItem session)
+    {
+        _expandedSessionId = _expandedSessionId == session.Id ? null : session.Id;
+    }
+
+    private async Task DeleteSessionAsync(string id)
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("localTranscriberBrowser.deleteSession", id);
+            _sessionHistory.RemoveAll(s => s.Id == id);
+            if (_expandedSessionId == id) _expandedSessionId = null;
+            StateHasChanged();
+        }
+        catch { }
+    }
+
+    private async Task ReplayAudioAsync(string id)
+    {
+        try
+        {
+            await JS.InvokeAsync<bool>("localTranscriberBrowser.replaySessionAudio", id);
+        }
+        catch { }
+    }
+
+    private Task LoadSessionTranscriptAsync(SessionHistoryItem session)
+    {
+        _rawWhisperText = session.RawText;
+        _markdownOutput = !string.IsNullOrWhiteSpace(session.ProcessedText) ? session.ProcessedText : session.RawText;
+        _minimalStage = MinimalStage.Results;
+        _activeTab = ResultTab.Final;
+        StateHasChanged();
+        return Task.CompletedTask;
+    }
+
+    private static string FormatSessionDate(string? isoDate)
+    {
+        if (string.IsNullOrWhiteSpace(isoDate)) return "—";
+        if (DateTimeOffset.TryParse(isoDate, out var dto))
+            return dto.LocalDateTime.ToString("MMM d, h:mm tt");
+        return isoDate;
+    }
+
     private async Task LoadDiagnosticsAsync()
     {
         try
@@ -1413,6 +1549,21 @@
     private record BrowserTranscriptionRequest(string JobId, string FileName, string MimeType, string Base64, string Model, string Language, bool EnableSpeakerLabels, bool UseWebLlm, string WebLlmModel);
     private record BrowserTranscriptionResult(string? RawWhisperText, string? SpeakerLabeledText, string? FormatterOutput, string? FormatterUsed, string? Markdown, int? DetectedSpeakerCount, object? SubtitleSegments);
     public record BrowserProgressMessage(string JobId, int Percent, string Stage, string Message, bool IsCompleted, bool IsError, string? RawWhisperText, string? SpeakerLabeledText, string? FormatterOutput, string? FormatterUsed, string? Markdown, int? DetectedSpeakerCount, object? SubtitleSegments);
+
+    // Session History
+    private record SessionHistoryItem(
+        string? Id, string? CreatedAt, string? CompletedAt,
+        string? SourceType, string? SourceFileName,
+        string? WorkflowId, string? WorkflowName,
+        string? Model, string? Language,
+        string? RawText, string? ProcessedText,
+        int WordCount,
+        SessionPromptsInfo? Prompts, SessionTuningInfo? Tuning,
+        SessionAudioRefInfo? AudioRef,
+        string? LlmModel, long DurationMs);
+    private record SessionPromptsInfo(string? SystemMessage, string? CleanupPrompt, string? OutputTemplate);
+    private record SessionTuningInfo(bool StrictTranscript, bool IncludeActionItems, int SummaryMinBullets, int SummaryMaxBullets, double Temperature, int Sensitivity);
+    private record SessionAudioRefInfo(string? SessionId, string? FileName, string? MimeType, long Size, string? CreatedAt, bool? Purged);
 
     // Diagnostics
     private class DiagnosticsData
