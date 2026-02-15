@@ -348,7 +348,8 @@ button.phase-pill.completed:hover {
 }
 
 .mic-select-wrap span,
-.field-grid span {
+.field-grid span,
+.settings-row span {
     color: var(--ink-subtle);
     font-size: 0.75rem;
     font-weight: 700;
@@ -358,7 +359,9 @@ button.phase-pill.completed:hover {
 
 .mic-select-wrap select,
 .field-grid select,
-.field-grid input {
+.field-grid input,
+.settings-row select,
+.settings-row input[type="checkbox"] {
     background: color-mix(in srgb, var(--surface-elevated) 90%, transparent);
     border: 1px solid var(--border-soft);
     border-radius: 12px;
@@ -366,6 +369,62 @@ button.phase-pill.completed:hover {
     min-height: 2.55rem;
     padding: 0.45rem 0.7rem;
     width: 100%;
+}
+
+/* Settings row - horizontal layout for model/speaker controls */
+.settings-row {
+    display: grid;
+    gap: 0.75rem;
+    grid-template-columns: repeat(2, 1fr);
+    width: 100%;
+}
+
+@media (min-width: 560px) {
+    .settings-row {
+        grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    }
+}
+
+@media (max-width: 559px) {
+    .settings-row {
+        grid-template-columns: 1fr;
+    }
+}
+
+.settings-row label {
+    display: grid;
+    gap: 0.36rem;
+    min-width: 0;
+}
+
+.settings-row select {
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+    background-position: right 0.7rem center;
+    background-repeat: no-repeat;
+    cursor: pointer;
+    padding-right: 2.2rem;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.settings-row select:hover:not(:disabled) {
+    border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+.settings-row select:focus {
+    border-color: color-mix(in srgb, var(--accent) 65%, transparent);
+    box-shadow: 0 0 0 0.14rem color-mix(in srgb, var(--accent) 18%, transparent);
+    outline: none;
+}
+
+.settings-row select:disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+}
+
+.settings-row.compact {
+    grid-template-columns: 1fr;
+    max-width: 320px;
 }
 
 /* Settings panel (minimal view) */
@@ -703,6 +762,10 @@ button.phase-pill.completed:hover {
 .control-card,
 .settings-card {
     grid-column: span 6;
+}
+
+.workflow-card {
+    grid-column: 1 / -1;
 }
 
 .progress-card {
@@ -1269,6 +1332,7 @@ audio {
 @media (max-width: 1100px) {
     .control-card,
     .settings-card,
+    .workflow-card,
     .progress-card,
     .result-card,
     .history-card {
@@ -1503,6 +1567,7 @@ audio {
 
 .screen-root.studio .control-card,
 .screen-root.studio .settings-card,
+.screen-root.studio .workflow-card,
 .screen-root.studio .progress-card,
 .screen-root.studio .history-card,
 .screen-root.studio .result-card {

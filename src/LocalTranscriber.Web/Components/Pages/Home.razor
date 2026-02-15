@@ -622,33 +622,10 @@
                         </div>
                     </details>
 
-                    @* Workflow Preset *@
-                    <details class="settings-accordion">
-                        <summary class="settings-accordion-toggle">
-                            <span>Workflow</span>
-                        </summary>
-                        <div class="settings-accordion-content">
-                            <div class="settings-grid">
-                                <label>
-                                    <span>Workflow Preset</span>
-                                    <select @bind="_selectedWorkflowPreset" @bind:after="ApplyWorkflowPresetAsync" disabled="@_isSubmitting">
-                                        <option value="default">Standard Transcription</option>
-                                        <option value="preset-meeting-notes">Meeting Notes</option>
-                                        <option value="preset-podcast-transcript">Podcast Transcript</option>
-                                        <option value="preset-blog-interview">Blog Interview (Ghostwriter)</option>
-                                    </select>
-                                </label>
-                            </div>
-                            @if (_runInBrowser)
-                            {
-                                <p class="settings-hint">Browser mode active. Workflows execute in your browser.</p>
-                            }
-                            else
-                            {
-                                <p class="settings-hint">Server mode active. Use Studio view for full server settings.</p>
-                            }
-                        </div>
-                    </details>
+                    @* Workflow Editor *@
+                    <WorkflowEditor
+                        @bind-IsExpanded="_workflowEditorExpanded"
+                        OnWorkflowChanged="OnActiveWorkflowChanged" />
 
                     @* Diagnostics & Stats *@
                     <details class="settings-accordion">
@@ -849,23 +826,19 @@
                 }
             </article>
 
+            <article class="studio-card workflow-card">
+                <WorkflowEditor
+                    @bind-IsExpanded="_workflowEditorExpanded"
+                    OnWorkflowChanged="OnActiveWorkflowChanged" />
+            </article>
+
             <article class="studio-card settings-card">
                 <header>
                     <h2>Settings</h2>
-                    <p>Model, language, formatting, workflow, and speaker controls.</p>
+                    <p>Model, language, formatting, and speaker controls.</p>
                 </header>
 
                 <div class="field-grid">
-                    <label>
-                        <span>Workflow</span>
-                        <select @bind="_selectedWorkflowPreset" @bind:after="ApplyWorkflowPresetAsync" disabled="@_isSubmitting">
-                            <option value="default">Standard Transcription</option>
-                            <option value="preset-meeting-notes">Meeting Notes</option>
-                            <option value="preset-podcast-transcript">Podcast Transcript</option>
-                            <option value="preset-blog-interview">Blog Interview (Ghostwriter)</option>
-                        </select>
-                    </label>
-
                     <label>
                         <span>Input Device</span>
                         <select @bind="_selectedDeviceId" disabled="@(_devices.Count == 0 || _isRecording || _isSubmitting)">
@@ -1448,7 +1421,7 @@
     private double _speakerShortRunMergeSeconds = 1.6;
 
     private bool _runInBrowser;
-    private string _selectedWorkflowPreset = "default";
+    private bool _workflowEditorExpanded;
     private string _browserCleanupMode = "webllm";
     private string _webLlmModel = "Llama-3.1-8B-Instruct-q4f16_1-MLC";
     private BrowserExecutionCapabilities _browserCapabilities = new(
@@ -1849,33 +1822,6 @@
         _deletedOrphanKeys.Add(key);
     }
 
-    private async Task ApplyWorkflowPresetAsync()
-    {
-        try
-        {
-            if (_selectedWorkflowPreset == "default")
-            {
-                await JS.InvokeVoidAsync("localTranscriberWorkflow.setActiveWorkflow", "default");
-            }
-            else
-            {
-                // createFromPreset returns a new workflow object; set it as active
-                var created = await JS.InvokeAsync<System.Text.Json.JsonElement?>(
-                    "localTranscriberWorkflow.createFromPreset", _selectedWorkflowPreset);
-                if (created is { } workflow)
-                {
-                    var id = workflow.GetProperty("id").GetString();
-                    if (!string.IsNullOrEmpty(id))
-                        await JS.InvokeVoidAsync("localTranscriberWorkflow.setActiveWorkflow", id);
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"Failed to apply workflow preset: {ex.Message}");
-        }
-    }
-
     private void ToggleYouTubeInput()
     {
         _showYouTubeInput = !_showYouTubeInput;
@@ -2131,7 +2077,7 @@
         catch { }
     }
 
-    private void OnActiveWorkflowChanged()
+    private void OnActiveWorkflowChanged(WorkflowEditor.WorkflowModel? workflow)
     {
         StateHasChanged();
     }
