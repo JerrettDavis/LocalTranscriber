@@ -358,6 +358,17 @@
                                 </label>
                             </div>
 
+                            <div class="settings-row compact">
+                                <div class="toggle-label">
+                                    <label class="toggle-switch">
+                                        <input type="checkbox" @bind="_turboMode" @bind:after="OnTurboModeChangedAsync" disabled="@_isSubmitting" />
+                                        <span class="toggle-slider"></span>
+                                    </label>
+                                    <span>Speed Priority</span>
+                                </div>
+                                <p class="settings-hint" style="margin:0">Faster transcription with estimated word timing instead of precise alignment.</p>
+                            </div>
+
                             <p class="settings-hint">Configure models and processing steps in the Workflow editor below.</p>
 
                     @* Advanced Settings Section *@
@@ -723,6 +734,7 @@
     private int _tuningSummaryMax = 8;
     private double _tuningTemperature = 0.2;
     private int _tuningSensitivity = 50;
+    private bool _turboMode;
 
     private BrowserExecutionCapabilities _browserCapabilities = new(false, false, false, false, false, 0, null, "Checking...");
     private MobileReadinessResult? _mobileReadiness;
@@ -799,6 +811,7 @@
             await RefreshMirrorsAsync();
             await LoadPromptsAsync();
             await LoadTuningAsync();
+            await LoadTurboModeAsync();
             _isServerAvailable = await CheckServerAvailableAsync();
             StateHasChanged();
 
@@ -1059,6 +1072,18 @@
                 _tuningSensitivity = tuning.Sensitivity;
             }
         }
+        catch { }
+    }
+
+    private async Task LoadTurboModeAsync()
+    {
+        try { _turboMode = await JS.InvokeAsync<bool>("localTranscriberBrowser.getTurboMode"); }
+        catch { }
+    }
+
+    private async Task OnTurboModeChangedAsync()
+    {
+        try { await JS.InvokeVoidAsync("localTranscriberBrowser.setTurboMode", _turboMode); }
         catch { }
     }
 
