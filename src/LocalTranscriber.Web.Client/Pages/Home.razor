@@ -1,5 +1,7 @@
 @page "/"
 @using System.Globalization
+@using System.Net
+@using System.Text
 @implements IAsyncDisposable
 @inject IJSRuntime JS
 
@@ -112,6 +114,51 @@
             @if (!string.IsNullOrWhiteSpace(_errorMessage))
             {
                 <div class="error-box">@_errorMessage</div>
+            }
+
+            @if (ShouldShowSubtitlePlayer)
+            {
+                <div class="subtitle-sync-card">
+                    <div class="subtitle-sync-head">
+                        <strong>Playback + Synced Subtitles</strong>
+                        <div class="subtitle-sync-meta">
+                            <span>@GetSubtitleStatusText()</span>
+                            <label class="subtitle-autoscroll">
+                                <input type="checkbox" @bind="_subtitleAutoScroll" />
+                                <span>Auto-scroll</span>
+                            </label>
+                        </div>
+                    </div>
+                    <audio @ref="_subtitleAudioRef" controls preload="metadata" src="@_inputDownloadHref"></audio>
+                    <div class="subtitle-now">
+                        @if (ActiveSubtitleSegment is { } now)
+                        {
+                            <div class="subtitle-now-meta">
+                                <span>@FormatSubtitleTimestamp(now.StartSeconds)</span>
+                                @if (!string.IsNullOrWhiteSpace(now.Speaker))
+                                {
+                                    <span>@now.Speaker</span>
+                                }
+                            </div>
+                            <p class="subtitle-live-line">@((MarkupString)BuildHighlightedSubtitleMarkup(now, _subtitleCurrentSeconds))</p>
+                        }
+                        else
+                        {
+                            <p class="subtext">Press play to start subtitle playback.</p>
+                        }
+                    </div>
+                    <div class="subtitle-list" @ref="_subtitleListRef">
+                        @for (var i = 0; i < _subtitleSegments.Count; i++)
+                        {
+                            var segment = _subtitleSegments[i];
+                            var idx = i;
+                            <button class="subtitle-line @(i == _activeSubtitleIndex ? "active" : "")" type="button" data-subtitle-index="@i" @onclick="() => SeekToSubtitleAsync(idx)">
+                                <span class="subtitle-time">@FormatSubtitleTimestamp(segment.StartSeconds)</span>
+                                <span class="subtitle-copy">@segment.Text</span>
+                            </button>
+                        }
+                    </div>
+                </div>
             }
 
             <div class="tab-row">
@@ -490,7 +537,8 @@
                                                         <button class="chip-btn" type="button" @onclick="() => LoadSessionTranscriptAsync(s)">View Full Transcript</button>
                                                         @if (s.AudioRef != null && s.AudioRef.Purged != true)
                                                         {
-                                                            <button class="chip-btn" type="button" @onclick="() => ReplayAudioAsync(s.Id!)">Play Audio</button>
+                                                            <button class="chip-btn" type="button" @onclick="() => LoadSessionWithSubtitlesAsync(s)">Play with Subtitles</button>
+                                                            <button class="chip-btn" type="button" @onclick="() => DownloadSessionAudioAsync(s.Id!)">Download Audio</button>
                                                         }
                                                         <button class="chip-btn danger" type="button" @onclick="() => DeleteSessionAsync(s.Id!)">Delete</button>
                                                     </div>
@@ -703,6 +751,20 @@
     private List<string> _phaseNames = new();
     private int _currentPhaseIndex = -1;
 
+    // Subtitle player state
+    private readonly List<TranscriptionSubtitleSegment> _subtitleSegments = [];
+    private ElementReference _subtitleAudioRef;
+    private ElementReference _subtitleListRef;
+    private bool _subtitleSyncBound;
+    private string? _subtitleSyncKey;
+    private int _activeSubtitleIndex = -1;
+    private double _subtitleCurrentSeconds;
+    private bool _subtitleIsPaused = true;
+    private bool _subtitleAutoScroll = true;
+    private int? _pendingSubtitleAutoScrollIndex;
+    private string? _inputDownloadHref;
+    private string? _inputDownloadFileName;
+
     private bool _hasAudio => _browserRecording is not null
         || _uploadedAudio is not null
         || (!string.IsNullOrWhiteSpace(_youtubeUrl) && _isServerAvailable);
@@ -733,7 +795,7 @@
             await LoadTuningAsync();
             _isServerAvailable = await CheckServerAvailableAsync();
             StateHasChanged();
-            
+
             // Focus record button after initial render
             try
             {
@@ -741,6 +803,9 @@
             }
             catch { }
         }
+
+        await EnsureSubtitleSyncAsync();
+        await EnsureSubtitleAutoScrollAsync();
     }
 
     private async Task RefreshBrowserCapabilitiesAsync()
@@ -916,6 +981,10 @@
             _rawWhisperText = result.RawWhisperText;
             _markdownOutput = result.Markdown ?? result.SpeakerLabeledText ?? result.RawWhisperText;
             _statusMessage = "Complete!";
+
+            // Load subtitle segments from workflow result
+            SetSubtitleSegments(result.SubtitleSegments);
+
             _minimalStage = MinimalStage.Results;
         }
         catch (Exception ex)
@@ -1152,6 +1221,23 @@
             _rawWhisperText = result.RawWhisperText;
             _markdownOutput = result.Markdown ?? result.SpeakerLabeledText ?? result.RawWhisperText;
             _statusMessage = "Complete!";
+
+            // Load subtitle segments from workflow result
+            SetSubtitleSegments(result.SubtitleSegments);
+
+            // Build audio data URL for the subtitle player
+            if (_browserRecording is not null)
+            {
+                _inputDownloadHref = $"data:{_browserRecording.MimeType};base64,{_browserRecording.Base64}";
+                _inputDownloadFileName = _browserRecording.FileName;
+            }
+            else if (_uploadedAudio is not null)
+            {
+                var b64 = Convert.ToBase64String(_uploadedAudio.Bytes);
+                _inputDownloadHref = $"data:{_uploadedAudio.MimeType};base64,{b64}";
+                _inputDownloadFileName = _uploadedAudio.FileName;
+            }
+
             _minimalStage = MinimalStage.Results;
         }
         catch (Exception ex)
@@ -1351,6 +1437,9 @@
         ClearInteractiveState();
         _phaseNames.Clear();
         _currentPhaseIndex = -1;
+        SetSubtitleSegments(null);
+        _inputDownloadHref = null;
+        _inputDownloadFileName = null;
         return Task.CompletedTask;
     }
 
@@ -1460,10 +1549,48 @@
     {
         _rawWhisperText = session.RawText;
         _markdownOutput = !string.IsNullOrWhiteSpace(session.ProcessedText) ? session.ProcessedText : session.RawText;
+        SetSubtitleSegments(null);
+        _inputDownloadHref = null;
+        _inputDownloadFileName = null;
         _minimalStage = MinimalStage.Results;
         _activeTab = ResultTab.Final;
         StateHasChanged();
         return Task.CompletedTask;
+    }
+
+    private async Task LoadSessionWithSubtitlesAsync(SessionHistoryItem session)
+    {
+        _rawWhisperText = session.RawText;
+        _markdownOutput = !string.IsNullOrWhiteSpace(session.ProcessedText) ? session.ProcessedText : session.RawText;
+
+        // Load subtitle segments
+        SetSubtitleSegments(session.Segments);
+
+        // Load audio from IndexedDB
+        try
+        {
+            var audioUrl = await JS.InvokeAsync<string?>("localTranscriberBrowser.getSessionAudioUrl", session.Id);
+            _inputDownloadHref = audioUrl;
+            _inputDownloadFileName = session.AudioRef?.FileName;
+        }
+        catch
+        {
+            _inputDownloadHref = null;
+            _inputDownloadFileName = null;
+        }
+
+        _minimalStage = MinimalStage.Results;
+        _activeTab = ResultTab.Final;
+        StateHasChanged();
+    }
+
+    private async Task DownloadSessionAudioAsync(string id)
+    {
+        try
+        {
+            await JS.InvokeAsync<bool>("localTranscriberBrowser.downloadSessionAudio", id);
+        }
+        catch { }
     }
 
     private static string FormatSessionDate(string? isoDate)
@@ -1528,10 +1655,23 @@
         catch { }
     }
 
-    public ValueTask DisposeAsync()
+    public async ValueTask DisposeAsync()
     {
+        if (_subtitleSyncBound)
+        {
+            try
+            {
+                await JS.InvokeVoidAsync("localTranscriberSubtitleSync.dispose", _subtitleAudioRef);
+            }
+            catch { }
+            finally
+            {
+                _subtitleSyncBound = false;
+                _subtitleSyncKey = null;
+            }
+        }
+
         _dotNetRef?.Dispose();
-        return ValueTask.CompletedTask;
     }
 
     private enum MinimalStage { Capture, Processing, Interactive, Results }
@@ -1560,7 +1700,8 @@
         int WordCount,
         SessionPromptsInfo? Prompts, SessionTuningInfo? Tuning,
         SessionAudioRefInfo? AudioRef,
-        string? LlmModel, long DurationMs);
+        string? LlmModel, long DurationMs,
+        object? Segments = null);
     private record SessionPromptsInfo(string? SystemMessage, string? CleanupPrompt, string? OutputTemplate);
     private record SessionTuningInfo(bool StrictTranscript, bool IncludeActionItems, int SummaryMinBullets, int SummaryMaxBullets, double Temperature, int Sensitivity);
     private record SessionAudioRefInfo(string? SessionId, string? FileName, string? MimeType, long Size, string? CreatedAt, bool? Purged);
@@ -1601,7 +1742,7 @@
     private record ServiceWorkerStatsJs(bool Registered, string? Scope, string? State);
 
     // Workflow execution result (returned by executeActiveWorkflow)
-    private record WorkflowExecutionResult(string? RawWhisperText, string? SpeakerLabeledText, string? Markdown, int? DetectedSpeakerCount, bool? Navigated);
+    private record WorkflowExecutionResult(string? RawWhisperText, string? SpeakerLabeledText, string? Markdown, int? DetectedSpeakerCount, bool? Navigated, object? SubtitleSegments = null);
 
     // Workflow progress message (from OnWorkflowProgress callback)
     public record WorkflowProgressMessage(
@@ -1629,4 +1770,410 @@
     // Mobile readiness
     private record MobileReadinessResult(bool Ready, bool IsMobile, int EstimatedMemoryMB, string[]? Issues, string[]? Warnings, string[]? RecommendedModels);
     private record MemoryCheckResult(string ModelName, int RequiredMB, int AvailableMB, bool IsSafe, bool Blocked, string? Warning);
+
+    // Subtitle records
+    private sealed record TranscriptionSubtitleWord(string Text, double StartSeconds, double EndSeconds);
+    private sealed record TranscriptionSubtitleSegment(
+        double StartSeconds, double EndSeconds, string Text,
+        string? Speaker = null, IReadOnlyList<TranscriptionSubtitleWord>? Words = null);
+    private sealed record TimedWord(string Text, double StartSeconds, double EndSeconds);
+
+    // Subtitle properties
+    private bool ShouldShowSubtitlePlayer =>
+        !string.IsNullOrWhiteSpace(_inputDownloadHref) &&
+        _subtitleSegments.Count > 0 &&
+        _minimalStage == MinimalStage.Results;
+
+    private TranscriptionSubtitleSegment? ActiveSubtitleSegment =>
+        _activeSubtitleIndex >= 0 && _activeSubtitleIndex < _subtitleSegments.Count
+            ? _subtitleSegments[_activeSubtitleIndex]
+            : null;
+
+    // Subtitle methods
+    [JSInvokable]
+    public Task OnSubtitleClock(double currentSeconds, bool isPaused, bool isEnded)
+    {
+        var normalized = Math.Max(0, currentSeconds);
+        var previousIndex = _activeSubtitleIndex;
+        var previousTime = _subtitleCurrentSeconds;
+        var previousPaused = _subtitleIsPaused;
+
+        _subtitleCurrentSeconds = normalized;
+        _subtitleIsPaused = isPaused;
+        UpdateActiveSubtitleIndex(normalized);
+
+        if (isEnded && _subtitleSegments.Count > 0)
+            _activeSubtitleIndex = _subtitleSegments.Count - 1;
+
+        if (_subtitleAutoScroll && previousIndex != _activeSubtitleIndex && _activeSubtitleIndex >= 0)
+            _pendingSubtitleAutoScrollIndex = _activeSubtitleIndex;
+
+        var shouldRender =
+            previousIndex != _activeSubtitleIndex ||
+            Math.Abs(previousTime - normalized) >= 0.02 ||
+            previousPaused != isPaused;
+
+        return shouldRender
+            ? InvokeAsync(StateHasChanged)
+            : Task.CompletedTask;
+    }
+
+    private async Task EnsureSubtitleSyncAsync()
+    {
+        if (_dotNetRef is null)
+            return;
+
+        try
+        {
+            if (ShouldShowSubtitlePlayer)
+            {
+                var syncKey = $"{_activeJobId}|{_inputDownloadFileName}|{_subtitleSegments.Count}";
+                if (_subtitleSyncBound && string.Equals(_subtitleSyncKey, syncKey, StringComparison.Ordinal))
+                    return;
+
+                if (_subtitleSyncBound)
+                    await JS.InvokeVoidAsync("localTranscriberSubtitleSync.dispose", _subtitleAudioRef);
+
+                var bound = await JS.InvokeAsync<bool?>(
+                    "localTranscriberSubtitleSync.bind",
+                    _subtitleAudioRef,
+                    _dotNetRef);
+
+                if (bound != true)
+                {
+                    _subtitleSyncBound = false;
+                    _subtitleSyncKey = null;
+                    return;
+                }
+
+                _subtitleSyncBound = true;
+                _subtitleSyncKey = syncKey;
+                return;
+            }
+
+            if (_subtitleSyncBound)
+                await JS.InvokeVoidAsync("localTranscriberSubtitleSync.dispose", _subtitleAudioRef);
+            _subtitleSyncBound = false;
+            _subtitleSyncKey = null;
+        }
+        catch
+        {
+            _subtitleSyncBound = false;
+            _subtitleSyncKey = null;
+        }
+    }
+
+    private async Task EnsureSubtitleAutoScrollAsync()
+    {
+        if (!_subtitleAutoScroll || !ShouldShowSubtitlePlayer || _pendingSubtitleAutoScrollIndex is null)
+            return;
+
+        if (_pendingSubtitleAutoScrollIndex < 0)
+        {
+            _pendingSubtitleAutoScrollIndex = null;
+            return;
+        }
+
+        try
+        {
+            await JS.InvokeVoidAsync(
+                "localTranscriberSubtitleSync.scrollToIndex",
+                _subtitleListRef,
+                _pendingSubtitleAutoScrollIndex.Value);
+        }
+        catch { }
+        finally
+        {
+            _pendingSubtitleAutoScrollIndex = null;
+        }
+    }
+
+    private void SetSubtitleSegments(object? raw)
+    {
+        _subtitleSegments.Clear();
+
+        if (raw is null)
+        {
+            _subtitleCurrentSeconds = 0;
+            _subtitleIsPaused = true;
+            _activeSubtitleIndex = -1;
+            _pendingSubtitleAutoScrollIndex = null;
+            return;
+        }
+
+        // Deserialize from JSON element (JS interop returns JsonElement)
+        try
+        {
+            var json = raw is System.Text.Json.JsonElement je
+                ? je.GetRawText()
+                : System.Text.Json.JsonSerializer.Serialize(raw);
+
+            var segments = System.Text.Json.JsonSerializer.Deserialize<List<TranscriptionSubtitleSegment>>(json,
+                new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+            if (segments is not null)
+            {
+                var ordered = segments
+                    .Where(s => !string.IsNullOrWhiteSpace(s.Text))
+                    .OrderBy(s => s.StartSeconds)
+                    .ToArray();
+
+                for (var i = 0; i < ordered.Length; i++)
+                {
+                    var segment = ordered[i];
+                    var text = segment.Text.Trim();
+                    var speaker = string.IsNullOrWhiteSpace(segment.Speaker) ? null : segment.Speaker.Trim();
+                    var start = Math.Max(0, segment.StartSeconds);
+                    var nextStart = i < ordered.Length - 1
+                        ? Math.Max(start, ordered[i + 1].StartSeconds)
+                        : double.PositiveInfinity;
+
+                    var words = segment.Words?
+                        .Where(w => !string.IsNullOrWhiteSpace(w.Text))
+                        .Select(w =>
+                        {
+                            var wordStart = Math.Max(start, w.StartSeconds);
+                            var wordEnd = Math.Max(wordStart + 0.02, w.EndSeconds);
+                            return new TranscriptionSubtitleWord(w.Text.Trim(), wordStart, wordEnd);
+                        })
+                        .Where(w => !string.IsNullOrWhiteSpace(w.Text))
+                        .OrderBy(w => w.StartSeconds)
+                        .ToArray();
+
+                    var maxWordEnd = words is { Length: > 0 } ? words[^1].EndSeconds : 0;
+                    var rawEnd = Math.Max(start + 0.08, Math.Max(segment.EndSeconds, maxWordEnd));
+                    var estimatedEnd = words is { Length: > 0 }
+                        ? rawEnd
+                        : start + EstimateSubtitleDurationSeconds(text);
+                    var end = Math.Max(rawEnd, estimatedEnd);
+
+                    if (!double.IsInfinity(nextStart))
+                        end = Math.Min(end, Math.Max(start + 0.08, nextStart - 0.02));
+
+                    if (end <= start)
+                        end = start + 0.08;
+
+                    if (words is { Length: > 0 })
+                    {
+                        for (var w = 0; w < words.Length; w++)
+                        {
+                            var word = words[w];
+                            var normalizedStart = Math.Max(start, word.StartSeconds);
+                            var normalizedEnd = Math.Min(end, Math.Max(normalizedStart + 0.02, word.EndSeconds));
+                            words[w] = word with
+                            {
+                                StartSeconds = normalizedStart,
+                                EndSeconds = normalizedEnd
+                            };
+                        }
+                    }
+
+                    _subtitleSegments.Add(new TranscriptionSubtitleSegment(start, end, text, speaker, words));
+                }
+            }
+        }
+        catch { }
+
+        _subtitleCurrentSeconds = 0;
+        _subtitleIsPaused = true;
+        _activeSubtitleIndex = -1;
+        _pendingSubtitleAutoScrollIndex = null;
+    }
+
+    private void UpdateActiveSubtitleIndex(double currentSeconds)
+    {
+        var index = -1;
+        for (var i = 0; i < _subtitleSegments.Count; i++)
+        {
+            var segment = _subtitleSegments[i];
+            if (currentSeconds + 0.02 < segment.StartSeconds)
+                break;
+
+            if (currentSeconds >= segment.StartSeconds - 0.02 &&
+                currentSeconds <= segment.EndSeconds + 0.08)
+            {
+                index = i;
+                break;
+            }
+        }
+
+        if (index < 0 && _subtitleSegments.Count > 0 && currentSeconds > _subtitleSegments[^1].EndSeconds)
+            index = _subtitleSegments.Count - 1;
+
+        _activeSubtitleIndex = index;
+    }
+
+    private async Task SeekToSubtitleAsync(int index)
+    {
+        if (index < 0 || index >= _subtitleSegments.Count)
+            return;
+
+        var target = Math.Max(0, _subtitleSegments[index].StartSeconds);
+        await JS.InvokeVoidAsync("localTranscriberSubtitleSync.seek", _subtitleAudioRef, target);
+        _subtitleCurrentSeconds = target;
+        _activeSubtitleIndex = index;
+        if (_subtitleAutoScroll)
+            _pendingSubtitleAutoScrollIndex = index;
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private string GetSubtitleStatusText()
+    {
+        if (_subtitleSegments.Count == 0)
+            return "No subtitle segments";
+
+        var state = _subtitleIsPaused ? "Paused" : "Playing";
+        return $"{state} @ {FormatSubtitleTimestamp(_subtitleCurrentSeconds)}";
+    }
+
+    private static string FormatSubtitleTimestamp(double seconds)
+    {
+        var ts = TimeSpan.FromSeconds(Math.Max(0, seconds));
+        return ts.TotalHours >= 1
+            ? ts.ToString(@"hh\:mm\:ss")
+            : ts.ToString(@"mm\:ss");
+    }
+
+    private static IReadOnlyList<TimedWord> BuildTimedWords(TranscriptionSubtitleSegment segment)
+    {
+        if (string.IsNullOrWhiteSpace(segment.Text))
+            return [];
+
+        if (segment.Words is { Count: > 0 })
+        {
+            var normalized = segment.Words
+                .Where(w => !string.IsNullOrWhiteSpace(w.Text))
+                .Select(w =>
+                {
+                    var text = w.Text.Trim();
+                    var start = Math.Max(segment.StartSeconds, w.StartSeconds);
+                    var end = Math.Min(
+                        segment.EndSeconds,
+                        Math.Max(start + 0.02, w.EndSeconds));
+                    return new TimedWord(text, start, end);
+                })
+                .Where(w => !string.IsNullOrWhiteSpace(w.Text))
+                .OrderBy(w => w.StartSeconds)
+                .ToArray();
+
+            if (normalized.Length > 0)
+                return normalized;
+        }
+
+        var tokens = segment.Text
+            .Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (tokens.Length == 0)
+            return [];
+
+        var start2 = Math.Max(0, segment.StartSeconds);
+        var end2 = Math.Max(start2 + 0.05, Math.Max(segment.EndSeconds, start2 + EstimateSubtitleDurationSeconds(segment.Text)));
+        var duration = end2 - start2;
+
+        var weights = tokens.Select(EstimateWordWeight).ToArray();
+        var totalWeight = Math.Max(1, weights.Sum());
+
+        var words = new List<TimedWord>(tokens.Length);
+        var cursor = start2;
+        for (var i = 0; i < tokens.Length; i++)
+        {
+            var isLast = i == tokens.Length - 1;
+            var slice = isLast
+                ? end2 - cursor
+                : duration * (weights[i] / (double)totalWeight);
+            var wordEnd = Math.Min(end2, cursor + Math.Max(0.03, slice));
+            words.Add(new TimedWord(tokens[i], cursor, wordEnd));
+            cursor = wordEnd;
+        }
+
+        if (words.Count > 0 && words[^1].EndSeconds < end2)
+            words[^1] = words[^1] with { EndSeconds = end2 };
+
+        return words;
+    }
+
+    private static int GetActiveWordIndex(IReadOnlyList<TimedWord> words, double currentSeconds)
+    {
+        if (words.Count == 0)
+            return -1;
+
+        var t = Math.Max(0, currentSeconds);
+        if (t <= words[0].StartSeconds)
+            return 0;
+
+        for (var i = 0; i < words.Count; i++)
+        {
+            var w = words[i];
+            if (t >= w.StartSeconds && t < w.EndSeconds)
+                return i;
+        }
+
+        return words.Count - 1;
+    }
+
+    private static int EstimateWordWeight(string token)
+    {
+        if (string.IsNullOrWhiteSpace(token))
+            return 1;
+
+        var alphaNumeric = token.Count(char.IsLetterOrDigit);
+        return Math.Clamp(alphaNumeric, 1, 14);
+    }
+
+    private static double EstimateSubtitleDurationSeconds(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return 0.8;
+
+        var words = text.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Length;
+        var byWords = words / 2.8;
+        var byChars = text.Length * 0.052;
+        return Math.Max(0.8, Math.Max(byWords, byChars));
+    }
+
+    private static string BuildHighlightedSubtitleMarkup(TranscriptionSubtitleSegment segment, double currentSeconds)
+    {
+        var words = BuildTimedWords(segment);
+        if (words.Count == 0)
+            return WebUtility.HtmlEncode(segment.Text ?? string.Empty);
+
+        var activeIndex = GetActiveWordIndex(words, currentSeconds);
+        var sb = new StringBuilder();
+
+        for (var i = 0; i < words.Count; i++)
+        {
+            if (i > 0 && ShouldRenderGapBefore(words[i].Text))
+                sb.Append("<span class=\"subtitle-gap\"> </span>");
+
+            var css = i == activeIndex ? "subtitle-word active" : "subtitle-word";
+            if (i == activeIndex)
+            {
+                sb.Append("<mark class=\"")
+                    .Append(css)
+                    .Append("\">")
+                    .Append(WebUtility.HtmlEncode(words[i].Text))
+                    .Append("</mark>");
+            }
+            else
+            {
+                sb.Append("<span class=\"")
+                    .Append(css)
+                    .Append("\">")
+                    .Append(WebUtility.HtmlEncode(words[i].Text))
+                    .Append("</span>");
+            }
+        }
+
+        return sb.ToString();
+    }
+
+    private static bool ShouldRenderGapBefore(string token)
+    {
+        if (string.IsNullOrWhiteSpace(token))
+            return false;
+
+        if (token[0] is '\'' or '\u2019' or '-' or '\u2013' or '\u2014')
+            return false;
+
+        return !token.All(char.IsPunctuation);
+    }
 }

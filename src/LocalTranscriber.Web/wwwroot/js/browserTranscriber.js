@@ -1807,6 +1807,34 @@ Rules:
     return true;
   }
 
+  async function downloadSessionAudio(sessionId) {
+    const record = await getAudioBlob(sessionId);
+    if (!record?.blob) {
+      console.warn("[LocalTranscriber] No audio found for session:", sessionId);
+      return false;
+    }
+
+    const url = URL.createObjectURL(record.blob);
+    const fileName = record.fileName || "recording.webm";
+
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = fileName;
+    anchor.style.display = "none";
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+
+    setTimeout(() => URL.revokeObjectURL(url), 0);
+    return true;
+  }
+
+  async function getSessionAudioUrl(sessionId) {
+    const record = await getAudioBlob(sessionId);
+    if (!record?.blob) return null;
+    return URL.createObjectURL(record.blob);
+  }
+
   // Standalone transcription function for workflow engine step handlers.
   // audioInput: { base64, fileName, mimeType }
   async function transcribeAudio(audioInput, model, language, onProgress) {
@@ -1996,7 +2024,9 @@ Rules:
     getAudioBlob,
     deleteAudioBlob,
     replaySessionAudio,
-    
+    downloadSessionAudio,
+    getSessionAudioUrl,
+
     // Diagnostics
     async diagnose() {
       console.log("=== LocalTranscriber Diagnostics ===\n");
