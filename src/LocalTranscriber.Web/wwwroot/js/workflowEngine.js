@@ -956,6 +956,7 @@ window.localTranscriberWorkflow = (() => {
       workflowOutputs: context.outputs,
       phaseOutputs: context.phaseOutputs,
       variables: context.variables,
+      subtitleSegments: context.segments || null,
     });
 
     return {
@@ -966,6 +967,7 @@ window.localTranscriberWorkflow = (() => {
       outputs: context.outputs,
       phaseOutputs: context.phaseOutputs,
       variables: context.variables,
+      subtitleSegments: context.segments || null,
     };
   }
 
@@ -1027,6 +1029,7 @@ window.localTranscriberWorkflow = (() => {
       audioRef: null,
       llmModel: llmModel || null,
       durationMs: now - startTime,
+      segments: context.segments || null,
     };
   }
 
