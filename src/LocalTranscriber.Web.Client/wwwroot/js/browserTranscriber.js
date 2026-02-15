@@ -187,6 +187,20 @@ Rules:
     return { ...defaultTuningOptions };
   }
 
+  const TURBO_STORAGE_KEY = "localTranscriber_turboMode";
+
+  function getTurboMode() {
+    try { return localStorage.getItem(TURBO_STORAGE_KEY) === "true"; }
+    catch { return false; }
+  }
+
+  function setTurboMode(enabled) {
+    try {
+      localStorage.setItem(TURBO_STORAGE_KEY, enabled ? "true" : "false");
+      return true;
+    } catch { return false; }
+  }
+
   let transformersModulePromise = null;
   let webLlmModulePromise = null;
   const asrPipelineCache = new Map();
@@ -423,12 +437,15 @@ Rules:
         ? request.language
         : undefined;
 
+    const turbo = getTurboMode();
+    const timestampMode = turbo ? true : "word";
+
     let asrResult;
     try {
       asrResult = await runAsrWithRecovery(asr, audioData, {
         chunk_length_s: 30,
         stride_length_s: 5,
-        return_timestamps: "word",
+        return_timestamps: timestampMode,
         ...(language ? { language } : {}),
       }, request.model, (pct) =>
         emitProgress(dotNetRef, request, Math.min(43, Math.max(30, pct)), "transcribe", "Reloading model...")
@@ -1861,26 +1878,10 @@ Rules:
 
     if (onProgress) onProgress(50, "Transcribing...");
 
+    const turbo = getTurboMode();
     let asrResult;
-    try {
+    if (turbo) {
       asrResult = await runAsrWithRecovery(asr, audioData, {
-        chunk_length_s: 30,
-        stride_length_s: 5,
-        return_timestamps: "word",
-        ...(resolvedLang ? { language: resolvedLang } : {}),
-      }, resolvedModel, (pct) => {
-        if (onProgress) onProgress(30 + pct * 0.2, "Reloading model...");
-      });
-    } catch (wordTsErr) {
-      // If the WASM runtime is corrupted, don't retry — let the error propagate
-      if (wasmRuntimeCorrupted) throw wordTsErr;
-
-      // Word-level timestamps failed — retry with segment timestamps.
-      // Get a fresh pipeline reference in case the old one was evicted.
-      const freshAsr = await getWhisperPipeline(resolvedModel, (pct) => {
-        if (onProgress) onProgress(30 + pct * 0.2, "Reloading model...");
-      });
-      asrResult = await runAsrWithRecovery(freshAsr, audioData, {
         chunk_length_s: 30,
         stride_length_s: 5,
         return_timestamps: true,
@@ -1888,6 +1889,34 @@ Rules:
       }, resolvedModel, (pct) => {
         if (onProgress) onProgress(30 + pct * 0.2, "Reloading model...");
       });
+    } else {
+      try {
+        asrResult = await runAsrWithRecovery(asr, audioData, {
+          chunk_length_s: 30,
+          stride_length_s: 5,
+          return_timestamps: "word",
+          ...(resolvedLang ? { language: resolvedLang } : {}),
+        }, resolvedModel, (pct) => {
+          if (onProgress) onProgress(30 + pct * 0.2, "Reloading model...");
+        });
+      } catch (wordTsErr) {
+        // If the WASM runtime is corrupted, don't retry — let the error propagate
+        if (wasmRuntimeCorrupted) throw wordTsErr;
+
+        // Word-level timestamps failed — retry with segment timestamps.
+        // Get a fresh pipeline reference in case the old one was evicted.
+        const freshAsr = await getWhisperPipeline(resolvedModel, (pct) => {
+          if (onProgress) onProgress(30 + pct * 0.2, "Reloading model...");
+        });
+        asrResult = await runAsrWithRecovery(freshAsr, audioData, {
+          chunk_length_s: 30,
+          stride_length_s: 5,
+          return_timestamps: true,
+          ...(resolvedLang ? { language: resolvedLang } : {}),
+        }, resolvedModel, (pct) => {
+          if (onProgress) onProgress(30 + pct * 0.2, "Reloading model...");
+        });
+      }
     }
 
     const text = normalizeText(asrResult?.text ?? "");
@@ -2009,6 +2038,10 @@ Rules:
     getTuningOptions,
     setTuningOptions,
     resetTuningOptions,
+
+    // Speed priority (turbo mode)
+    getTurboMode,
+    setTurboMode,
     
     // WebLLM
     listWebLlmModels,
