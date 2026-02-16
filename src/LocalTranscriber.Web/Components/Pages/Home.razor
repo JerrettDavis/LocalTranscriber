@@ -157,10 +157,27 @@
                             {
                                 var idx = i;
                                 <div class="multi-record-item">
-                                    <label>
+                                    <div class="prompt-header-inline">
                                         <strong>@_interactivePrompts[idx]</strong>
-                                        <textarea @bind="_multiRecordAnswers[idx]" @bind:event="oninput" rows="3" placeholder="Type your answer..."></textarea>
-                                    </label>
+                                        <button class="tts-btn @(_ttsPlayingIndex == idx ? "playing" : "")" type="button"
+                                                title="Read aloud" @onclick="() => ToggleServerTtsAsync(idx)">
+                                            @if (_ttsPlayingIndex == idx)
+                                            {
+                                                <svg class="tts-icon" viewBox="0 0 24 24" fill="currentColor" style="width:1rem;height:1rem;">
+                                                    <rect x="6" y="5" width="4" height="14" rx="1"/>
+                                                    <rect x="14" y="5" width="4" height="14" rx="1"/>
+                                                </svg>
+                                            }
+                                            else
+                                            {
+                                                <svg class="tts-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:1rem;height:1rem;">
+                                                    <path d="M11 5L6 9H2v6h4l5 4V5z"/>
+                                                    <path d="M15.54 8.46a5 5 0 0 1 0 7.07" stroke-linecap="round"/>
+                                                </svg>
+                                            }
+                                        </button>
+                                    </div>
+                                    <textarea @bind="_multiRecordAnswers[idx]" @bind:event="oninput" rows="3" placeholder="Type your answer..."></textarea>
                                 </div>
                             }
                         </div>
@@ -510,6 +527,26 @@
                                             <option value="@mirror.Url">@mirror.Name (@mirror.Region)</option>
                                         }
                                     </select>
+                                </label>
+                            </div>
+
+                            <div class="settings-row compact">
+                                <label>
+                                    <span>TTS Voice</span>
+                                    <select @bind="_ttsVoice" @bind:after="OnTtsSettingsChanged" disabled="@_isSubmitting">
+                                        @foreach (var voice in _ttsVoices)
+                                        {
+                                            <option value="@voice.Id">@voice.Label (@voice.Accent, @voice.Gender)</option>
+                                        }
+                                    </select>
+                                </label>
+                            </div>
+
+                            <div class="settings-row compact">
+                                <label>
+                                    <span>TTS Speed</span>
+                                    <input type="range" @bind="_ttsSpeed" @bind:after="OnTtsSettingsChanged" min="0.5" max="2.0" step="0.1" disabled="@_isSubmitting" />
+                                    <span class="range-value">@_ttsSpeed.ToString("F1")x</span>
                                 </label>
                             </div>
 
@@ -1384,6 +1421,12 @@
     private double _tuningTemperature = 0.2;
     private int _tuningSensitivity = 50;
 
+    // TTS settings
+    private string _ttsVoice = "af_heart";
+    private double _ttsSpeed = 1.0;
+    private List<TtsVoiceInfo> _ttsVoices = new();
+    private int? _ttsPlayingIndex;
+
     private DiagnosticsData? _diagnostics;
 
     private string? _selectedDeviceId;
@@ -1526,6 +1569,7 @@
             await RefreshMirrorsAsync();
             await LoadPromptsAsync();
             await LoadTuningAsync();
+            await LoadTtsSettingsAsync();
             await LoadHistoryAsync();
             await InvokeAsync(StateHasChanged);
         }
@@ -1843,89 +1887,65 @@
 
         try
         {
-            if (_runInBrowser)
+            if (_dotNetRef is null)
+                _dotNetRef = DotNetObjectReference.Create(this);
+
+            // Step 1: Download YouTube audio via server (bypass default 1-min JS interop timeout)
+            var ytResult = await JS.InvokeAsync<YouTubeDownloadResult>(
+                "localTranscriberWorkflow.downloadYouTubeAudio",
+                CancellationToken.None,
+                _youtubeUrl);
+
+            _statusMessage = $"Downloaded: {ytResult.VideoTitle ?? "YouTube audio"}";
+            _outputPath = $"YouTube: {ytResult.VideoTitle ?? _youtubeUrl}";
+            await InvokeAsync(StateHasChanged);
+
+            // Set up audio download href for subtitle player
+            _inputDownloadHref = $"data:{ytResult.MimeType};base64,{ytResult.Base64}";
+            _inputDownloadFileName = ytResult.FileName;
+
+            // Step 2: Set transcription target based on _runInBrowser toggle
+            await JS.InvokeVoidAsync("localTranscriberWorkflow.setTranscriptionTarget",
+                _runInBrowser ? "browser" : "server");
+
+            if (!_runInBrowser)
             {
-                if (_dotNetRef is null)
-                    _dotNetRef = DotNetObjectReference.Create(this);
-
-                var result = await JS.InvokeAsync<WorkflowExecutionResult>(
-                    "localTranscriberWorkflow.submitYouTubeUrl",
-                    _youtubeUrl,
-                    _dotNetRef,
-                    _activeJobId);
-
-                if (result.Navigated == true) return;
-
-                _rawWhisperText = result.RawWhisperText ?? _rawWhisperText;
-                _speakerLabeledText = result.SpeakerLabeledText ?? _speakerLabeledText;
-                _markdownOutput = result.Markdown ?? result.SpeakerLabeledText ?? result.RawWhisperText ?? _markdownOutput;
-                _detectedSpeakerCount = result.DetectedSpeakerCount ?? _detectedSpeakerCount;
-                _percent = 100;
-                _statusMessage = "Workflow complete.";
-                _minimalStage = MinimalStage.Results;
-                _isSubmitting = false;
-                await SaveSnapshotAsync();
-                return;
+                await JS.InvokeVoidAsync("localTranscriberWorkflow.setServerConfig", new
+                {
+                    ollamaUri = _ollamaUri,
+                    ollamaModel = _ollamaModel,
+                    hfEndpoint = _hfEndpoint,
+                    hfModel = _hfModel,
+                    hfApiKey = _hfApiKey,
+                });
             }
 
-            await EnsureHubConnectedAsync();
-            await _hub!.InvokeAsync("JoinJob", _activeJobId);
+            // Step 3: Run the active workflow with downloaded audio
+            var audioInput = new { base64 = ytResult.Base64, fileName = ytResult.FileName, mimeType = ytResult.MimeType };
 
-            using var content = new MultipartFormDataContent();
-            content.Add(new StringContent(_activeJobId), "jobId");
-            content.Add(new StringContent(_youtubeUrl), "youtubeUrl");
-            content.Add(new StringContent(_model), "model");
-            content.Add(new StringContent(_language), "language");
-            content.Add(new StringContent(_formatProvider), "formatProvider");
-            content.Add(new StringContent(Inv(_formatSensitivity)), "formatSensitivity");
-            content.Add(new StringContent(_formatStrictTranscript.ToString()), "formatStrictTranscript");
-            content.Add(new StringContent(_formatIncludeActionItems.ToString()), "formatIncludeActionItems");
-            content.Add(new StringContent(_enableSpeakerLabels.ToString()), "enableSpeakerLabels");
-            content.Add(new StringContent(Inv(_speakerSensitivity)), "speakerSensitivity");
-            content.Add(new StringContent(NormalizeTextInput(_ollamaUri, "http://localhost:11434")), "ollamaUri");
-            content.Add(new StringContent(NormalizeTextInput(_ollamaModel, "mistral-nemo:12b")), "ollamaModel");
-            content.Add(new StringContent(NormalizeTextInput(_hfEndpoint, "https://router.huggingface.co")), "hfEndpoint");
-            content.Add(new StringContent(NormalizeTextInput(_hfModel, "Qwen/Qwen2.5-14B-Instruct")), "hfModel");
-            content.Add(new StringContent(_hfApiKey ?? string.Empty), "hfApiKey");
-            content.Add(new StringContent(Inv(_maxSegmentLength)), "maxSegLength");
+            var result = await JS.InvokeAsync<WorkflowExecutionResult>(
+                "localTranscriberWorkflow.executeActiveWorkflow",
+                CancellationToken.None,
+                audioInput,
+                _dotNetRef,
+                _activeJobId);
 
-            if (_useAdvancedFormatTuning)
-            {
-                content.Add(new StringContent(Inv(_formatOverlapThreshold)), "formatOverlapThreshold");
-                content.Add(new StringContent(Inv(_formatSummaryMinBullets)), "formatSummaryMinBullets");
-                content.Add(new StringContent(Inv(_formatSummaryMaxBullets)), "formatSummaryMaxBullets");
-                content.Add(new StringContent(Inv(_formatTemperature)), "formatTemperature");
-                content.Add(new StringContent(Inv(_formatMaxTokens)), "formatMaxTokens");
-                content.Add(new StringContent(Inv(_formatLocalBigGapSeconds)), "formatLocalBigGapSeconds");
-                content.Add(new StringContent(Inv(_formatLocalSmallGapSeconds)), "formatLocalSmallGapSeconds");
-            }
+            if (result.Navigated == true) return;
 
-            if (_useAdvancedSpeakerTuning)
-            {
-                content.Add(new StringContent(Inv(_speakerMinScoreGain)), "speakerMinScoreGain");
-                content.Add(new StringContent(Inv(_speakerMaxSwitchRate)), "speakerMaxSwitchRate");
-                content.Add(new StringContent(Inv(_speakerMinSeparation)), "speakerMinSeparation");
-                content.Add(new StringContent(Inv(_speakerMinClusterSize)), "speakerMinClusterSize");
-                content.Add(new StringContent(Inv(_speakerMaxAutoSpeakers)), "speakerMaxAutoSpeakers");
-                content.Add(new StringContent(Inv(_speakerGlobalVarianceGate)), "speakerGlobalVarianceGate");
-                content.Add(new StringContent(Inv(_speakerShortRunMergeSeconds)), "speakerShortRunMergeSeconds");
-            }
+            _rawWhisperText = result.RawWhisperText ?? _rawWhisperText;
+            _speakerLabeledText = result.SpeakerLabeledText ?? _speakerLabeledText;
+            _markdownOutput = result.Markdown ?? result.SpeakerLabeledText ?? result.RawWhisperText ?? _markdownOutput;
+            _detectedSpeakerCount = result.DetectedSpeakerCount ?? _detectedSpeakerCount;
 
-            var client = HttpClientFactory.CreateClient();
-            client.BaseAddress = new Uri(Navigation.BaseUri);
+            // Load subtitle segments from workflow result
+            if (result.SubtitleSegments is not null)
+                SetSubtitleSegments(result.SubtitleSegments);
 
-            var response = await client.PostAsync("api/transcriptions/youtube", content);
-            if (!response.IsSuccessStatusCode)
-            {
-                _errorMessage = $"YouTube submission failed: {(int)response.StatusCode} {response.ReasonPhrase}";
-                _isSubmitting = false;
-                _minimalStage = MinimalStage.Capture;
-            }
-            else
-            {
-                _statusMessage = "Job accepted. Downloading and transcribing...";
-                StartJobStatusPolling(_activeJobId);
-            }
+            _percent = 100;
+            _statusMessage = "Workflow complete.";
+            _minimalStage = MinimalStage.Results;
+            _isSubmitting = false;
+            await SaveSnapshotAsync();
         }
         catch (Exception ex)
         {
@@ -1982,6 +2002,62 @@
             _mirrorStatus = "";
             InvokeAsync(StateHasChanged);
         });
+    }
+
+    private async Task LoadTtsSettingsAsync()
+    {
+        try
+        {
+            var voicesArr = await JS.InvokeAsync<List<TtsVoiceInfo>>("localTranscriberTts.getAvailableVoices");
+            if (voicesArr?.Count > 0) _ttsVoices = voicesArr;
+
+            var settings = await JS.InvokeAsync<TtsSettingsJs?>("localTranscriberTts.getTtsSettings");
+            if (settings != null)
+            {
+                _ttsVoice = settings.Voice ?? "af_heart";
+                _ttsSpeed = settings.Speed;
+            }
+        }
+        catch { }
+    }
+
+    private async Task OnTtsSettingsChanged()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("localTranscriberTts.setTtsSettings",
+                new { voice = _ttsVoice, speed = _ttsSpeed });
+        }
+        catch { }
+    }
+
+    private async Task ToggleServerTtsAsync(int index)
+    {
+        if (_ttsPlayingIndex == index)
+        {
+            try { await JS.InvokeVoidAsync("localTranscriberTts.stopSpeaking"); } catch { }
+            _ttsPlayingIndex = null;
+            return;
+        }
+
+        _ttsPlayingIndex = index;
+        StateHasChanged();
+
+        try
+        {
+            var prompt = _interactivePrompts?[index] ?? "";
+            await JS.InvokeVoidAsync("localTranscriberTts.speak", prompt);
+
+            // Poll until done
+            while (await JS.InvokeAsync<bool>("localTranscriberTts.isSpeaking"))
+            {
+                await Task.Delay(500);
+            }
+        }
+        catch { }
+
+        _ttsPlayingIndex = null;
+        StateHasChanged();
     }
 
     private async Task LoadPromptsAsync()
@@ -2312,6 +2388,14 @@
         if (!_hasAudio || _isSubmitting)
             return;
 
+        // If no local audio but a YouTube URL is present, delegate to YouTube flow
+        var input = BuildBrowserAudioInput();
+        if (input is null && !string.IsNullOrWhiteSpace(_youtubeUrl))
+        {
+            await SubmitYouTubeAsync();
+            return;
+        }
+
         NormalizeTunableInputs();
         PrepareForSubmission();
         _activeJobId = Guid.NewGuid().ToString("N");
@@ -2321,70 +2405,10 @@
 
         try
         {
-            if (_runInBrowser)
-            {
-                await SubmitInBrowserAsync();
-                return;
-            }
+            if (_dotNetRef is null)
+                _dotNetRef = DotNetObjectReference.Create(this);
 
-            await EnsureHubConnectedAsync();
-            await _hub!.InvokeAsync("JoinJob", _activeJobId);
-
-            using var content = new MultipartFormDataContent();
-            content.Add(new StringContent(_activeJobId), "jobId");
-            content.Add(new StringContent(_model), "model");
-            content.Add(new StringContent(_modelMirror == "auto" ? "" : _modelMirror == "custom" ? "" : _modelMirror), "modelMirrorName");
-            content.Add(new StringContent(_modelMirror == "custom" ? _modelMirrorUrl : ""), "modelMirrorUrl");
-            content.Add(new StringContent(_language), "language");
-            content.Add(new StringContent(NormalizeTextInput(_ollamaUri, "http://localhost:11434")), "ollamaUri");
-            content.Add(new StringContent(NormalizeTextInput(_ollamaModel, "mistral-nemo:12b")), "ollamaModel");
-            content.Add(new StringContent(NormalizeTextInput(_hfEndpoint, "https://router.huggingface.co")), "hfEndpoint");
-            content.Add(new StringContent(NormalizeTextInput(_hfModel, "Qwen/Qwen2.5-14B-Instruct")), "hfModel");
-            content.Add(new StringContent(_hfApiKey ?? string.Empty), "hfApiKey");
-            content.Add(new StringContent(Inv(_maxSegmentLength)), "maxSegLength");
-            content.Add(new StringContent(_formatProvider), "formatProvider");
-            content.Add(new StringContent(Inv(_formatSensitivity)), "formatSensitivity");
-            content.Add(new StringContent(_formatStrictTranscript.ToString()), "formatStrictTranscript");
-            content.Add(new StringContent(_formatIncludeActionItems.ToString()), "formatIncludeActionItems");
-            content.Add(new StringContent(_enableSpeakerLabels.ToString()), "enableSpeakerLabels");
-            content.Add(new StringContent(Inv(_speakerSensitivity)), "speakerSensitivity");
-
-            if (_useAdvancedFormatTuning)
-            {
-                content.Add(new StringContent(Inv(_formatOverlapThreshold)), "formatOverlapThreshold");
-                content.Add(new StringContent(Inv(_formatSummaryMinBullets)), "formatSummaryMinBullets");
-                content.Add(new StringContent(Inv(_formatSummaryMaxBullets)), "formatSummaryMaxBullets");
-                content.Add(new StringContent(Inv(_formatTemperature)), "formatTemperature");
-                content.Add(new StringContent(Inv(_formatMaxTokens)), "formatMaxTokens");
-                content.Add(new StringContent(Inv(_formatLocalBigGapSeconds)), "formatLocalBigGapSeconds");
-                content.Add(new StringContent(Inv(_formatLocalSmallGapSeconds)), "formatLocalSmallGapSeconds");
-            }
-
-            if (_useAdvancedSpeakerTuning)
-            {
-                content.Add(new StringContent(Inv(_speakerMinScoreGain)), "speakerMinScoreGain");
-                content.Add(new StringContent(Inv(_speakerMaxSwitchRate)), "speakerMaxSwitchRate");
-                content.Add(new StringContent(Inv(_speakerMinSeparation)), "speakerMinSeparation");
-                content.Add(new StringContent(Inv(_speakerMinClusterSize)), "speakerMinClusterSize");
-                content.Add(new StringContent(Inv(_speakerMaxAutoSpeakers)), "speakerMaxAutoSpeakers");
-                content.Add(new StringContent(Inv(_speakerGlobalVarianceGate)), "speakerGlobalVarianceGate");
-                content.Add(new StringContent(Inv(_speakerShortRunMergeSeconds)), "speakerShortRunMergeSeconds");
-            }
-
-            if (_browserRecording is not null)
-            {
-                var bytes = Convert.FromBase64String(_browserRecording.Base64);
-                var body = new ByteArrayContent(bytes);
-                TrySetContentType(body, _browserRecording.MimeType);
-                content.Add(body, "audio", _browserRecording.FileName);
-            }
-            else if (_uploadedAudio is not null)
-            {
-                var body = new ByteArrayContent(_uploadedAudio.Bytes);
-                TrySetContentType(body, _uploadedAudio.MimeType);
-                content.Add(body, "audio", _uploadedAudio.FileName);
-            }
-            else
+            if (input is null)
             {
                 _errorMessage = "No audio is available to submit.";
                 _isSubmitting = false;
@@ -2392,61 +2416,33 @@
                 return;
             }
 
-            var client = HttpClientFactory.CreateClient();
-            client.BaseAddress = new Uri(Navigation.BaseUri);
+            // Set transcription target based on _runInBrowser toggle
+            await JS.InvokeVoidAsync("localTranscriberWorkflow.setTranscriptionTarget",
+                _runInBrowser ? "browser" : "server");
 
-            var response = await client.PostAsync("api/transcriptions", content);
-            if (!response.IsSuccessStatusCode)
+            if (!_runInBrowser)
             {
-                _errorMessage = $"Submission failed: {(int)response.StatusCode} {response.ReasonPhrase}";
-                _isSubmitting = false;
-                _minimalStage = MinimalStage.Capture;
+                await JS.InvokeVoidAsync("localTranscriberWorkflow.setServerConfig", new
+                {
+                    ollamaUri = _ollamaUri,
+                    ollamaModel = _ollamaModel,
+                    hfEndpoint = _hfEndpoint,
+                    hfModel = _hfModel,
+                    hfApiKey = _hfApiKey,
+                });
             }
-            else
-            {
-                _statusMessage = "Job accepted. Waiting for progress updates...";
-                StartJobStatusPolling(_activeJobId);
-            }
-        }
-        catch (Exception ex)
-        {
-            _errorMessage = $"Submission failed: {ex.Message}";
-            _isSubmitting = false;
-            _minimalStage = MinimalStage.Capture;
-            StopJobStatusPolling();
-        }
-    }
-    private async Task SubmitInBrowserAsync()
-    {
-        if (!_browserCapabilities.Supported)
-        {
-            _errorMessage = "Browser-only mode is unavailable in this browser.";
-            _isSubmitting = false;
-            _minimalStage = MinimalStage.Capture;
-            return;
-        }
 
-        if (_dotNetRef is null)
-            _dotNetRef = DotNetObjectReference.Create(this);
+            _statusMessage = "Running workflow...";
+            _outputPath = _runInBrowser
+                ? "In-browser result (not written to server output folder)"
+                : "Server-assisted workflow";
 
-        var input = BuildBrowserAudioInput();
-        if (input is null)
-        {
-            _errorMessage = "No audio is available to submit.";
-            _isSubmitting = false;
-            _minimalStage = MinimalStage.Capture;
-            return;
-        }
+            var audioInput = new { base64 = input.Base64, fileName = input.FileName, mimeType = input.MimeType };
 
-        _statusMessage = "Running workflow...";
-        _outputPath = "In-browser result (not written to server output folder)";
-
-        var audioInput = new { base64 = input.Base64, fileName = input.FileName, mimeType = input.MimeType };
-
-        try
-        {
+            // Bypass default 1-min JS interop timeout — workflows can run for many minutes
             var result = await JS.InvokeAsync<WorkflowExecutionResult>(
                 "localTranscriberWorkflow.executeActiveWorkflow",
+                CancellationToken.None,
                 audioInput,
                 _dotNetRef,
                 _activeJobId);
@@ -2461,6 +2457,11 @@
             _speakerLabeledText = result.SpeakerLabeledText ?? _speakerLabeledText;
             _markdownOutput = result.Markdown ?? result.SpeakerLabeledText ?? result.RawWhisperText ?? _markdownOutput;
             _detectedSpeakerCount = result.DetectedSpeakerCount ?? _detectedSpeakerCount;
+
+            // Load subtitle segments from workflow result
+            if (result.SubtitleSegments is not null)
+                SetSubtitleSegments(result.SubtitleSegments);
+
             _percent = 100;
             _statusMessage = "Workflow complete.";
             _minimalStage = MinimalStage.Results;
@@ -2469,9 +2470,10 @@
         }
         catch (Exception ex)
         {
-            _errorMessage = $"Browser transcription failed: {ex.Message}";
+            _errorMessage = $"Transcription failed: {ex.Message}";
             _isSubmitting = false;
             _minimalStage = MinimalStage.Capture;
+            StopJobStatusPolling();
         }
     }
 
@@ -3642,13 +3644,22 @@
         string[]? PhaseNames,
         int CurrentIndex);
 
+    // YouTube download result (from downloadYouTubeAudio)
+    private sealed record YouTubeDownloadResult(
+        string Base64,
+        string MimeType,
+        string FileName,
+        string? VideoTitle,
+        double? Duration);
+
     // Workflow execution result (returned by executeActiveWorkflow)
     private sealed record WorkflowExecutionResult(
         string? RawWhisperText,
         string? SpeakerLabeledText,
         string? Markdown,
         int? DetectedSpeakerCount,
-        bool? Navigated);
+        bool? Navigated,
+        IReadOnlyList<TranscriptionSubtitleSegment>? SubtitleSegments = null);
 
     // Workflow progress message (from OnWorkflowProgress callback)
     public sealed record WorkflowProgressMessage(
@@ -3670,6 +3681,8 @@
     private sealed record MirrorInfo(string Url, string Name, string Region);
     private sealed record PromptTemplatesJs(string? SystemMessage, string? CleanupPrompt, string? OutputTemplate);
     private sealed record TuningOptionsJs(bool StrictTranscript, bool IncludeActionItems, int SummaryMinBullets, int SummaryMaxBullets, double Temperature, int Sensitivity);
+    private sealed record TtsSettingsJs(string? Voice, double Speed);
+    private sealed record TtsVoiceInfo(string Id, string Label, string Gender, string Accent);
 
     // Diagnostics
     private class DiagnosticsData
