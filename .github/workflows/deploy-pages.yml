@@ -58,6 +58,26 @@ jobs:
           sed -i "s|{{VERSION}}|${VERSION}|g" release/wwwroot/sw.js
           echo "Injected version ${VERSION} into sw.js"
 
+      - name: Fetch model files for GitHub Pages mirror
+        run: |
+          # Checkout browser-models branch into a temp directory
+          git worktree add /tmp/browser-models origin/browser-models 2>/dev/null || true
+          
+          # Copy small models to the Pages deployment (tiny + base only to keep size down)
+          mkdir -p release/wwwroot/models
+          for model in whisper-tiny whisper-tiny.en whisper-base whisper-base.en; do
+            if [ -d "/tmp/browser-models/$model" ]; then
+              cp -r "/tmp/browser-models/$model" "release/wwwroot/models/$model"
+              echo "Copied $model to Pages deployment"
+            fi
+          done
+          
+          # Clean up
+          git worktree remove /tmp/browser-models 2>/dev/null || true
+          
+          echo "Models included in Pages deployment:"
+          du -sh release/wwwroot/models/* 2>/dev/null || echo "(none)"
+
       - name: Add .nojekyll
         run: touch release/wwwroot/.nojekyll
 
