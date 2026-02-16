@@ -7,13 +7,39 @@
 
 <PageTitle>LocalTranscriber - Browser Transcription</PageTitle>
 
-<div class="screen-root minimal">
+<div class="screen-root @(_isStudioMode ? "studio" : "minimal")">
     <div class="top-left-brand" tabindex="-1">
         <p class="eyebrow" tabindex="-1">LocalTranscriber</p>
         <h1 tabindex="-1">Browser Transcription</h1>
         <p class="subtext" tabindex="-1">100% client-side • No data leaves your browser</p>
     </div>
 
+    <div class="top-right-actions">
+        @if (!_isStudioMode)
+        {
+            <button class="icon-action" type="button" title="Open studio mode" aria-label="Open studio mode" @onclick="ToggleLayoutModeAsync">
+                <svg class="icon-svg" viewBox="0 0 24 24" aria-hidden="true">
+                    <rect x="3.5" y="3.5" width="7" height="7" rx="1.5" />
+                    <rect x="13.5" y="3.5" width="7" height="7" rx="1.5" />
+                    <rect x="3.5" y="13.5" width="7" height="7" rx="1.5" />
+                    <rect x="13.5" y="13.5" width="7" height="7" rx="1.5" />
+                </svg>
+            </button>
+        }
+        else
+        {
+            <button class="icon-action" type="button" title="Switch to minimal mode" aria-label="Switch to minimal mode" @onclick="ToggleLayoutModeAsync">
+                <svg class="icon-svg" viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M4 5h16" />
+                    <path d="M4 12h10" />
+                    <path d="M4 19h16" />
+                </svg>
+            </button>
+        }
+    </div>
+
+    @if (!_isStudioMode)
+    {
     @if (_minimalStage == MinimalStage.Processing)
     {
         <section class="minimal-processing">
@@ -703,6 +729,482 @@
             }
         </section>
     }
+    }
+    else
+    {
+        <section class="studio-grid">
+            <article class="studio-card control-card">
+                <header>
+                    <h2>Capture</h2>
+                    <p>Record, upload, send, and reset.</p>
+                </header>
+
+                <div class="control-row">
+                    <button class="solid-btn btn-with-icon" type="button" @onclick="ToggleRecordAsync" disabled="@(_isSubmitting || _devices.Count == 0)">
+                        <span class="btn-icon" aria-hidden="true">
+                            <svg class="icon-svg" viewBox="0 0 24 24">
+                                <path d="M12 15a4 4 0 0 0 4-4V7a4 4 0 0 0-8 0v4a4 4 0 0 0 4 4z" />
+                                <path d="M19 11a7 7 0 0 1-14 0" />
+                                <path d="M12 18v3" />
+                            </svg>
+                        </span>
+                        <span>@(_isRecording ? "Stop Recording" : "Start Recording")</span>
+                    </button>
+                    <label class="solid-btn ghost upload-inline btn-with-icon">
+                        <span class="btn-icon" aria-hidden="true">
+                            <svg class="icon-svg" viewBox="0 0 24 24">
+                                <path d="M12 15V5" />
+                                <path d="m8.5 8.5 3.5-3.5 3.5 3.5" />
+                                <path d="M4 15.5v2a2.5 2.5 0 0 0 2.5 2.5h11a2.5 2.5 0 0 0 2.5-2.5v-2" />
+                            </svg>
+                        </span>
+                        <span>Upload File</span>
+                        <InputFile class="upload-input-inline" OnChange="HandleUploadAsync" accept="audio/*,.wav,.mp3,.m4a,.webm" disabled="@(_isRecording || _isSubmitting)" />
+                    </label>
+                    <button class="solid-btn btn-with-icon" type="button" @onclick="LaunchAndSubmitAsync" disabled="@(!_hasAudio || _isSubmitting || _isLaunchAnimating)">
+                        <span class="btn-icon" aria-hidden="true">
+                            <svg class="icon-svg" viewBox="0 0 24 24">
+                                <path d="M3 11.5 21 3l-8.5 18-1.9-7.6z" />
+                                <path d="m12.6 13.4-3.7 3.7" />
+                            </svg>
+                        </span>
+                        <span>Transcribe</span>
+                    </button>
+                    <button class="solid-btn ghost btn-with-icon" type="button" @onclick="ResetWorkflowAsync" disabled="@_isSubmitting">
+                        <span class="btn-icon" aria-hidden="true">
+                            <svg class="icon-svg" viewBox="0 0 24 24">
+                                <path d="M12 5v14" />
+                                <path d="M5 12h14" />
+                            </svg>
+                        </span>
+                        <span>New Project</span>
+                    </button>
+                    @if (_isServerAvailable)
+                    {
+                        <button class="solid-btn ghost btn-with-icon @(_showYouTubeInput ? "active" : "")" type="button"
+                                @onclick="ToggleYouTubeInput" disabled="@(_isRecording || _isSubmitting)">
+                            <span class="btn-icon" aria-hidden="true">
+                                <svg class="icon-svg" viewBox="0 0 24 24">
+                                    <path d="m10 8 6 4-6 4z" />
+                                    <rect x="2" y="4" width="20" height="16" rx="4" ry="4" fill="none" stroke="currentColor" stroke-width="1.6" />
+                                </svg>
+                            </span>
+                            <span>YouTube</span>
+                        </button>
+                    }
+                </div>
+
+                @if (_showYouTubeInput && _isServerAvailable)
+                {
+                    <div class="youtube-url-panel">
+                        <input type="url" @bind="_youtubeUrl" @bind:event="oninput" placeholder="Paste YouTube URL..."
+                               disabled="@_isSubmitting" />
+                        <button class="chip-btn" type="button" @onclick="SubmitYouTubeAsync"
+                                disabled="@(string.IsNullOrWhiteSpace(_youtubeUrl) || _isSubmitting)">
+                            Transcribe
+                        </button>
+                    </div>
+                }
+
+                @if (!string.IsNullOrWhiteSpace(_inputDownloadHref))
+                {
+                    <audio controls preload="metadata" src="@_inputDownloadHref"></audio>
+                }
+
+                @if (!string.IsNullOrWhiteSpace(_sourceDescription))
+                {
+                    <p class="subtext">@_sourceDescription</p>
+                }
+
+                @if (!string.IsNullOrWhiteSpace(_errorMessage))
+                {
+                    <div class="error-box">@_errorMessage</div>
+                }
+
+                @if (_mobileReadiness is { Ready: false })
+                {
+                    <div class="error-box">
+                        <strong>Device Not Ready</strong>
+                        @foreach (var issue in _mobileReadiness.Issues ?? [])
+                        {
+                            <p>@issue</p>
+                        }
+                    </div>
+                }
+            </article>
+
+            <article class="studio-card workflow-card">
+                <LocalTranscriber.Web.Client.Components.WorkflowEditor
+                    @bind-IsExpanded="_workflowEditorExpanded"
+                    OnWorkflowChanged="OnActiveWorkflowChanged" />
+            </article>
+
+            <article class="studio-card settings-card">
+                <header>
+                    <h2>Settings</h2>
+                    <p>Microphone, model, and tuning controls.</p>
+                </header>
+
+                <div class="field-grid">
+                    <label>
+                        <span>Input Device</span>
+                        <select @bind="_selectedDeviceId" disabled="@(_devices.Count == 0 || _isRecording || _isSubmitting)">
+                            @if (_devices.Count == 0)
+                            {
+                                <option value="">No microphone devices detected</option>
+                            }
+                            else
+                            {
+                                @foreach (var device in _devices)
+                                {
+                                    <option value="@device.DeviceId">@device.Label</option>
+                                }
+                            }
+                        </select>
+                    </label>
+
+                    <label>
+                        <span>Model Mirror @(_mirrorStatus)</span>
+                        <select @bind="_selectedMirror" @bind:after="OnMirrorChangedAsync" disabled="@_isSubmitting">
+                            @foreach (var mirror in _mirrors)
+                            {
+                                <option value="@mirror.Url">@mirror.Name (@mirror.Region)</option>
+                            }
+                        </select>
+                    </label>
+
+                    <label class="toggle-row">
+                        <span>Speed Priority</span>
+                        <input type="checkbox" @bind="_turboMode" @bind:after="OnTurboModeChangedAsync" disabled="@_isSubmitting" />
+                    </label>
+
+                    <label>
+                        <span>TTS Voice</span>
+                        <select @bind="_ttsVoice" @bind:after="OnTtsSettingsChanged" disabled="@_isSubmitting">
+                            @foreach (var voice in _ttsVoices)
+                            {
+                                <option value="@voice.Id">@voice.Label (@voice.Accent, @voice.Gender)</option>
+                            }
+                        </select>
+                    </label>
+
+                    <label>
+                        <span>TTS Speed</span>
+                        <input type="range" @bind="_ttsSpeed" @bind:after="OnTtsSettingsChanged" min="0.5" max="2.0" step="0.1" disabled="@_isSubmitting" />
+                        <span class="range-value">@_ttsSpeed.ToString("F1")x</span>
+                    </label>
+                </div>
+
+                <details class="settings-accordion">
+                    <summary class="settings-accordion-toggle">
+                        <span>Advanced Settings</span>
+                    </summary>
+                    <div class="settings-accordion-content">
+                        <div class="settings-grid">
+                            <label>
+                                <span>Strict Transcript</span>
+                                <select @bind="_tuningStrictTranscript">
+                                    <option value="true">Preserve wording strictly</option>
+                                    <option value="false">Allow light smoothing</option>
+                                </select>
+                            </label>
+                            <label>
+                                <span>Include Action Items</span>
+                                <select @bind="_tuningIncludeActionItems">
+                                    <option value="true">Yes - extract action items</option>
+                                    <option value="false">No - minimal actions</option>
+                                </select>
+                            </label>
+                            <label>
+                                <span>Summary Min Bullets</span>
+                                <input type="number" @bind="_tuningSummaryMin" min="1" max="12" />
+                            </label>
+                            <label>
+                                <span>Summary Max Bullets</span>
+                                <input type="number" @bind="_tuningSummaryMax" min="1" max="20" />
+                            </label>
+                            <label>
+                                <span>Temperature</span>
+                                <input type="range" @bind="_tuningTemperature" min="0" max="1.0" step="0.05" />
+                                <span class="range-value">@_tuningTemperature.ToString("F2")</span>
+                            </label>
+                            <label>
+                                <span>Sensitivity</span>
+                                <input type="range" @bind="_tuningSensitivity" min="0" max="100" step="5" />
+                                <span class="range-value">@_tuningSensitivity%</span>
+                            </label>
+                        </div>
+                        <div class="settings-actions">
+                            <button class="chip-btn" type="button" @onclick="SaveTuningAsync">Save Settings</button>
+                            <button class="chip-btn ghost" type="button" @onclick="ResetTuningAsync">Reset to Defaults</button>
+                        </div>
+                    </div>
+                </details>
+
+                <details class="settings-accordion">
+                    <summary class="settings-accordion-toggle">
+                        <span>Edit Prompts</span>
+                    </summary>
+                    <div class="prompt-editor-layout">
+                        <div class="prompt-editor-content">
+                            <div class="prompt-field">
+                                <label>
+                                    <span>System Message</span>
+                                    <textarea @bind="_promptSystemMessage" rows="2" placeholder="You are a transcription editor."></textarea>
+                                </label>
+                            </div>
+                            <div class="prompt-field">
+                                <label>
+                                    <span>Cleanup Prompt</span>
+                                    <textarea @bind="_promptCleanup" rows="8" placeholder="Rules for formatting..."></textarea>
+                                </label>
+                            </div>
+                            <div class="prompt-field">
+                                <label>
+                                    <span>Output Template</span>
+                                    <textarea @bind="_promptOutputTemplate" rows="8" placeholder="# Transcription..."></textarea>
+                                </label>
+                            </div>
+                            <div class="prompt-actions">
+                                <button class="chip-btn" type="button" @onclick="SavePromptsAsync">Save Prompts</button>
+                                <button class="chip-btn ghost" type="button" @onclick="ResetPromptsAsync">Reset to Defaults</button>
+                            </div>
+                        </div>
+                    </div>
+                </details>
+            </article>
+
+            <article class="studio-card progress-card">
+                <header>
+                    <h2>Progress</h2>
+                    <p>@_statusMessage</p>
+                </header>
+
+                @if (_phaseNames.Count > 0)
+                {
+                    <div class="phase-progress-bar">
+                        @for (var i = 0; i < _phaseNames.Count; i++)
+                        {
+                            var idx = i;
+                            var status = i < _currentPhaseIndex ? "completed" : i == _currentPhaseIndex ? "active" : "pending";
+                            @if (status == "completed")
+                            {
+                                <button class="phase-pill @status" type="button" title="Go back to @_phaseNames[idx]" @onclick="() => NavigateToPhaseAsync(idx)">@_phaseNames[idx]</button>
+                            }
+                            else
+                            {
+                                <div class="phase-pill @status" title="@_phaseNames[idx]">@_phaseNames[idx]</div>
+                            }
+                        }
+                    </div>
+                }
+
+                <div class="meter">
+                    <div class="meter-fill" style="width:@(_timeline.Count > 0 ? $"{_timeline[0].Percent}%" : "0%")"></div>
+                </div>
+
+                @if (_interactiveStepType != null)
+                {
+                    <LocalTranscriber.Web.Client.Components.InteractiveStepHost
+                        StepType="@(_interactiveStepType ?? "")"
+                        Title="@_interactiveTitle"
+                        Instructions="@_interactiveInstructions"
+                        Choices="@_interactiveChoices"
+                        Prompts="@_interactivePrompts"
+                        InputText="@_interactiveInputText"
+                        InteractionId="@_interactiveId"
+                        PreviousRecordings="@_interactivePreviousRecordings"
+                        OrphanedRecordings="@_interactiveOrphanedRecordings"
+                        OnChoiceCompleted="HandleChoiceCompleted"
+                        OnMultiRecordCompleted="HandleMultiRecordCompleted"
+                        OnReviewCompleted="HandleReviewCompleted" />
+                }
+                else
+                {
+                    <div class="log-scroll">
+                        @if (_timeline.Count == 0)
+                        {
+                            <div class="timeline-item idle">No logs yet.</div>
+                        }
+                        else
+                        {
+                            @foreach (var item in _timeline)
+                            {
+                                <div class="timeline-item @(item.IsError ? "error" : item.IsCompleted ? "complete" : "")">
+                                    <span>@item.Percent%</span>
+                                    <span>@item.Message</span>
+                                </div>
+                            }
+                        }
+                    </div>
+                }
+            </article>
+
+            <article class="studio-card result-card">
+                <header class="result-head">
+                    <div>
+                        <h2>Output</h2>
+                        <p>Review final and intermediate steps.</p>
+                    </div>
+                </header>
+
+                @if (ShouldShowAudioPlayer)
+                {
+                    <div class="subtitle-sync-card">
+                        <div class="subtitle-sync-head">
+                            <strong>@(HasSubtitleSegments ? "Playback + Synced Subtitles" : "Audio Playback")</strong>
+                            @if (HasSubtitleSegments)
+                            {
+                                <div class="subtitle-sync-meta">
+                                    <span>@GetSubtitleStatusText()</span>
+                                    <label class="subtitle-autoscroll">
+                                        <input type="checkbox" @bind="_subtitleAutoScroll" />
+                                        <span>Auto-scroll</span>
+                                    </label>
+                                </div>
+                            }
+                        </div>
+                        <audio @ref="_subtitleAudioRef" controls preload="metadata" src="@_inputDownloadHref"></audio>
+                        @if (HasSubtitleSegments)
+                        {
+                            <div class="subtitle-now">
+                                @if (ActiveSubtitleSegment is { } now)
+                                {
+                                    <div class="subtitle-now-meta">
+                                        <span>@FormatSubtitleTimestamp(now.StartSeconds)</span>
+                                        @if (!string.IsNullOrWhiteSpace(now.Speaker))
+                                        {
+                                            <span>@now.Speaker</span>
+                                        }
+                                    </div>
+                                    <p class="subtitle-live-line">@((MarkupString)BuildHighlightedSubtitleMarkup(now, _subtitleCurrentSeconds))</p>
+                                }
+                                else
+                                {
+                                    <p class="subtext">Press play to start subtitle playback.</p>
+                                }
+                            </div>
+                            <div class="subtitle-list" @ref="_subtitleListRef">
+                                @for (var i = 0; i < _subtitleSegments.Count; i++)
+                                {
+                                    var segment = _subtitleSegments[i];
+                                    var idx = i;
+                                    <button class="subtitle-line @(i == _activeSubtitleIndex ? "active" : "")" type="button" data-subtitle-index="@i" @onclick="() => SeekToSubtitleAsync(idx)">
+                                        <span class="subtitle-time">@FormatSubtitleTimestamp(segment.StartSeconds)</span>
+                                        <span class="subtitle-copy">@segment.Text</span>
+                                    </button>
+                                }
+                            </div>
+                        }
+                    </div>
+                }
+
+                <div class="tab-row">
+                    <button class="@GetTabClass(ResultTab.Final)" type="button" @onclick="() => SetResultTab(ResultTab.Final)">Processed</button>
+                    <button class="@GetTabClass(ResultTab.Raw)" type="button" @onclick="() => SetResultTab(ResultTab.Raw)">Raw</button>
+                    <button class="@GetTabClass(ResultTab.Logs)" type="button" @onclick="() => SetResultTab(ResultTab.Logs)">Logs</button>
+
+                    <span class="toolbar-spacer"></span>
+
+                    <button class="chip-btn" type="button" @onclick="CopyToClipboardAsync">Copy to Clipboard</button>
+                    <button class="chip-btn" type="button" @onclick="ExportMarkdownAsync">Export Markdown</button>
+                </div>
+
+                <div class="tab-panel fill">
+                    @switch (_activeTab)
+                    {
+                        case ResultTab.Raw:
+                            <pre class="text-pane">@(_rawWhisperText ?? "(empty)")</pre>
+                            break;
+
+                        case ResultTab.Logs:
+                            <div class="log-scroll">
+                                @foreach (var item in _timeline)
+                                {
+                                    <div class="timeline-item @(item.IsError ? "error" : item.IsCompleted ? "complete" : "")">
+                                        <span>@item.Percent%</span>
+                                        <span>@item.Message</span>
+                                    </div>
+                                }
+                            </div>
+                            break;
+
+                        default:
+                            <pre class="text-pane">@(_markdownOutput ?? "(empty)")</pre>
+                            break;
+                    }
+                </div>
+            </article>
+
+            <article class="studio-card history-card">
+                <header class="result-head">
+                    <div>
+                        <h2>History</h2>
+                        <p>Saved in browser storage.</p>
+                    </div>
+                    <button class="solid-btn ghost btn-with-icon" type="button" @onclick="LoadSessionHistoryAsync" disabled="@_sessionHistoryLoading">
+                        <span class="btn-icon" aria-hidden="true">
+                            <svg class="icon-svg" viewBox="0 0 24 24">
+                                <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" />
+                                <path d="M21 3v5h-5" />
+                            </svg>
+                        </span>
+                        <span>Refresh</span>
+                    </button>
+                </header>
+
+                @if (_sessionHistoryLoading)
+                {
+                    <div class="diagnostics-loading">Loading sessions...</div>
+                }
+                else if (_sessionHistory.Count == 0)
+                {
+                    <div class="diagnostics-loading">No sessions yet. Complete a transcription to see it here.</div>
+                }
+                else
+                {
+                    <div class="session-history-list">
+                        @foreach (var session in _sessionHistory.Take(20))
+                        {
+                            var s = session;
+                            <div class="session-history-card">
+                                <button class="session-card-header" type="button" @onclick="() => ToggleSessionDetail(s)">
+                                    <span class="history-date">@FormatSessionDate(s.CreatedAt)</span>
+                                    <span class="history-model">@(s.Model ?? "—")</span>
+                                    <span class="history-workflow">@(s.WorkflowName ?? "—")</span>
+                                    <span class="history-words">@(s.WordCount) words</span>
+                                    <span class="history-source @(s.SourceType ?? "recording")">@(s.SourceType ?? "recording")</span>
+                                </button>
+
+                                @if (_expandedSessionId == s.Id)
+                                {
+                                    <div class="session-detail">
+                                        @if (!string.IsNullOrWhiteSpace(s.RawText))
+                                        {
+                                            <div class="session-transcript-preview">
+                                                <strong>Transcript Preview</strong>
+                                                <pre>@(s.RawText.Length > 500 ? s.RawText[..500] + "..." : s.RawText)</pre>
+                                            </div>
+                                        }
+
+                                        <div class="session-actions">
+                                            <button class="chip-btn" type="button" @onclick="() => LoadSessionTranscriptAsync(s)">View Full Transcript</button>
+                                            @if (s.AudioRef != null && s.AudioRef.Purged != true)
+                                            {
+                                                <button class="chip-btn" type="button" @onclick="() => LoadSessionWithSubtitlesAsync(s)">@(s.Segments != null ? "Play with Subtitles" : "Play Audio")</button>
+                                                <button class="chip-btn" type="button" @onclick="() => DownloadSessionAudioAsync(s.Id!)">Download Audio</button>
+                                            }
+                                            <button class="chip-btn danger" type="button" @onclick="() => DeleteSessionAsync(s.Id!)">Delete</button>
+                                        </div>
+                                    </div>
+                                }
+                            </div>
+                        }
+                    </div>
+                }
+            </article>
+        </section>
+    }
 </div>
 
 @code {
@@ -778,6 +1280,8 @@
     private string? _rawWhisperText;
     private string? _errorMessage;
 
+    private LayoutMode _layoutMode = LayoutMode.Minimal;
+    private bool _isStudioMode => _layoutMode == LayoutMode.Studio;
     private MinimalStage _minimalStage = MinimalStage.Capture;
     private ResultTab _activeTab = ResultTab.Final;
 
@@ -839,6 +1343,8 @@
             await LoadTurboModeAsync();
             await LoadTtsSettingsAsync();
             _isServerAvailable = await CheckServerAvailableAsync();
+            var savedLayout = await JS.InvokeAsync<string?>("localStorage.getItem", "lt-layout-mode");
+            if (savedLayout == "Studio") _layoutMode = LayoutMode.Studio;
             StateHasChanged();
 
             // Focus record button after initial render
@@ -1009,7 +1515,7 @@
         _markdownOutput = null;
         _rawWhisperText = null;
         _activeJobId = Guid.NewGuid().ToString("N");
-        _minimalStage = MinimalStage.Processing;
+        if (!_isStudioMode) _minimalStage = MinimalStage.Processing;
         _statusMessage = "Downloading YouTube audio...";
         StateHasChanged();
 
@@ -1045,12 +1551,12 @@
             // Load subtitle segments from workflow result
             SetSubtitleSegments(result.SubtitleSegments);
 
-            _minimalStage = MinimalStage.Results;
+            if (!_isStudioMode) _minimalStage = MinimalStage.Results;
         }
         catch (Exception ex)
         {
             _errorMessage = $"YouTube transcription failed: {ex.Message}";
-            _minimalStage = MinimalStage.Capture;
+            if (!_isStudioMode) _minimalStage = MinimalStage.Capture;
         }
         finally
         {
@@ -1298,7 +1804,7 @@
         _markdownOutput = null;
         _rawWhisperText = null;
         _activeJobId = Guid.NewGuid().ToString("N");
-        _minimalStage = MinimalStage.Processing;
+        if (!_isStudioMode) _minimalStage = MinimalStage.Processing;
         _statusMessage = "Starting workflow...";
 
         try
@@ -1306,7 +1812,7 @@
             if (input is null)
             {
                 _errorMessage = "No audio available.";
-                _minimalStage = MinimalStage.Capture;
+                if (!_isStudioMode) _minimalStage = MinimalStage.Capture;
                 return;
             }
 
@@ -1344,12 +1850,12 @@
                 _inputDownloadFileName = _uploadedAudio.FileName;
             }
 
-            _minimalStage = MinimalStage.Results;
+            if (!_isStudioMode) _minimalStage = MinimalStage.Results;
         }
         catch (Exception ex)
         {
             _errorMessage = $"Transcription failed: {ex.Message}";
-            _minimalStage = MinimalStage.Capture;
+            if (!_isStudioMode) _minimalStage = MinimalStage.Capture;
         }
         finally
         {
@@ -1390,7 +1896,7 @@
                     _interactiveId = msg.ReviewId;
                     _interactiveChoices = null;
                     _interactivePrompts = null;
-                    _minimalStage = MinimalStage.Interactive;
+                    if (!_isStudioMode) _minimalStage = MinimalStage.Interactive;
                     break;
                 case "choice":
                     _interactiveStepType = "choice";
@@ -1401,7 +1907,7 @@
                         new LocalTranscriber.Web.Client.Components.InteractiveStepHost.ChoiceOption(c.Label, c.Target)).ToList();
                     _interactivePrompts = null;
                     _interactiveInputText = null;
-                    _minimalStage = MinimalStage.Interactive;
+                    if (!_isStudioMode) _minimalStage = MinimalStage.Interactive;
                     break;
                 case "multiRecord":
                     _interactiveStepType = "multiRecord";
@@ -1413,7 +1919,7 @@
                     _interactiveInputText = null;
                     _interactivePreviousRecordings = msg.PreviousRecordings;
                     _interactiveOrphanedRecordings = msg.OrphanedRecordings;
-                    _minimalStage = MinimalStage.Interactive;
+                    if (!_isStudioMode) _minimalStage = MinimalStage.Interactive;
                     break;
             }
             await InvokeAsync(StateHasChanged);
@@ -1447,7 +1953,7 @@
             new LocalTranscriber.Web.Client.Components.InteractiveStepHost.ChoiceOption(c.Label, c.Target)).ToList();
         _interactivePrompts = evt.Prompts;
 
-        _minimalStage = MinimalStage.Interactive;
+        if (!_isStudioMode) _minimalStage = MinimalStage.Interactive;
         await InvokeAsync(StateHasChanged);
     }
 
@@ -1463,7 +1969,7 @@
     {
         var id = _interactiveId;
         ClearInteractiveState();
-        _minimalStage = MinimalStage.Processing;
+        if (!_isStudioMode) _minimalStage = MinimalStage.Processing;
         StateHasChanged();
         await JS.InvokeVoidAsync("localTranscriberWorkflow.completeChoice", id, result.SelectedTarget);
     }
@@ -1472,7 +1978,7 @@
     {
         var id = _interactiveId;
         ClearInteractiveState();
-        _minimalStage = MinimalStage.Processing;
+        if (!_isStudioMode) _minimalStage = MinimalStage.Processing;
         StateHasChanged();
 
         var recordings = result.Pairs.Select(p => new { text = p.Answer }).ToArray();
@@ -1483,7 +1989,7 @@
     {
         var id = _interactiveId;
         ClearInteractiveState();
-        _minimalStage = MinimalStage.Processing;
+        if (!_isStudioMode) _minimalStage = MinimalStage.Processing;
         StateHasChanged();
         await JS.InvokeVoidAsync("localTranscriberWorkflow.completeReview", id, result.Text);
     }
@@ -1504,7 +2010,7 @@
     private async Task NavigateToPhaseAsync(int targetPhaseIndex)
     {
         ClearInteractiveState();
-        _minimalStage = MinimalStage.Processing;
+        if (!_isStudioMode) _minimalStage = MinimalStage.Processing;
         _statusMessage = "Navigating...";
         StateHasChanged();
         await JS.InvokeVoidAsync("localTranscriberWorkflow.navigateToPhase", targetPhaseIndex);
@@ -1515,7 +2021,7 @@
     {
         ClearInteractiveState();
         _currentPhaseIndex = targetPhaseIndex;
-        _minimalStage = MinimalStage.Processing;
+        if (!_isStudioMode) _minimalStage = MinimalStage.Processing;
         _statusMessage = "Navigating...";
         await InvokeAsync(StateHasChanged);
     }
@@ -1558,6 +2064,12 @@
     {
         // Workflow changed - could update UI or settings based on active workflow
         StateHasChanged();
+    }
+
+    private async Task ToggleLayoutModeAsync()
+    {
+        _layoutMode = _layoutMode == LayoutMode.Minimal ? LayoutMode.Studio : LayoutMode.Minimal;
+        await JS.InvokeVoidAsync("localStorage.setItem", "lt-layout-mode", _layoutMode.ToString());
     }
     private void SetResultTab(ResultTab tab) => _activeTab = tab;
     private string GetTabClass(ResultTab tab) => _activeTab == tab ? "tab-btn active" : "tab-btn";
@@ -1658,7 +2170,7 @@
         SetSubtitleSegments(null);
         _inputDownloadHref = null;
         _inputDownloadFileName = null;
-        _minimalStage = MinimalStage.Results;
+        if (!_isStudioMode) _minimalStage = MinimalStage.Results;
         _activeTab = ResultTab.Final;
         StateHasChanged();
         return Task.CompletedTask;
@@ -1685,7 +2197,7 @@
             _inputDownloadFileName = null;
         }
 
-        _minimalStage = MinimalStage.Results;
+        if (!_isStudioMode) _minimalStage = MinimalStage.Results;
         _activeTab = ResultTab.Final;
         StateHasChanged();
     }
@@ -1780,6 +2292,7 @@
         _dotNetRef?.Dispose();
     }
 
+    private enum LayoutMode { Minimal, Studio }
     private enum MinimalStage { Capture, Processing, Interactive, Results }
     private enum ResultTab { Final, Raw, Logs }
 
@@ -1892,7 +2405,7 @@
     // Subtitle properties
     private bool ShouldShowAudioPlayer =>
         !string.IsNullOrWhiteSpace(_inputDownloadHref) &&
-        _minimalStage == MinimalStage.Results;
+        (_isStudioMode || _minimalStage == MinimalStage.Results);
 
     private bool HasSubtitleSegments => _subtitleSegments.Count > 0;
 

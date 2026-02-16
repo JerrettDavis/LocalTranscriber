@@ -1058,6 +1058,10 @@
     grid-column: 1 / -1;
 }
 
+.workflow-card {
+    grid-column: 1 / -1;
+}
+
 .control-row {
     display: flex;
     flex-wrap: wrap;
@@ -1610,6 +1614,7 @@ audio {
 @media (max-width: 1100px) {
     .control-card,
     .settings-card,
+    .workflow-card,
     .progress-card,
     .result-card,
     .history-card {
@@ -1923,6 +1928,7 @@ audio {
 
 .screen-root.studio .control-card,
 .screen-root.studio .settings-card,
+.screen-root.studio .workflow-card,
 .screen-root.studio .progress-card,
 .screen-root.studio .history-card,
 .screen-root.studio .result-card {
