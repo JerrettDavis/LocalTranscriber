@@ -17,10 +17,14 @@ window.localTranscriberBrowser = (() => {
   // Set via: setMirrorPreference('jsdelivr') or localStorage
   // jsDelivr CDN serves from the browser-models branch with CORS headers
   const JSDELIVR_BASE = "https://cdn.jsdelivr.net/gh/JerrettDavis/LocalTranscriber@browser-models";
+  const GITHUB_RAW_BASE = "https://raw.githubusercontent.com/JerrettDavis/LocalTranscriber/browser-models";
+  const GITHUB_PAGES_BASE = "https://jerrettdavis.github.io/LocalTranscriber/models";
   
   const defaultMirrors = [
     { url: "https://huggingface.co", name: "HuggingFace", region: "Global", type: "hf" },
     { url: "jsdelivr", name: "jsDelivr CDN", region: "Enterprise-friendly", type: "jsdelivr" },
+    { url: "github-raw", name: "GitHub Raw", region: "Corporate-friendly", type: "github-raw" },
+    { url: "github-pages", name: "GitHub Pages", region: "Corporate-friendly", type: "github-pages" },
     { url: "https://hf-mirror.com", name: "HF-Mirror", region: "China-friendly", type: "hf" },
   ];
 
@@ -790,8 +794,58 @@ Rules:
 
   // === jsDelivr CDN Mirror Support ===
   
+  function isProxyMirror(mirrorUrl) {
+    return mirrorUrl === "jsdelivr" || mirrorUrl === "github-raw" || mirrorUrl === "github-pages";
+  }
+
   function isJsDelivrMirror(mirrorUrl) {
     return mirrorUrl === "jsdelivr";
+  }
+
+  function isGitHubRawMirror(mirrorUrl) {
+    return mirrorUrl === "github-raw";
+  }
+
+  function isGitHubPagesMirror(mirrorUrl) {
+    return mirrorUrl === "github-pages";
+  }
+
+  function rewriteUrlForGitHubRaw(url) {
+    try {
+      const urlObj = new URL(url);
+      if (!urlObj.hostname.includes("huggingface")) return url;
+
+      const pathMatch = urlObj.pathname.match(/^\/([^/]+)\/([^/]+)\/resolve\/[^/]+\/(.+)$/);
+      if (!pathMatch) return url;
+
+      const [, org, model, filePath] = pathMatch;
+      if (org !== "Xenova" || !model.startsWith("whisper-")) return url;
+
+      const newUrl = `${GITHUB_RAW_BASE}/${model}/${filePath}`;
+      console.log(`[LocalTranscriber] Rewriting for GitHub Raw: ${url.substring(0, 80)}... → ${newUrl.substring(0, 80)}...`);
+      return newUrl;
+    } catch {
+      return url;
+    }
+  }
+
+  function rewriteUrlForGitHubPages(url) {
+    try {
+      const urlObj = new URL(url);
+      if (!urlObj.hostname.includes("huggingface")) return url;
+
+      const pathMatch = urlObj.pathname.match(/^\/([^/]+)\/([^/]+)\/resolve\/[^/]+\/(.+)$/);
+      if (!pathMatch) return url;
+
+      const [, org, model, filePath] = pathMatch;
+      if (org !== "Xenova" || !model.startsWith("whisper-")) return url;
+
+      const newUrl = `${GITHUB_PAGES_BASE}/${model}/${filePath}`;
+      console.log(`[LocalTranscriber] Rewriting for GitHub Pages: ${url.substring(0, 80)}... → ${newUrl.substring(0, 80)}...`);
+      return newUrl;
+    } catch {
+      return url;
+    }
   }
 
   function rewriteUrlForJsDelivr(url) {
@@ -833,23 +887,40 @@ Rules:
     }
   }
 
-  function enableJsDelivrProxy() {
-    if (originalFetch) return; // Already enabled
-    
+  // Active rewrite function (set by enableMirrorProxy)
+  let activeRewriter = null;
+
+  function enableMirrorProxy(mirrorType) {
+    // Choose rewriter based on mirror type
+    let rewriter;
+    let name;
+    if (mirrorType === "jsdelivr") {
+      rewriter = rewriteUrlForJsDelivr;
+      name = "jsDelivr CDN";
+    } else if (mirrorType === "github-raw") {
+      rewriter = rewriteUrlForGitHubRaw;
+      name = "GitHub Raw";
+    } else if (mirrorType === "github-pages") {
+      rewriter = rewriteUrlForGitHubPages;
+      name = "GitHub Pages";
+    } else {
+      return; // Unknown mirror type
+    }
+
+    // If proxy already active with same rewriter, skip
+    if (originalFetch && activeRewriter === rewriter) return;
+
+    // Disable existing proxy first if switching
+    if (originalFetch) disableJsDelivrProxy();
+
+    activeRewriter = rewriter;
     originalFetch = window.fetch;
     window.fetch = async function(input, init) {
       let url = typeof input === "string" ? input : input?.url;
       
-      // Log all fetch requests for debugging
-      const isHfUrl = url && url.includes("huggingface.co");
-      if (isHfUrl) {
-        console.log(`[LocalTranscriber] Intercepted fetch: ${url?.substring(0, 100)}...`);
-      }
-      
       if (url && url.includes("huggingface.co") && url.includes("Xenova/whisper-")) {
-        const newUrl = rewriteUrlForJsDelivr(url);
+        const newUrl = activeRewriter(url);
         if (newUrl !== url) {
-          console.log(`[LocalTranscriber] Rewriting to: ${newUrl}`);
           if (typeof input === "string") {
             input = newUrl;
           } else if (input?.url) {
@@ -866,7 +937,12 @@ Rules:
       }
     };
     
-    console.log("[LocalTranscriber] jsDelivr CDN fetch proxy enabled");
+    console.log(`[LocalTranscriber] ${name} fetch proxy enabled`);
+  }
+
+  // Backward compat alias
+  function enableJsDelivrProxy() {
+    enableMirrorProxy("jsdelivr");
   }
 
   function disableJsDelivrProxy() {
@@ -882,10 +958,14 @@ Rules:
     const results = [];
     
     for (const mirror of defaultMirrors) {
-      // Different test URL for jsDelivr CDN
+      // Different test URL per mirror type
       let testUrl;
       if (mirror.type === "jsdelivr") {
         testUrl = `${JSDELIVR_BASE}/whisper-tiny/config.json`;
+      } else if (mirror.type === "github-raw") {
+        testUrl = `${GITHUB_RAW_BASE}/whisper-tiny/config.json`;
+      } else if (mirror.type === "github-pages") {
+        testUrl = `${GITHUB_PAGES_BASE}/whisper-tiny/config.json`;
       } else {
         testUrl = `${mirror.url}/Xenova/whisper-tiny/resolve/main/config.json`;
       }
@@ -973,12 +1053,13 @@ Rules:
     for (const mirrorUrl of mirrors) {
       const mirrorInfo = defaultMirrors.find(m => m.url === mirrorUrl);
       const mirrorName = mirrorInfo?.name || mirrorUrl;
-      const isJsDelivr = mirrorInfo?.type === "jsdelivr" || mirrorUrl === "jsdelivr";
+      const mirrorType = mirrorInfo?.type || "hf";
+      const needsProxy = isProxyMirror(mirrorUrl);
       
-      // Enable/disable jsDelivr CDN fetch proxy
-      if (isJsDelivr) {
-        enableJsDelivrProxy();
-        // For jsDelivr, we still use HF as the "host" but intercept fetch calls
+      // Enable/disable fetch proxy for mirrors that need URL rewriting
+      if (needsProxy) {
+        enableMirrorProxy(mirrorType);
+        // Proxy mirrors intercept HF fetch calls, so set HF as the "host"
         applyMirrorToEnv(transformers, "https://huggingface.co");
       } else {
         disableJsDelivrProxy();
