@@ -1868,6 +1868,37 @@ audio {
     outline: none;
 }
 
+.prompt-header-inline {
+    align-items: center;
+    display: flex;
+    gap: 0.5rem;
+}
+
+.tts-btn {
+    align-items: center;
+    background: transparent;
+    border: none;
+    border-radius: 6px;
+    color: var(--ink-subtle);
+    cursor: pointer;
+    display: inline-flex;
+    height: 1.5rem;
+    justify-content: center;
+    margin-left: auto;
+    padding: 0;
+    transition: color 0.15s ease, background 0.15s ease;
+    width: 1.5rem;
+}
+
+.tts-btn:hover {
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+    color: var(--accent);
+}
+
+.tts-btn.playing {
+    color: var(--accent);
+}
+
 /* Orphaned recording styles */
 .orphan-section {
     margin-top: 1rem;

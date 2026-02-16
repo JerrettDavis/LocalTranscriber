@@ -10,6 +10,22 @@ window.localTranscriberWorkflow = (() => {
   const PLUGIN_STORAGE_KEY = "localTranscriber_plugins";
   const MAX_PHASE_EXECUTIONS = 50;
 
+  const MODEL_CONTEXT_WINDOWS = {
+    "Llama-3.1-8B-Instruct-q4f16_1-MLC": 4096,
+    "Qwen2.5-7B-Instruct-q4f16_1-MLC": 4096,
+    "Phi-3.5-mini-instruct-q4f16_1-MLC": 4096,
+  };
+  const DEFAULT_CONTEXT_WINDOW = 4096;
+  const CHARS_PER_TOKEN = 4;
+
+  // Server transcription target override: "browser" | "server" | null
+  let transcriptionTargetOverride = null;
+  function setTranscriptionTarget(target) { transcriptionTargetOverride = target || null; }
+
+  // Server LLM config (Ollama/HF settings forwarded to server endpoints)
+  let serverConfig = null;
+  function setServerConfig(config) { serverConfig = config || null; }
+
   // ═══════════════════════════════════════════════════════════════
   // Utility: Nested Value Access
   // ═══════════════════════════════════════════════════════════════
@@ -51,6 +67,74 @@ window.localTranscriberWorkflow = (() => {
       if (shorthand !== undefined) return String(shorthand);
       return match; // Leave unresolved placeholders as-is
     });
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // Text Chunking Utilities
+  // ═══════════════════════════════════════════════════════════════
+
+  function chunkText(text, maxChars = 6000, overlapChars = 200) {
+    if (!text || text.length <= maxChars) return [text];
+
+    const chunks = [];
+    let start = 0;
+
+    while (start < text.length) {
+      let end = Math.min(start + maxChars, text.length);
+
+      if (end < text.length) {
+        // Try to split at paragraph break
+        const paraBreak = text.lastIndexOf("\n\n", end);
+        if (paraBreak > start + maxChars * 0.5) {
+          end = paraBreak + 2;
+        } else {
+          // Try line break
+          const lineBreak = text.lastIndexOf("\n", end);
+          if (lineBreak > start + maxChars * 0.5) {
+            end = lineBreak + 1;
+          } else {
+            // Try sentence boundary
+            const sentenceBreak = text.lastIndexOf(". ", end);
+            if (sentenceBreak > start + maxChars * 0.5) {
+              end = sentenceBreak + 2;
+            }
+            // Otherwise hard cut at maxChars
+          }
+        }
+      }
+
+      chunks.push(text.slice(start, end));
+      start = Math.max(start + 1, end - overlapChars);
+    }
+
+    return chunks;
+  }
+
+  function computeEffectiveChunkChars(config, systemPrompt, userPromptTemplate) {
+    const contextWindow = config.contextWindow || MODEL_CONTEXT_WINDOWS[config.model] || DEFAULT_CONTEXT_WINDOW;
+    const saturation = config.contextSaturation || 85;
+    const usableTokens = Math.floor(contextWindow * (saturation / 100));
+    const outputReserve = config.maxTokens || 2000;
+    const promptOverheadTokens = Math.ceil(((systemPrompt || "").length + (userPromptTemplate || "").length) / CHARS_PER_TOKEN);
+    const inputTokenBudget = usableTokens - outputReserve - promptOverheadTokens;
+    return Math.max(inputTokenBudget, 500) * CHARS_PER_TOKEN;
+  }
+
+  function getEffectiveChunkMaxChars(config, promptOverhead) {
+    if (config.chunkMaxChars > 0) return config.chunkMaxChars;
+    return computeEffectiveChunkChars(
+      config,
+      promptOverhead?.systemPrompt || "",
+      promptOverhead?.userPromptTemplate || ""
+    );
+  }
+
+  function shouldChunkText(text, config, promptOverhead) {
+    const mode = config?.chunking || "auto";
+    if (mode === "always") return true;
+    if (mode === "off") return false;
+    const maxChars = getEffectiveChunkMaxChars(config || {}, promptOverhead);
+    return text && text.length > maxChars;
   }
 
   // ═══════════════════════════════════════════════════════════════
@@ -97,6 +181,12 @@ window.localTranscriberWorkflow = (() => {
         systemPrompt: { type: "textarea", label: "System Prompt", default: "You are a transcription editor." },
         userPrompt: { type: "textarea", label: "Processing Prompt", default: "Clean and format this transcript into well-structured Markdown." },
         temperature: { type: "range", label: "Temperature", min: 0, max: 1, step: 0.1, default: 0.2 },
+        chunking: { type: "select", label: "Chunking", options: ["auto", "always", "off"], default: "auto" },
+        contextWindow: { type: "number", label: "Context Window (tokens, 0=auto)", min: 0, max: 131072, default: 0 },
+        contextSaturation: { type: "number", label: "Context Saturation (%)", min: 50, max: 100, default: 85 },
+        chunkMaxChars: { type: "number", label: "Chunk Size Override (chars, 0=auto)", min: 0, max: 50000, default: 0 },
+        chunkOverlap: { type: "number", label: "Chunk Overlap (chars)", min: 0, max: 2000, default: 200 },
+        chunkRecombine: { type: "select", label: "Recombine Chunks", options: ["on", "off"], default: "on" },
       },
       inputs: ["text"],
       outputs: ["processedText"],
@@ -113,6 +203,12 @@ window.localTranscriberWorkflow = (() => {
         systemPrompt: { type: "textarea", label: "System Prompt", default: "You are a helpful assistant." },
         userPrompt: { type: "textarea", label: "Prompt Template", default: "Process the following text:\n\n{input}" },
         temperature: { type: "range", label: "Temperature", min: 0, max: 1, step: 0.1, default: 0.3 },
+        chunking: { type: "select", label: "Chunking", options: ["auto", "always", "off"], default: "auto" },
+        contextWindow: { type: "number", label: "Context Window (tokens, 0=auto)", min: 0, max: 131072, default: 0 },
+        contextSaturation: { type: "number", label: "Context Saturation (%)", min: 50, max: 100, default: 85 },
+        chunkMaxChars: { type: "number", label: "Chunk Size Override (chars, 0=auto)", min: 0, max: 50000, default: 0 },
+        chunkOverlap: { type: "number", label: "Chunk Overlap (chars)", min: 0, max: 2000, default: 200 },
+        chunkRecombine: { type: "select", label: "Recombine Chunks", options: ["on", "off"], default: "on" },
       },
       inputs: ["text"],
       outputs: ["processedText"],
@@ -128,6 +224,12 @@ window.localTranscriberWorkflow = (() => {
         model: { type: "select", label: "Model", options: ["Llama-3.1-8B-Instruct-q4f16_1-MLC", "Qwen2.5-7B-Instruct-q4f16_1-MLC"], default: "Llama-3.1-8B-Instruct-q4f16_1-MLC" },
         style: { type: "select", label: "Style", options: ["bullets", "paragraph", "executive"], default: "bullets" },
         maxLength: { type: "number", label: "Max Length (words)", min: 50, max: 1000, default: 200 },
+        chunking: { type: "select", label: "Chunking", options: ["auto", "always", "off"], default: "auto" },
+        contextWindow: { type: "number", label: "Context Window (tokens, 0=auto)", min: 0, max: 131072, default: 0 },
+        contextSaturation: { type: "number", label: "Context Saturation (%)", min: 50, max: 100, default: 85 },
+        chunkMaxChars: { type: "number", label: "Chunk Size Override (chars, 0=auto)", min: 0, max: 50000, default: 0 },
+        chunkOverlap: { type: "number", label: "Chunk Overlap (chars)", min: 0, max: 2000, default: 200 },
+        chunkRecombine: { type: "select", label: "Recombine Chunks", options: ["on", "off"], default: "on" },
       },
       inputs: ["text"],
       outputs: ["summary"],
@@ -142,6 +244,12 @@ window.localTranscriberWorkflow = (() => {
       configSchema: {
         model: { type: "select", label: "Model", options: ["Llama-3.1-8B-Instruct-q4f16_1-MLC", "Qwen2.5-7B-Instruct-q4f16_1-MLC"], default: "Llama-3.1-8B-Instruct-q4f16_1-MLC" },
         format: { type: "select", label: "Output Format", options: ["markdown", "json", "checklist"], default: "checklist" },
+        chunking: { type: "select", label: "Chunking", options: ["auto", "always", "off"], default: "auto" },
+        contextWindow: { type: "number", label: "Context Window (tokens, 0=auto)", min: 0, max: 131072, default: 0 },
+        contextSaturation: { type: "number", label: "Context Saturation (%)", min: 50, max: 100, default: 85 },
+        chunkMaxChars: { type: "number", label: "Chunk Size Override (chars, 0=auto)", min: 0, max: 50000, default: 0 },
+        chunkOverlap: { type: "number", label: "Chunk Overlap (chars)", min: 0, max: 2000, default: 200 },
+        chunkRecombine: { type: "select", label: "Recombine Chunks", options: ["on", "off"], default: "on" },
       },
       inputs: ["text"],
       outputs: ["actionItems"],
@@ -157,6 +265,12 @@ window.localTranscriberWorkflow = (() => {
         model: { type: "select", label: "Model", options: ["Llama-3.1-8B-Instruct-q4f16_1-MLC", "Qwen2.5-7B-Instruct-q4f16_1-MLC"], default: "Llama-3.1-8B-Instruct-q4f16_1-MLC" },
         targetFormat: { type: "select", label: "Target Format", options: ["business-report", "meeting-notes", "blog-post", "email", "documentation", "custom"], default: "meeting-notes" },
         customTemplate: { type: "textarea", label: "Custom Template (if custom)", default: "" },
+        chunking: { type: "select", label: "Chunking", options: ["auto", "always", "off"], default: "auto" },
+        contextWindow: { type: "number", label: "Context Window (tokens, 0=auto)", min: 0, max: 131072, default: 0 },
+        contextSaturation: { type: "number", label: "Context Saturation (%)", min: 50, max: 100, default: 85 },
+        chunkMaxChars: { type: "number", label: "Chunk Size Override (chars, 0=auto)", min: 0, max: 50000, default: 0 },
+        chunkOverlap: { type: "number", label: "Chunk Overlap (chars)", min: 0, max: 2000, default: 200 },
+        chunkRecombine: { type: "select", label: "Recombine Chunks", options: ["on", "off"], default: "on" },
       },
       inputs: ["text"],
       outputs: ["formattedOutput"],
@@ -239,6 +353,12 @@ window.localTranscriberWorkflow = (() => {
         outputFormat: { type: "select", label: "Output Format", options: ["text", "json", "json-array"], default: "text" },
         outputVariable: { type: "text", label: "Store Result In Variable", default: "generatedOutput" },
         temperature: { type: "range", label: "Temperature", min: 0, max: 1, step: 0.1, default: 0.4 },
+        chunking: { type: "select", label: "Chunking", options: ["auto", "always", "off"], default: "auto" },
+        contextWindow: { type: "number", label: "Context Window (tokens, 0=auto)", min: 0, max: 131072, default: 0 },
+        contextSaturation: { type: "number", label: "Context Saturation (%)", min: 50, max: 100, default: 85 },
+        chunkMaxChars: { type: "number", label: "Chunk Size Override (chars, 0=auto)", min: 0, max: 50000, default: 0 },
+        chunkOverlap: { type: "number", label: "Chunk Overlap (chars)", min: 0, max: 2000, default: 200 },
+        chunkRecombine: { type: "select", label: "Recombine Chunks", options: ["on", "off"], default: "on" },
       },
       inputs: ["text"],
       outputs: ["processedText"],
@@ -322,6 +442,25 @@ window.localTranscriberWorkflow = (() => {
       inputs: [],
       outputs: ["selectedChoice"],
       isInteractive: true,
+    },
+
+    tts: {
+      id: "tts",
+      name: "Text-to-Speech",
+      description: "Read text aloud using Kokoro TTS",
+      icon: "🔊",
+      category: "output",
+      configSchema: {
+        voice: { type: "select", label: "Voice", options: [
+          "af_heart", "af_alloy", "af_aoede", "af_bella", "af_jessica", "af_kore", "af_nicole", "af_nova", "af_river", "af_sarah", "af_sky",
+          "am_adam", "am_echo", "am_eric", "am_liam", "am_michael", "am_onyx", "am_puck", "am_santa",
+          "bf_alice", "bf_emma", "bf_isabella", "bf_lily",
+          "bm_daniel", "bm_fable", "bm_george", "bm_lewis"
+        ], default: "af_heart" },
+        speed: { type: "range", label: "Speed", min: 0.5, max: 2.0, step: 0.1, default: 1.0 },
+      },
+      inputs: ["text"],
+      outputs: ["ttsAudioUrl"],
     },
   };
 
@@ -1131,21 +1270,303 @@ window.localTranscriberWorkflow = (() => {
   // ═══════════════════════════════════════════════════════════════
 
   async function executeStep(step, context, onProgress) {
+    // When server mode is active, dispatch all computationally-heavy step types to server
+    if (transcriptionTargetOverride === "server") {
+      const serverTypes = [
+        "transcribe", "speakerLabels", "llmFormat", "llmTransform",
+        "summarize", "convertFormat", "extractActions", "agentGenerate",
+      ];
+      if (serverTypes.includes(step.type)) {
+        return executeStepServer(step, context, onProgress);
+      }
+    }
+
+    // Also check for "(Server)" model name suffix on transcribe steps specifically
+    if (step.type === "transcribe") {
+      const modelName = step.config?.model || "SmallEn";
+      if (modelName.endsWith("(Server)")) {
+        return executeStepServer(step, context, onProgress);
+      }
+    }
+
     const target = step.target || step.config?.target || "browser";
 
     switch (target) {
       case "browser":
         return executeStepBrowser(step, context, onProgress);
       case "server":
+        return executeStepServer(step, context, onProgress);
       case "ollama":
       case "openai":
       case "anthropic":
-        // Future: dispatch to server/API targets
+        // Future: dispatch to API targets
         console.warn(`[Workflow] Execution target "${target}" not yet implemented, falling back to browser`);
         return executeStepBrowser(step, context, onProgress);
       default:
         return executeStepBrowser(step, context, onProgress);
     }
+  }
+
+  async function executeStepServer(step, context, onProgress) {
+    switch (step.type) {
+      case "transcribe":
+        return serverTranscribe(step, context, onProgress);
+      case "speakerLabels":
+        return serverSpeakerLabels(step, context, onProgress);
+      case "llmFormat":
+      case "llmTransform":
+      case "summarize":
+      case "convertFormat":
+      case "extractActions":
+      case "agentGenerate":
+        return serverLlmStep(step, context, onProgress);
+      default:
+        return executeStepBrowser(step, context, onProgress);
+    }
+  }
+
+  function base64ToBlob(base64, mimeType) {
+    const byteChars = atob(base64);
+    const byteArray = new Uint8Array(byteChars.length);
+    for (let i = 0; i < byteChars.length; i++) {
+      byteArray[i] = byteChars.charCodeAt(i);
+    }
+    return new Blob([byteArray], { type: mimeType || "audio/wav" });
+  }
+
+  async function serverTranscribe(step, context, onProgress) {
+    onProgress(5, "Preparing audio for server transcription...");
+
+    if (!context.audio?.base64) {
+      throw new Error("No audio data available for server transcription");
+    }
+
+    const blob = base64ToBlob(context.audio.base64, context.audio.mimeType);
+    const modelName = (step.config?.model || "SmallEn").replace(/\s*\(Server\)$/i, "");
+    const language = step.config?.language || "auto";
+
+    const formData = new FormData();
+    formData.append("audio", blob, context.audio.fileName || "audio.wav");
+    formData.append("model", modelName);
+    formData.append("language", language);
+
+    onProgress(15, `Transcribing on server with ${modelName}...`);
+
+    const resp = await fetch("/api/workflow/transcribe", {
+      method: "POST",
+      body: formData,
+    });
+
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({ error: "Unknown error" }));
+      throw new Error(err.error || err.detail || `Server transcription failed: ${resp.status}`);
+    }
+
+    onProgress(90, "Server transcription complete");
+
+    const result = await resp.json();
+
+    return {
+      rawText: result.rawText || "",
+      segments: result.segments || [],
+    };
+  }
+
+  async function serverSpeakerLabels(step, context, onProgress) {
+    onProgress(5, "Preparing audio for server speaker labeling...");
+
+    if (!context.audio?.base64) {
+      throw new Error("No audio data available for server speaker labeling");
+    }
+
+    const blob = base64ToBlob(context.audio.base64, context.audio.mimeType);
+    const segments = context.segments || [];
+
+    const formData = new FormData();
+    formData.append("audio", blob, context.audio.fileName || "audio.wav");
+    formData.append("segments", JSON.stringify(segments));
+    formData.append("sensitivity", String(step.config?.sensitivity ?? 25));
+    formData.append("speakerCount", String(step.config?.speakerCount ?? 0));
+
+    onProgress(15, "Running speaker diarization on server...");
+
+    const resp = await fetch("/api/workflow/speaker-labels", {
+      method: "POST",
+      body: formData,
+    });
+
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({ error: "Unknown error" }));
+      throw new Error(err.error || err.detail || `Server speaker labeling failed: ${resp.status}`);
+    }
+
+    onProgress(90, "Server speaker labeling complete");
+
+    const result = await resp.json();
+
+    return {
+      labeledText: result.labeledText || "",
+      speakerCount: result.speakerCount || 0,
+      segments: result.segments || context.segments,
+    };
+  }
+
+  function buildServerPrompt(step, inputText, context) {
+    const config = step.config || {};
+    const systemPrompt = config.systemPrompt || "";
+    let userPrompt = "";
+
+    switch (step.type) {
+      case "llmFormat":
+        userPrompt = `${config.userPrompt || "Format the following text:"}\n\n${inputText}`;
+        break;
+
+      case "llmTransform": {
+        const resolved = resolveTemplate(config.userPrompt || "{input}", context);
+        userPrompt = resolved.replace("{input}", inputText);
+        break;
+      }
+
+      case "summarize": {
+        const prompts = {
+          bullets: `Summarize the following text as ${config.maxLength || 200} words or fewer using bullet points:\n\n`,
+          paragraph: `Write a ${config.maxLength || 200}-word paragraph summarizing:\n\n`,
+          executive: `Write an executive summary (max ${config.maxLength || 200} words) for:\n\n`,
+        };
+        userPrompt = (prompts[config.style] || prompts.bullets) + inputText;
+        break;
+      }
+
+      case "extractActions": {
+        const formatInstructions = {
+          markdown: "Format as a Markdown list.",
+          json: "Format as a JSON array of objects with 'task' and 'assignee' fields.",
+          checklist: "Format as Markdown checkboxes (- [ ] task).",
+        };
+        userPrompt = `Extract all action items, tasks, and to-dos from the following text. ${formatInstructions[config.format] || ""}\n\n${inputText}`;
+        break;
+      }
+
+      case "convertFormat": {
+        const templates = {
+          "business-report": "Convert this into a formal business report with sections: Executive Summary, Key Findings, Recommendations, Next Steps.",
+          "meeting-notes": "Format as professional meeting notes with: Attendees (if mentioned), Agenda Items, Discussion Points, Decisions Made, Action Items.",
+          "blog-post": "Transform into an engaging blog post with a catchy intro, clear sections, and a conclusion.",
+          "email": "Convert into a professional email format with subject line suggestion, greeting, body, and sign-off.",
+          "documentation": "Format as technical documentation with clear headings, bullet points, and code blocks where appropriate.",
+          "custom": config.customTemplate || "Process this text:",
+        };
+        userPrompt = `${templates[config.targetFormat] || templates.custom}\n\n${inputText}`;
+        break;
+      }
+
+      case "agentGenerate": {
+        userPrompt = resolveTemplate(config.userPromptTemplate || "{input}", context);
+        if (!userPrompt || userPrompt === config.userPromptTemplate) {
+          userPrompt = inputText;
+        }
+        break;
+      }
+
+      default:
+        userPrompt = inputText;
+    }
+
+    return { systemPrompt, userPrompt };
+  }
+
+  async function callServerLlm(systemPrompt, userPrompt, config) {
+    const body = {
+      systemPrompt,
+      userPrompt,
+      temperature: config.temperature || 0.3,
+      maxTokens: config.maxTokens || 2000,
+    };
+
+    if (serverConfig) {
+      if (serverConfig.ollamaUri) body.ollamaUri = serverConfig.ollamaUri;
+      if (serverConfig.ollamaModel) body.ollamaModel = serverConfig.ollamaModel;
+      if (serverConfig.hfEndpoint) body.hfEndpoint = serverConfig.hfEndpoint;
+      if (serverConfig.hfModel) body.hfModel = serverConfig.hfModel;
+      if (serverConfig.hfApiKey) body.hfApiKey = serverConfig.hfApiKey;
+    }
+
+    const resp = await fetch("/api/workflow/llm", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({ error: "Unknown error" }));
+      throw new Error(err.error || err.detail || `Server LLM step failed: ${resp.status}`);
+    }
+
+    const result = await resp.json();
+    return result.text || "";
+  }
+
+  async function serverLlmStep(step, context, onProgress) {
+    const inputText = context.processedText || context.labeledText || context.rawText || "";
+    const config = step.config || {};
+
+    const overheadResult = buildServerPrompt(step, "", context);
+    const promptOverhead = { systemPrompt: overheadResult.systemPrompt, userPromptTemplate: overheadResult.userPrompt };
+
+    if (shouldChunkText(inputText, config, promptOverhead)) {
+      return serverLlmStepChunked(step, context, onProgress, inputText, promptOverhead);
+    }
+
+    onProgress(10, `Running ${step.type} on server...`);
+
+    const { systemPrompt, userPrompt } = buildServerPrompt(step, inputText, context);
+
+    onProgress(30, `Calling server LLM for ${step.type}...`);
+
+    const resultText = await callServerLlm(systemPrompt, userPrompt, config);
+
+    onProgress(90, `Server ${step.type} complete`);
+
+    return { processedText: resultText };
+  }
+
+  async function serverLlmStepChunked(step, context, onProgress, inputText, promptOverhead) {
+    const config = step.config || {};
+    const effectiveMaxChars = getEffectiveChunkMaxChars(config, promptOverhead);
+    const chunks = chunkText(inputText, effectiveMaxChars, config.chunkOverlap || 200);
+
+    onProgress(5, `Splitting into ${chunks.length} chunks for server processing...`);
+
+    const { systemPrompt } = buildServerPrompt(step, "", context);
+    const chunkResults = [];
+
+    for (let i = 0; i < chunks.length; i++) {
+      const pct = 10 + (i / chunks.length) * 70;
+      onProgress(pct, `Processing chunk ${i + 1}/${chunks.length} on server...`);
+
+      const { userPrompt } = buildServerPrompt(step, chunks[i], context);
+      const resultText = await callServerLlm(systemPrompt, userPrompt, config);
+      chunkResults.push(resultText);
+    }
+
+    let finalResult = chunkResults.join("\n\n");
+
+    // Recombine pass
+    if (config.chunkRecombine !== "off" && chunks.length > 1) {
+      onProgress(85, "Recombining chunks on server...");
+
+      const recombinePrompt = "The following text was processed in sections. Combine into a single coherent document, removing any redundancy from overlapping sections:\n\n" + finalResult;
+
+      finalResult = await callServerLlm(
+        systemPrompt || "You are a helpful assistant.",
+        recombinePrompt,
+        config
+      );
+    }
+
+    onProgress(100, `Server ${step.type} complete`);
+
+    return { processedText: finalResult };
   }
 
   async function executeStepBrowser(step, context, onProgress) {
@@ -1220,7 +1641,8 @@ window.localTranscriberWorkflow = (() => {
 
     async llmTransform(step, context, onProgress) {
       return runLlmStep(step, context, onProgress, (config, inputText) => {
-        return config.userPrompt.replace("{input}", inputText);
+        const resolved = resolveTemplate(config.userPrompt, context);
+        return resolved.replace("{input}", inputText);
       });
     },
 
@@ -1582,6 +2004,32 @@ window.localTranscriberWorkflow = (() => {
         });
       });
     },
+
+    async tts(step, context, onProgress) {
+      const text = context.processedText || context.labeledText || context.rawText;
+      if (!text) {
+        onProgress(100, "No text available for TTS");
+        return { processedText: "", ttsAudioUrl: null };
+      }
+
+      if (!window.localTranscriberTts) {
+        onProgress(100, "TTS module not loaded");
+        return { processedText: text, ttsAudioUrl: null };
+      }
+
+      const voice = step.config.voice || "af_heart";
+      const speed = parseFloat(step.config.speed) || 1.0;
+
+      onProgress(5, "Initializing TTS...");
+      const url = await window.localTranscriberTts.generateAudioUrl(text, {
+        voice,
+        speed,
+        onProgress: (pct, msg) => onProgress(5 + pct * 0.9, msg),
+      });
+
+      onProgress(100, "TTS audio generated");
+      return { processedText: text, ttsAudioUrl: url };
+    },
   };
 
   // Plugin step handlers registered at runtime
@@ -1709,33 +2157,108 @@ window.localTranscriberWorkflow = (() => {
   // ═══════════════════════════════════════════════════════════════
 
   async function runLlmStep(step, context, onProgress, buildPrompt) {
-    onProgress(10, `Loading model: ${step.config.model}...`);
+    const inputText = context.processedText || context.labeledText || context.rawText || "";
+    const config = step.config || {};
+
+    const promptOverhead = {
+      systemPrompt: config.systemPrompt || "",
+      userPromptTemplate: config.userPrompt || config.userPromptTemplate || "",
+    };
+
+    if (shouldChunkText(inputText, config, promptOverhead)) {
+      return runLlmStepChunked(step, context, onProgress, buildPrompt, inputText, promptOverhead);
+    }
+
+    onProgress(10, `Loading model: ${config.model}...`);
 
     const browser = window.localTranscriberBrowser;
     if (!browser?.formatWithWebLlm) {
       throw new Error("WebLLM not available");
     }
 
-    const inputText = context.processedText || context.labeledText || context.rawText || "";
-    const prompt = buildPrompt(step.config, inputText);
+    const prompt = buildPrompt(config, inputText);
 
     onProgress(30, "Running LLM...");
 
     const result = await browser.formatWithWebLlm(
-      step.config.model,
+      config.model,
       "custom",
       "en",
       prompt,
       (pct, msg) => onProgress(30 + pct * 0.6, msg),
       {
-        systemPrompt: step.config.systemPrompt,
-        temperature: step.config.temperature || 0.3,
+        systemPrompt: config.systemPrompt,
+        temperature: config.temperature || 0.3,
       }
     );
 
     onProgress(100, "LLM processing complete");
 
     return { processedText: result };
+  }
+
+  async function runLlmStepChunked(step, context, onProgress, buildPrompt, inputText, promptOverhead) {
+    const config = step.config || {};
+    const effectiveMaxChars = getEffectiveChunkMaxChars(config, promptOverhead);
+    const chunks = chunkText(inputText, effectiveMaxChars, config.chunkOverlap || 200);
+
+    onProgress(5, `Splitting into ${chunks.length} chunks...`);
+
+    const browser = window.localTranscriberBrowser;
+    if (!browser?.formatWithWebLlm) {
+      throw new Error("WebLLM not available");
+    }
+
+    const chunkResults = [];
+    for (let i = 0; i < chunks.length; i++) {
+      const chunkProgress = (pct, msg) => {
+        const base = (i / chunks.length) * 80;
+        const span = (1 / chunks.length) * 80;
+        onProgress(10 + base + pct * span / 100, `Chunk ${i + 1}/${chunks.length}: ${msg}`);
+      };
+
+      chunkProgress(0, "Processing...");
+
+      const prompt = buildPrompt(config, chunks[i]);
+      const result = await browser.formatWithWebLlm(
+        config.model,
+        "custom",
+        "en",
+        prompt,
+        (pct, msg) => chunkProgress(pct, msg),
+        {
+          systemPrompt: config.systemPrompt,
+          temperature: config.temperature || 0.3,
+        }
+      );
+
+      chunkResults.push(result);
+    }
+
+    let finalResult = chunkResults.join("\n\n");
+
+    // Recombine pass
+    if (config.chunkRecombine !== "off" && chunks.length > 1) {
+      onProgress(90, "Recombining chunks...");
+
+      const recombinePrompt = "The following text was processed in sections. Combine into a single coherent document, removing any redundancy from overlapping sections:\n\n" + finalResult;
+
+      finalResult = await browser.formatWithWebLlm(
+        config.model,
+        "custom",
+        "en",
+        recombinePrompt,
+        (pct, msg) => onProgress(90 + pct * 0.1, `Recombining: ${msg}`),
+        {
+          systemPrompt: config.systemPrompt || "You are a helpful assistant.",
+          temperature: config.temperature || 0.3,
+        }
+      );
+    }
+
+    onProgress(100, "LLM processing complete");
+
+    return { processedText: finalResult };
   }
 
   function extractJsonFromText(text) {
@@ -1920,7 +2443,7 @@ window.localTranscriberWorkflow = (() => {
           description: "Record your topic intro and transcribe it",
           steps: [
             { id: "s-topic-1", type: "transcribe", name: "Transcribe Topic", config: { model: "SmallEn", language: "auto" }, enabled: true, target: "browser" },
-            { id: "s-topic-2", type: "llmFormat", name: "Format Intro", config: { model: "Llama-3.1-8B-Instruct-q4f16_1-MLC", systemPrompt: "You are a transcription editor.", userPrompt: "Clean up this transcript into clear sentences.", temperature: 0.2 }, enabled: true, target: "browser" },
+            { id: "s-topic-2", type: "llmFormat", name: "Format Intro", config: { model: "Llama-3.1-8B-Instruct-q4f16_1-MLC", systemPrompt: "You are a transcription editor.", userPrompt: "Clean up this transcript into clear sentences.", temperature: 0.2, chunking: "auto", chunkMaxChars: 0, chunkOverlap: 200, chunkRecombine: "on" }, enabled: true, target: "browser" },
             { id: "s-topic-3", type: "userReview", name: "Review Topic", config: { title: "Review Your Topic", instructions: "Review and edit your topic introduction.", showPlayback: "yes", showHighlighting: "no", requireApproval: "yes", outputTo: "variables.topicIntro" }, enabled: true, target: "browser" },
           ],
           transitions: [{ id: "t-topic-1", target: "phase-questions", condition: "auto" }],
@@ -1930,7 +2453,7 @@ window.localTranscriberWorkflow = (() => {
           name: "Generate Questions",
           description: "AI generates interview questions, then you review them before recording",
           steps: [
-            { id: "s-q-1", type: "agentGenerate", name: "Generate Questions", config: { model: "Llama-3.1-8B-Instruct-q4f16_1-MLC", systemPrompt: "You are an expert interviewer. Generate insightful, open-ended questions that will help the user elaborate on their topic for a blog post. Output as a JSON array of strings.", userPromptTemplate: "Generate 5 interview questions about the following topic:\n\n{text.processed}", outputFormat: "json-array", outputVariable: "questions", temperature: 0.5 }, enabled: true, target: "browser" },
+            { id: "s-q-1", type: "agentGenerate", name: "Generate Questions", config: { model: "Llama-3.1-8B-Instruct-q4f16_1-MLC", systemPrompt: "You are an expert interviewer. Generate insightful, open-ended questions that will help the user elaborate on their topic for a blog post. Output as a JSON array of strings.", userPromptTemplate: "Generate 5 interview questions about the following topic:\n\n{text.processed}", outputFormat: "json-array", outputVariable: "questions", temperature: 0.5, chunking: "auto", chunkMaxChars: 0, chunkOverlap: 200, chunkRecombine: "on" }, enabled: true, target: "browser" },
             { id: "s-q-2", type: "userReview", name: "Review Questions", config: { title: "Review Interview Questions", instructions: "Review the generated questions. Edit or remove any that don't fit before recording your answers.", showPlayback: "no", showHighlighting: "no", requireApproval: "yes", outputTo: "variables.questions" }, enabled: true, target: "browser" },
           ],
           transitions: [{ id: "t-q-1", target: "phase-answers", condition: "auto" }],
@@ -1941,7 +2464,7 @@ window.localTranscriberWorkflow = (() => {
           description: "Record your answers, then transcribe and correlate with questions",
           steps: [
             { id: "s-a-1", type: "multiRecord", name: "Answer Questions", config: { promptsVariable: "variables.questions", instructions: "Record your answer for each question. Take your time and speak naturally.", transcribeModel: "SmallEn", outputVariable: "answers", outputFormat: "qa-pairs" }, enabled: true, target: "browser" },
-            { id: "s-a-2", type: "agentGenerate", name: "Format Q&A", config: { model: "Llama-3.1-8B-Instruct-q4f16_1-MLC", systemPrompt: "You are a transcription editor. Take raw interview Q&A pairs and format them into clean, well-structured text. Preserve the question-answer format. Clean up speech artifacts, fix grammar, and ensure readability while keeping the speaker's original intent and meaning.", userPromptTemplate: "Format these interview Q&A pairs into clean, readable text:\n\n{text.processed}", outputFormat: "text", outputVariable: "formattedQA", temperature: 0.2 }, enabled: true, target: "browser" },
+            { id: "s-a-2", type: "agentGenerate", name: "Format Q&A", config: { model: "Llama-3.1-8B-Instruct-q4f16_1-MLC", systemPrompt: "You are a transcription editor. Take raw interview Q&A pairs and format them into clean, well-structured text. Preserve the question-answer format. Clean up speech artifacts, fix grammar, and ensure readability while keeping the speaker's original intent and meaning.", userPromptTemplate: "Format these interview Q&A pairs into clean, readable text:\n\n{text.processed}", outputFormat: "text", outputVariable: "formattedQA", temperature: 0.2, chunking: "auto", chunkMaxChars: 0, chunkOverlap: 200, chunkRecombine: "on" }, enabled: true, target: "browser" },
           ],
           transitions: [{ id: "t-a-1", target: "phase-review-qa", condition: "auto" }],
         },
@@ -1962,7 +2485,7 @@ window.localTranscriberWorkflow = (() => {
           name: "Write Blog Post",
           description: "AI writes a blog post from your accumulated Q&A content",
           steps: [
-            { id: "s-w-1", type: "agentGenerate", name: "Write Blog Post", config: { model: "Llama-3.1-8B-Instruct-q4f16_1-MLC", systemPrompt: "You are an expert blog writer. Write engaging, well-structured blog posts based on interview-style Q&A content. Use a conversational but informative tone.", userPromptTemplate: "Write a comprehensive blog post based on the following interview Q&A content. Create a compelling title, introduction, well-organized sections, and conclusion.\n\nTopic Introduction:\n{variables.topicIntro}\n\nQ&A Content:\n{variables.formattedQA}", outputFormat: "text", outputVariable: "blogPost", temperature: 0.6 }, enabled: true, target: "browser" },
+            { id: "s-w-1", type: "agentGenerate", name: "Write Blog Post", config: { model: "Llama-3.1-8B-Instruct-q4f16_1-MLC", systemPrompt: "You are an expert blog writer. Write engaging, well-structured blog posts based on interview-style Q&A content. Use a conversational but informative tone.", userPromptTemplate: "Write a comprehensive blog post based on the following interview Q&A content. Create a compelling title, introduction, well-organized sections, and conclusion.\n\nTopic Introduction:\n{variables.topicIntro}\n\nQ&A Content:\n{variables.formattedQA}", outputFormat: "text", outputVariable: "blogPost", temperature: 0.6, chunking: "auto", chunkMaxChars: 0, chunkOverlap: 200, chunkRecombine: "on" }, enabled: true, target: "browser" },
           ],
           transitions: [{ id: "t-w-1", target: "phase-final-review", condition: "auto" }],
         },
@@ -1991,7 +2514,7 @@ window.localTranscriberWorkflow = (() => {
           steps: [
             { id: "s-mn-1", type: "transcribe", name: "Transcribe Meeting", config: { model: "SmallEn", language: "auto" }, enabled: true, target: "browser" },
             { id: "s-mn-2", type: "speakerLabels", name: "Label Speakers", config: { sensitivity: 50, maxSpeakers: 6 }, enabled: true, target: "browser" },
-            { id: "s-mn-3", type: "convertFormat", name: "Format as Meeting Notes", config: { model: "Llama-3.1-8B-Instruct-q4f16_1-MLC", targetFormat: "meeting-notes", customTemplate: "" }, enabled: true, target: "browser" },
+            { id: "s-mn-3", type: "convertFormat", name: "Format as Meeting Notes", config: { model: "Llama-3.1-8B-Instruct-q4f16_1-MLC", targetFormat: "meeting-notes", customTemplate: "", chunking: "auto", chunkMaxChars: 0, chunkOverlap: 200, chunkRecombine: "on" }, enabled: true, target: "browser" },
           ],
           transitions: [{ id: "t-mn-1", target: "phase-mn-review", condition: "auto" }],
         },
@@ -2020,8 +2543,8 @@ window.localTranscriberWorkflow = (() => {
           steps: [
             { id: "s-pc-1", type: "transcribe", name: "Transcribe Podcast", config: { model: "SmallEn", language: "auto" }, enabled: true, target: "browser" },
             { id: "s-pc-2", type: "speakerLabels", name: "Label Speakers", config: { sensitivity: 40, maxSpeakers: 4 }, enabled: true, target: "browser" },
-            { id: "s-pc-3", type: "summarize", name: "Generate Summary", config: { model: "Llama-3.1-8B-Instruct-q4f16_1-MLC", style: "executive", maxLength: 300 }, enabled: true, target: "browser" },
-            { id: "s-pc-4", type: "llmFormat", name: "Format Transcript", config: { model: "Llama-3.1-8B-Instruct-q4f16_1-MLC", systemPrompt: "You are a transcription editor.", userPrompt: "Format this podcast transcript with clear speaker labels, timestamps, and paragraph breaks.", temperature: 0.2 }, enabled: true, target: "browser" },
+            { id: "s-pc-3", type: "summarize", name: "Generate Summary", config: { model: "Llama-3.1-8B-Instruct-q4f16_1-MLC", style: "executive", maxLength: 300, chunking: "auto", chunkMaxChars: 0, chunkOverlap: 200, chunkRecombine: "on" }, enabled: true, target: "browser" },
+            { id: "s-pc-4", type: "llmFormat", name: "Format Transcript", config: { model: "Llama-3.1-8B-Instruct-q4f16_1-MLC", systemPrompt: "You are a transcription editor.", userPrompt: "Format this podcast transcript with clear speaker labels, timestamps, and paragraph breaks.", temperature: 0.2, chunking: "auto", chunkMaxChars: 0, chunkOverlap: 200, chunkRecombine: "on" }, enabled: true, target: "browser" },
           ],
           transitions: [{ id: "t-pc-1", target: "phase-pc-review", condition: "auto" }],
         },
@@ -2031,6 +2554,137 @@ window.localTranscriberWorkflow = (() => {
           description: "Review the final podcast transcript",
           steps: [
             { id: "s-pc-5", type: "userReview", name: "Review Transcript", config: { title: "Review Podcast Transcript", instructions: "Review the formatted podcast transcript and summary.", showPlayback: "yes", showHighlighting: "yes", requireApproval: "yes" }, enabled: true, target: "browser" },
+          ],
+          transitions: [],
+        },
+      ],
+    },
+    {
+      id: "preset-summarize-content",
+      name: "Summarize Content",
+      description: "Transcribe and generate an executive summary",
+      version: 2,
+      variables: {},
+      phases: [
+        {
+          id: "phase-sc-transcribe",
+          name: "Transcribe & Summarize",
+          description: "Transcribe audio and generate summary",
+          steps: [
+            { id: "s-sc-1", type: "transcribe", name: "Transcribe Audio", config: { model: "SmallEn", language: "auto" }, enabled: true, target: "browser" },
+            { id: "s-sc-2", type: "summarize", name: "Executive Summary", config: { model: "Llama-3.1-8B-Instruct-q4f16_1-MLC", style: "executive", maxLength: 300, chunking: "auto", chunkMaxChars: 0, chunkOverlap: 200, chunkRecombine: "on" }, enabled: true, target: "browser" },
+          ],
+          transitions: [{ id: "t-sc-1", target: "phase-sc-review", condition: "auto" }],
+        },
+        {
+          id: "phase-sc-review",
+          name: "Review",
+          description: "Review the summary",
+          steps: [
+            { id: "s-sc-3", type: "userReview", name: "Review Summary", config: { title: "Review Summary", instructions: "Review the executive summary. Edit for accuracy and completeness.", showPlayback: "yes", showHighlighting: "no", requireApproval: "yes" }, enabled: true, target: "browser" },
+          ],
+          transitions: [],
+        },
+      ],
+    },
+    {
+      id: "preset-blog-post",
+      name: "Convert to Blog Post",
+      description: "Transcribe, label speakers, and transform into an engaging blog post",
+      version: 2,
+      variables: {},
+      phases: [
+        {
+          id: "phase-bp-process",
+          name: "Transcribe & Transform",
+          description: "Transcribe, label speakers, and convert to blog post format",
+          steps: [
+            { id: "s-bp-1", type: "transcribe", name: "Transcribe Audio", config: { model: "SmallEn", language: "auto" }, enabled: true, target: "browser" },
+            { id: "s-bp-2", type: "speakerLabels", name: "Label Speakers", config: { sensitivity: 50, maxSpeakers: 6 }, enabled: true, target: "browser" },
+            { id: "s-bp-3", type: "convertFormat", name: "Convert to Blog Post", config: { model: "Llama-3.1-8B-Instruct-q4f16_1-MLC", targetFormat: "blog-post", customTemplate: "", chunking: "auto", chunkMaxChars: 0, chunkOverlap: 200, chunkRecombine: "on" }, enabled: true, target: "browser" },
+          ],
+          transitions: [{ id: "t-bp-1", target: "phase-bp-review", condition: "auto" }],
+        },
+        {
+          id: "phase-bp-review",
+          name: "Review",
+          description: "Review and edit tone/style of the blog post",
+          steps: [
+            { id: "s-bp-4", type: "userReview", name: "Review Blog Post", config: { title: "Review Blog Post", instructions: "Review the generated blog post. Edit tone, style, and accuracy as needed.", showPlayback: "no", showHighlighting: "no", requireApproval: "yes" }, enabled: true, target: "browser" },
+          ],
+          transitions: [],
+        },
+      ],
+    },
+    {
+      id: "preset-quick-transcript",
+      name: "Quick Transcript",
+      description: "Transcribe with light LLM cleanup, then review with playback",
+      version: 2,
+      variables: {},
+      phases: [
+        {
+          id: "phase-qt-transcribe",
+          name: "Transcribe",
+          description: "Transcribe and lightly clean up the text",
+          steps: [
+            { id: "s-qt-1", type: "transcribe", name: "Transcribe Audio", config: { model: "SmallEn", language: "auto" }, enabled: true, target: "browser" },
+            { id: "s-qt-2", type: "llmFormat", name: "Light Cleanup", config: { model: "Llama-3.1-8B-Instruct-q4f16_1-MLC", systemPrompt: "You are a transcription editor.", userPrompt: "Lightly clean up this transcript: fix punctuation, remove filler words (um, uh, like, you know), and fix obvious grammar errors. Preserve the original wording as much as possible.", temperature: 0.1, chunking: "auto", chunkMaxChars: 0, chunkOverlap: 200, chunkRecombine: "on" }, enabled: true, target: "browser" },
+          ],
+          transitions: [{ id: "t-qt-1", target: "phase-qt-review", condition: "auto" }],
+        },
+        {
+          id: "phase-qt-review",
+          name: "Review",
+          description: "Review with playback and word highlighting",
+          steps: [
+            { id: "s-qt-3", type: "userReview", name: "Review Transcript", config: { title: "Review Transcript", instructions: "Review the cleaned transcript. Use playback to verify accuracy.", showPlayback: "yes", showHighlighting: "yes", requireApproval: "yes" }, enabled: true, target: "browser" },
+          ],
+          transitions: [],
+        },
+      ],
+    },
+    {
+      id: "preset-braindump-synthesis",
+      name: "Brain Dump \u2192 Structured Synthesis",
+      description: "Record unstructured ideas/brainstorm, then organize into a coherent structured document with sections, explanations, and logical flow",
+      version: 2,
+      variables: {},
+      phases: [
+        {
+          id: "phase-capture",
+          name: "Capture",
+          description: "Transcribe and clean up your brain dump",
+          steps: [
+            { id: "s-bd-1", type: "transcribe", name: "Transcribe Brain Dump", config: { model: "SmallEn", language: "auto" }, enabled: true, target: "browser" },
+            { id: "s-bd-2", type: "llmFormat", name: "Clean Up Transcript", config: { model: "Llama-3.1-8B-Instruct-q4f16_1-MLC", systemPrompt: "You are a transcription editor. Preserve all ideas and details.", userPrompt: "Clean up this transcript. Fix grammar, remove filler words, but keep ALL ideas and details intact. Do not reorganize or summarize.", temperature: 0.2, chunking: "auto", chunkMaxChars: 0, chunkOverlap: 200, chunkRecombine: "on" }, enabled: true, target: "browser" },
+          ],
+          transitions: [{ id: "t-bd-1", target: "phase-review-raw", condition: "auto" }],
+        },
+        {
+          id: "phase-review-raw",
+          name: "Review Raw Ideas",
+          description: "Review the cleaned transcript before synthesis",
+          steps: [
+            { id: "s-bd-3", type: "userReview", name: "Review Brain Dump", config: { title: "Review Your Ideas", instructions: "Review the cleaned-up transcript. Add, remove, or correct anything before synthesis.", showPlayback: "yes", showHighlighting: "yes", requireApproval: "yes" }, enabled: true, target: "browser" },
+          ],
+          transitions: [{ id: "t-bd-2", target: "phase-synthesize", condition: "auto" }],
+        },
+        {
+          id: "phase-synthesize",
+          name: "Synthesize",
+          description: "Organize ideas into a structured document",
+          steps: [
+            { id: "s-bd-4", type: "llmTransform", name: "Synthesize into Document", config: { model: "Llama-3.1-8B-Instruct-q4f16_1-MLC", systemPrompt: "You are a technical writer and systems architect. Your job is to take raw, unstructured ideas and organize them into a clear, well-structured document. Identify themes, group related concepts, create logical sections with headings, and add brief explanations to connect ideas. Preserve all original ideas and details \u2014 do not omit or oversimplify.", userPrompt: "Organize the following brain dump into a coherent, structured document. Create clear sections with descriptive headings. Group related ideas together. Add brief connecting explanations between sections. Use bullet points for lists of items and prose for explanations. Include a brief overview/introduction at the top summarizing the key themes.\n\n{input}", temperature: 0.3, chunking: "auto", chunkMaxChars: 0, chunkOverlap: 200, chunkRecombine: "on" }, enabled: true, target: "browser" },
+          ],
+          transitions: [{ id: "t-bd-3", target: "phase-final-review", condition: "auto" }],
+        },
+        {
+          id: "phase-final-review",
+          name: "Final Review",
+          description: "Review the structured synthesis",
+          steps: [
+            { id: "s-bd-5", type: "userReview", name: "Review Synthesis", config: { title: "Review Structured Document", instructions: "Review the synthesized document. Edit structure, headings, or content as needed.", showPlayback: "no", showHighlighting: "no", requireApproval: "yes" }, enabled: true, target: "browser" },
           ],
           transitions: [],
         },
@@ -2192,6 +2846,23 @@ window.localTranscriberWorkflow = (() => {
     } catch {
       return false;
     }
+  }
+
+  async function downloadYouTubeAudio(url) {
+    const formData = new FormData();
+    formData.append("youtubeUrl", url);
+
+    const resp = await fetch("/api/youtube/download", {
+      method: "POST",
+      body: formData,
+    });
+
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({ error: "Unknown error" }));
+      throw new Error(err.error || `YouTube download failed: ${resp.status}`);
+    }
+
+    return resp.json();
   }
 
   async function submitYouTubeUrl(url, dotNetRef, jobId) {
@@ -2393,6 +3064,9 @@ window.localTranscriberWorkflow = (() => {
     // Server / YouTube
     checkServerAvailable,
     submitYouTubeUrl,
+    downloadYouTubeAudio,
+    setTranscriptionTarget,
+    setServerConfig,
 
     // Utilities (exposed for plugins)
     resolveTemplate,

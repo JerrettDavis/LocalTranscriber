@@ -55,6 +55,30 @@
                                 <div class="prompt-header">
                                     <span class="prompt-number">@(idx + 1)</span>
                                     <span class="prompt-text">@prompt</span>
+                                    <button class="tts-btn @(GetTtsStateClass(idx))" type="button"
+                                            title="Read aloud" @onclick="() => ToggleTtsAsync(idx, prompt)">
+                                        @if (GetTtsState(idx) == TtsState.Loading)
+                                        {
+                                            <svg class="tts-icon tts-spinner" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                                <path d="M12 2a10 10 0 0 1 10 10" stroke-linecap="round"/>
+                                            </svg>
+                                        }
+                                        else if (GetTtsState(idx) == TtsState.Playing)
+                                        {
+                                            <svg class="tts-icon" viewBox="0 0 24 24" fill="currentColor">
+                                                <rect x="6" y="5" width="4" height="14" rx="1"/>
+                                                <rect x="14" y="5" width="4" height="14" rx="1"/>
+                                            </svg>
+                                        }
+                                        else
+                                        {
+                                            <svg class="tts-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                                <path d="M11 5L6 9H2v6h4l5 4V5z"/>
+                                                <path d="M15.54 8.46a5 5 0 0 1 0 7.07" stroke-linecap="round"/>
+                                                <path d="M19.07 4.93a10 10 0 0 1 0 14.14" stroke-linecap="round"/>
+                                            </svg>
+                                        }
+                                    </button>
                                 </div>
                                 <div class="prompt-actions">
                                     <div class="input-mode-switcher">
@@ -183,10 +207,12 @@
     [Parameter] public EventCallback<ReviewResult> OnReviewCompleted { get; set; }
 
     private enum InputMode { Record, Type, Upload }
+    private enum TtsState { Idle, Loading, Playing }
 
     private Dictionary<int, RecordingEntry> _recordings = new();
     private Dictionary<int, InputMode> _inputModes = new();
     private Dictionary<int, string> _typedTexts = new();
+    private Dictionary<int, TtsState> _ttsStates = new();
     private HashSet<string> _deletedOrphanKeys = new();
     private int _activeRecordingIndex = -1;
     private string _reviewText = "";
@@ -389,6 +415,60 @@
     private async Task ApproveReview()
     {
         await OnReviewCompleted.InvokeAsync(new ReviewResult(_reviewText, true));
+    }
+
+    // TTS playback
+    private TtsState GetTtsState(int index) =>
+        _ttsStates.TryGetValue(index, out var state) ? state : TtsState.Idle;
+
+    private string GetTtsStateClass(int index) => GetTtsState(index) switch
+    {
+        TtsState.Loading => "loading",
+        TtsState.Playing => "playing",
+        _ => ""
+    };
+
+    private async Task ToggleTtsAsync(int index, string text)
+    {
+        var current = GetTtsState(index);
+
+        if (current == TtsState.Playing)
+        {
+            await JS.InvokeVoidAsync("localTranscriberTts.stopSpeaking");
+            _ttsStates[index] = TtsState.Idle;
+            return;
+        }
+
+        // Stop any other playing prompt
+        foreach (var key in _ttsStates.Keys.ToList())
+        {
+            if (_ttsStates[key] == TtsState.Playing)
+                _ttsStates[key] = TtsState.Idle;
+        }
+
+        _ttsStates[index] = TtsState.Loading;
+        StateHasChanged();
+
+        try
+        {
+            await JS.InvokeVoidAsync("localTranscriberTts.speak", text);
+            _ttsStates[index] = TtsState.Playing;
+            StateHasChanged();
+
+            // Poll until speaking finishes
+            while (await JS.InvokeAsync<bool>("localTranscriberTts.isSpeaking"))
+            {
+                await Task.Delay(500);
+            }
+
+            _ttsStates[index] = TtsState.Idle;
+        }
+        catch
+        {
+            _ttsStates[index] = TtsState.Idle;
+        }
+
+        StateHasChanged();
     }
 
     // Models
