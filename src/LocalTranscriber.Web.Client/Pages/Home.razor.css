@@ -1982,6 +1982,11 @@ audio {
 .screen-root.studio .progress-card .log-scroll {
     max-height: calc(100vh - 20rem);
     min-height: 160px;
+    width: auto;
+}
+
+.screen-root.studio .result-card .log-scroll {
+    width: auto;
 }
 
 .screen-root.studio .history-card .history-list.compact {
