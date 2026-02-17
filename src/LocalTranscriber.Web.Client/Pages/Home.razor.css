@@ -1901,7 +1901,8 @@ audio {
     border: 1px solid color-mix(in srgb, var(--border-soft) 84%, transparent);
     border-radius: 14px;
     box-shadow: 0 14px 30px color-mix(in srgb, #060913 42%, transparent);
-    overflow: hidden;
+    min-width: 0;
+    overflow: visible;
     padding: 0;
 }
 
@@ -1948,7 +1949,8 @@ audio {
 .screen-root.studio .control-card > audio,
 .screen-root.studio .control-card > .subtext,
 .screen-root.studio .control-card > .error-box {
-    margin: 0.85rem 0.9rem 0;
+    margin: 0.85rem 0.9rem;
+    min-width: 0;
 }
 
 .screen-root.studio .control-row {
@@ -1981,10 +1983,25 @@ audio {
 .screen-root.studio .progress-card .log-scroll {
     max-height: calc(100vh - 20rem);
     min-height: 160px;
+    min-width: 0;
+    overflow-x: hidden;
 }
 
 .screen-root.studio .history-card .history-list.compact {
     max-height: 300px;
+}
+
+.screen-root.studio .studio-card > .settings-accordion,
+.screen-root.studio .studio-card > .phase-progress-bar,
+.screen-root.studio .studio-card > .diagnostics-loading,
+.screen-root.studio .studio-card > .youtube-url-panel {
+    margin: 0.85rem 0.9rem;
+    min-width: 0;
+}
+
+.screen-root.studio .session-history-list {
+    margin: 0.85rem 0.9rem;
+    min-width: 0;
 }
 
 .screen-root.studio .result-card .result-head {
@@ -1999,8 +2016,8 @@ audio {
 }
 
 .screen-root.studio .result-card .tab-panel.fill {
-    margin-bottom: 0.9rem;
     min-height: calc(100vh - 20rem);
+    min-width: 0;
 }
 
 .screen-root.studio .tab-btn {
@@ -2009,11 +2026,17 @@ audio {
 
 .screen-root.studio .tab-panel {
     border-radius: 12px;
+    min-width: 0;
+    overflow: auto;
+    width: 100%;
 }
 
 .screen-root.studio .text-pane,
 .screen-root.studio .text-editor {
     min-height: calc(100vh - 24rem);
+    min-width: 0;
+    overflow-wrap: break-word;
+    word-break: break-word;
 }
 
 .screen-root.studio .subtitle-sync-card {
