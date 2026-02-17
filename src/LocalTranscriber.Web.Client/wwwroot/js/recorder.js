@@ -25,7 +25,7 @@ window.localTranscriberRecorder = (() => {
       }));
   }
 
-  async function startRecording(deviceId) {
+  async function startRecording(deviceId, onChunkCallback) {
     if (mediaRecorder && mediaRecorder.state !== "inactive") {
       throw new Error("Recording is already in progress.");
     }
@@ -41,6 +41,9 @@ window.localTranscriberRecorder = (() => {
       mediaRecorder.ondataavailable = (event) => {
         if (event.data && event.data.size > 0) {
           chunks.push(event.data);
+          if (onChunkCallback) {
+            onChunkCallback(event.data);
+          }
         }
       };
       mediaRecorder.start(250);

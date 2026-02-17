@@ -2101,7 +2101,6 @@ audio {
 /* Studio Density Pass: less stretch, more whitespace, tighter panel geometry */
 .screen-root.studio .studio-grid {
     align-content: start;
-    align-items: start;
     gap: 1.08rem;
     margin: 0 auto;
     max-width: min(1680px, calc(100vw - 1.4rem));
@@ -2110,7 +2109,6 @@ audio {
 }
 
 .screen-root.studio .studio-card {
-    align-self: start;
     border-radius: 10px;
     box-shadow: 0 10px 24px color-mix(in srgb, #060913 30%, transparent);
 }
@@ -2749,4 +2747,132 @@ button.phase-pill.completed:hover {
 .screen-root.minimal .youtube-fab:focus-visible {
     box-shadow: 0 0 0 0.2rem color-mix(in srgb, #ff4444 22%, transparent), var(--shadow-soft);
     outline: none;
+}
+
+/* ---------------------------------------------------------------
+   Live Transcript Panel
+   --------------------------------------------------------------- */
+
+.live-transcript-panel {
+    animation: livePanelIn 0.3s ease both;
+    background: var(--surface-elevated);
+    border: 1px solid var(--border-soft);
+    border-radius: 12px;
+    margin: 0.5rem 0;
+    max-height: 300px;
+    overflow-y: auto;
+    padding: 1rem;
+    transition: opacity 0.4s ease;
+}
+
+@keyframes livePanelIn {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.live-transcript-label {
+    align-items: center;
+    color: var(--ink-subtle);
+    display: flex;
+    font-size: 0.75rem;
+    gap: 0.4rem;
+    letter-spacing: 0.05em;
+    margin-bottom: 0.5rem;
+    text-transform: uppercase;
+}
+
+.live-dot {
+    animation: live-pulse 1.5s ease-in-out infinite;
+    background: var(--danger);
+    border-radius: 50%;
+    height: 8px;
+    width: 8px;
+}
+
+@keyframes live-pulse {
+    0% {
+        opacity: 1;
+    }
+
+    50% {
+        opacity: 0.3;
+    }
+
+    100% {
+        opacity: 1;
+    }
+}
+
+.live-transcript-text {
+    font-size: 0.95rem;
+    line-height: 1.6;
+    white-space: pre-wrap;
+}
+
+.live-interim {
+    color: var(--ink-subtle);
+    font-style: italic;
+}
+
+.live-transcript-refining {
+    opacity: 0.5;
+}
+
+.live-stop-btn {
+    margin-bottom: 0.5rem;
+}
+
+.minimal-processing .live-stop-btn {
+    height: 5.5rem;
+    width: 5.5rem;
+}
+
+.minimal-processing .live-stop-btn .record-core {
+    height: 1.2rem;
+    width: 1.2rem;
+}
+
+.minimal-processing .orbit-loader {
+    animation: spin 1.1s linear infinite, livePanelIn 0.3s ease both;
+}
+
+.live-placeholder {
+    color: var(--ink-muted);
+    font-size: 0.9rem;
+    font-style: italic;
+}
+
+.live-word-count {
+    color: var(--ink-muted);
+    font-size: 0.72rem;
+    font-variant-numeric: tabular-nums;
+    margin-left: auto;
+}
+
+.live-refining-spinner {
+    animation: spin 1.1s linear infinite;
+    border: 2px solid color-mix(in srgb, var(--accent) 25%, transparent);
+    border-radius: 999px;
+    border-top-color: var(--accent);
+    display: inline-block;
+    height: 0.75rem;
+    margin-right: 0.3rem;
+    vertical-align: middle;
+    width: 0.75rem;
+}
+
+/* Toggle switch inside field-grid (minimal mode) */
+.field-grid .toggle-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    grid-column: 1 / -1;
+}
+
+.field-grid .toggle-row > span {
+    color: var(--ink-subtle);
+    font-size: 0.75rem;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
 }
