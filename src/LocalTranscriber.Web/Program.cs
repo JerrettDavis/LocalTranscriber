@@ -366,14 +366,132 @@ app.MapPost("/api/workflow/llm", async (
     var userPrompt = body.UserPrompt ?? "";
     var temperature = body.Temperature ?? 0.3;
     var maxTokens = body.MaxTokens ?? 2000;
+    var provider = body.Provider?.ToLowerInvariant();
 
-    // Try Ollama first
-    var ollamaUri = new Uri(body.OllamaUri ?? "http://localhost:11434");
-    var ollamaModel = body.OllamaModel ?? "mistral-nemo:12b";
-
-    var ollamaService = new LocalTranscriber.Cli.Services.OllamaFormattingService();
-    if (await ollamaService.IsHealthyAsync(ollamaUri))
+    // ── OpenAI (explicit provider) ──
+    if (provider == "openai")
     {
+        if (string.IsNullOrWhiteSpace(body.OpenaiApiKey))
+            return Results.BadRequest(new { error = "OpenAI API key is required. Configure it in Settings." });
+
+        try
+        {
+            using var http = new HttpClient { BaseAddress = new Uri("https://api.openai.com") };
+            http.DefaultRequestHeaders.Authorization =
+                new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", body.OpenaiApiKey);
+
+            var payload = new
+            {
+                model = body.OpenaiModel ?? "gpt-4o-mini",
+                messages = new object[]
+                {
+                    new { role = "system", content = systemPrompt },
+                    new { role = "user", content = userPrompt },
+                },
+                temperature,
+                max_tokens = maxTokens,
+            };
+
+            var resp = await http.PostAsJsonAsync("/v1/chat/completions", payload, ct);
+            resp.EnsureSuccessStatusCode();
+            var json = await resp.Content.ReadFromJsonAsync<System.Text.Json.JsonElement>(ct);
+            var text = json.GetProperty("choices")[0].GetProperty("message").GetProperty("content").GetString() ?? "";
+            return Results.Ok(new { text });
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "OpenAI call failed");
+            return Results.BadRequest(new { error = $"OpenAI call failed: {ex.Message}" });
+        }
+    }
+
+    // ── Anthropic (explicit provider) ──
+    if (provider == "anthropic")
+    {
+        if (string.IsNullOrWhiteSpace(body.AnthropicApiKey))
+            return Results.BadRequest(new { error = "Anthropic API key is required. Configure it in Settings." });
+
+        try
+        {
+            using var http = new HttpClient { BaseAddress = new Uri("https://api.anthropic.com") };
+            http.DefaultRequestHeaders.Add("x-api-key", body.AnthropicApiKey);
+            http.DefaultRequestHeaders.Add("anthropic-version", "2023-06-01");
+
+            var payload = new
+            {
+                model = body.AnthropicModel ?? "claude-sonnet-4-5-20250929",
+                max_tokens = maxTokens,
+                system = systemPrompt,
+                messages = new object[]
+                {
+                    new { role = "user", content = userPrompt },
+                },
+                temperature,
+            };
+
+            var resp = await http.PostAsJsonAsync("/v1/messages", payload, ct);
+            resp.EnsureSuccessStatusCode();
+            var json = await resp.Content.ReadFromJsonAsync<System.Text.Json.JsonElement>(ct);
+            var text = json.GetProperty("content")[0].GetProperty("text").GetString() ?? "";
+            return Results.Ok(new { text });
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Anthropic call failed");
+            return Results.BadRequest(new { error = $"Anthropic call failed: {ex.Message}" });
+        }
+    }
+
+    // ── Explicit HuggingFace provider ──
+    if (provider == "huggingface")
+    {
+        if (string.IsNullOrWhiteSpace(body.HfApiKey))
+            return Results.BadRequest(new { error = "HuggingFace API key is required. Configure it in Settings." });
+
+        try
+        {
+            var hfEndpoint = body.HfEndpoint ?? "https://router.huggingface.co";
+            var hfModel = body.HfModel ?? "Qwen/Qwen2.5-14B-Instruct";
+
+            using var http = new HttpClient { BaseAddress = new Uri(hfEndpoint) };
+            http.DefaultRequestHeaders.Authorization =
+                new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", body.HfApiKey);
+
+            var payload = new
+            {
+                model = hfModel,
+                messages = new object[]
+                {
+                    new { role = "system", content = systemPrompt },
+                    new { role = "user", content = userPrompt },
+                },
+                temperature,
+                max_tokens = maxTokens,
+            };
+
+            var resp = await http.PostAsJsonAsync("/v1/chat/completions", payload, ct);
+            resp.EnsureSuccessStatusCode();
+            var json = await resp.Content.ReadFromJsonAsync<System.Text.Json.JsonElement>(ct);
+            var text = json.GetProperty("choices")[0].GetProperty("message").GetProperty("content").GetString() ?? "";
+            return Results.Ok(new { text });
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "HuggingFace call failed");
+            return Results.BadRequest(new { error = $"HuggingFace call failed: {ex.Message}" });
+        }
+    }
+
+    // ── Explicit Ollama provider ──
+    if (provider == "ollama")
+    {
+        var ollamaUri = new Uri(body.OllamaUri ?? "http://localhost:11434");
+        var ollamaModel = body.OllamaModel ?? "mistral-nemo:12b";
+
+        var ollamaService = new LocalTranscriber.Cli.Services.OllamaFormattingService();
+        if (!await ollamaService.IsHealthyAsync(ollamaUri))
+            return Results.BadRequest(new { error = $"Ollama is not reachable at {ollamaUri}" });
+
         try
         {
             var ollama = new OllamaSharp.OllamaApiClient(ollamaUri)
@@ -389,6 +507,43 @@ app.MapPost("/api/workflow/llm", async (
             var generateRequest = new OllamaSharp.Models.GenerateRequest
             {
                 Model = ollamaModel,
+                Prompt = prompt,
+            };
+            await foreach (var stream in ollama.GenerateAsync(generateRequest))
+                chunks.Add(stream?.Response ?? string.Empty);
+
+            var text = string.Concat(chunks).Trim();
+            return Results.Ok(new { text });
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Ollama call failed");
+            return Results.BadRequest(new { error = $"Ollama call failed: {ex.Message}" });
+        }
+    }
+
+    // ── Legacy behavior (no explicit provider): try Ollama → HuggingFace fallback ──
+    var legacyOllamaUri = new Uri(body.OllamaUri ?? "http://localhost:11434");
+    var legacyOllamaModel = body.OllamaModel ?? "mistral-nemo:12b";
+
+    var legacyOllamaService = new LocalTranscriber.Cli.Services.OllamaFormattingService();
+    if (await legacyOllamaService.IsHealthyAsync(legacyOllamaUri))
+    {
+        try
+        {
+            var ollama = new OllamaSharp.OllamaApiClient(legacyOllamaUri)
+            {
+                SelectedModel = legacyOllamaModel
+            };
+
+            var prompt = string.IsNullOrWhiteSpace(systemPrompt)
+                ? userPrompt
+                : $"{systemPrompt}\n\n{userPrompt}";
+
+            var chunks = new List<string>();
+            var generateRequest = new OllamaSharp.Models.GenerateRequest
+            {
+                Model = legacyOllamaModel,
                 Prompt = prompt,
             };
             await foreach (var stream in ollama.GenerateAsync(generateRequest))
@@ -441,6 +596,25 @@ app.MapPost("/api/workflow/llm", async (
     }
 
     return Results.BadRequest(new { error = "No LLM backend available. Configure Ollama or provide a HuggingFace API key." });
+}).DisableAntiforgery();
+
+app.MapGet("/api/ollama/models", async (string? uri, CancellationToken ct) =>
+{
+    var ollamaUri = new Uri(uri ?? "http://localhost:11434");
+    try
+    {
+        using var http = new HttpClient { BaseAddress = ollamaUri, Timeout = TimeSpan.FromSeconds(5) };
+        var resp = await http.GetFromJsonAsync<System.Text.Json.JsonElement>("/api/tags", ct);
+        var models = resp.GetProperty("models").EnumerateArray()
+            .Select(m => m.GetProperty("name").GetString())
+            .Where(n => !string.IsNullOrEmpty(n))
+            .ToArray();
+        return Results.Ok(new { models });
+    }
+    catch
+    {
+        return Results.Ok(new { models = Array.Empty<string>() });
+    }
 }).DisableAntiforgery();
 
 app.MapRazorComponents<App>()
@@ -593,8 +767,11 @@ static class FileHashing
 sealed record WorkflowLlmRequest(
     string SystemPrompt, string UserPrompt,
     double? Temperature = null, int? MaxTokens = null,
+    string? Provider = null,
     string? OllamaUri = null, string? OllamaModel = null,
-    string? HfEndpoint = null, string? HfModel = null, string? HfApiKey = null);
+    string? HfEndpoint = null, string? HfModel = null, string? HfApiKey = null,
+    string? OpenaiApiKey = null, string? OpenaiModel = null,
+    string? AnthropicApiKey = null, string? AnthropicModel = null);
 
 sealed record WorkflowSegmentInput(
     double StartSeconds, double EndSeconds, string? Text,
@@ -602,3 +779,5 @@ sealed record WorkflowSegmentInput(
 
 sealed record WorkflowWordInput(
     string? Text, double StartSeconds, double EndSeconds);
+
+public partial class Program { }

@@ -12,7 +12,10 @@ window.localTranscriberWorkflow = (() => {
 
   const MODEL_CONTEXT_WINDOWS = {
     "Llama-3.1-8B-Instruct-q4f16_1-MLC": 4096,
+    "Llama-3.1-8B-Instruct-q4f32_1-MLC": 4096,
     "Qwen2.5-7B-Instruct-q4f16_1-MLC": 4096,
+    "Qwen2.5-Coder-7B-Instruct-q4f16_1-MLC": 4096,
+    "Mistral-7B-Instruct-v0.3-q4f16_1-MLC": 4096,
     "Phi-3.5-mini-instruct-q4f16_1-MLC": 4096,
   };
   const DEFAULT_CONTEXT_WINDOW = 4096;
@@ -177,7 +180,8 @@ window.localTranscriberWorkflow = (() => {
       icon: "✨",
       category: "process",
       configSchema: {
-        model: { type: "select", label: "Model", options: ["Llama-3.1-8B-Instruct-q4f16_1-MLC", "Qwen2.5-7B-Instruct-q4f16_1-MLC", "Phi-3.5-mini-instruct-q4f16_1-MLC"], default: "Llama-3.1-8B-Instruct-q4f16_1-MLC" },
+        provider: { type: "select", label: "Provider", options: ["browser", "ollama", "openai", "anthropic", "huggingface"], default: "browser" },
+        model: { type: "select", label: "Model", options: ["Llama-3.1-8B-Instruct-q4f16_1-MLC", "Llama-3.1-8B-Instruct-q4f32_1-MLC", "Qwen2.5-7B-Instruct-q4f16_1-MLC", "Qwen2.5-Coder-7B-Instruct-q4f16_1-MLC", "Mistral-7B-Instruct-v0.3-q4f16_1-MLC", "Phi-3.5-mini-instruct-q4f16_1-MLC"], default: "Llama-3.1-8B-Instruct-q4f16_1-MLC" },
         systemPrompt: { type: "textarea", label: "System Prompt", default: "You are a transcription editor." },
         userPrompt: { type: "textarea", label: "Processing Prompt", default: "Clean and format this transcript into well-structured Markdown." },
         temperature: { type: "range", label: "Temperature", min: 0, max: 1, step: 0.1, default: 0.2 },
@@ -199,7 +203,8 @@ window.localTranscriberWorkflow = (() => {
       icon: "🔄",
       category: "process",
       configSchema: {
-        model: { type: "select", label: "Model", options: ["Llama-3.1-8B-Instruct-q4f16_1-MLC", "Qwen2.5-7B-Instruct-q4f16_1-MLC", "Phi-3.5-mini-instruct-q4f16_1-MLC"], default: "Llama-3.1-8B-Instruct-q4f16_1-MLC" },
+        provider: { type: "select", label: "Provider", options: ["browser", "ollama", "openai", "anthropic", "huggingface"], default: "browser" },
+        model: { type: "select", label: "Model", options: ["Llama-3.1-8B-Instruct-q4f16_1-MLC", "Llama-3.1-8B-Instruct-q4f32_1-MLC", "Qwen2.5-7B-Instruct-q4f16_1-MLC", "Qwen2.5-Coder-7B-Instruct-q4f16_1-MLC", "Mistral-7B-Instruct-v0.3-q4f16_1-MLC", "Phi-3.5-mini-instruct-q4f16_1-MLC"], default: "Llama-3.1-8B-Instruct-q4f16_1-MLC" },
         systemPrompt: { type: "textarea", label: "System Prompt", default: "You are a helpful assistant." },
         userPrompt: { type: "textarea", label: "Prompt Template", default: "Process the following text:\n\n{input}" },
         temperature: { type: "range", label: "Temperature", min: 0, max: 1, step: 0.1, default: 0.3 },
@@ -221,7 +226,8 @@ window.localTranscriberWorkflow = (() => {
       icon: "📝",
       category: "process",
       configSchema: {
-        model: { type: "select", label: "Model", options: ["Llama-3.1-8B-Instruct-q4f16_1-MLC", "Qwen2.5-7B-Instruct-q4f16_1-MLC"], default: "Llama-3.1-8B-Instruct-q4f16_1-MLC" },
+        provider: { type: "select", label: "Provider", options: ["browser", "ollama", "openai", "anthropic", "huggingface"], default: "browser" },
+        model: { type: "select", label: "Model", options: ["Llama-3.1-8B-Instruct-q4f16_1-MLC", "Llama-3.1-8B-Instruct-q4f32_1-MLC", "Qwen2.5-7B-Instruct-q4f16_1-MLC", "Qwen2.5-Coder-7B-Instruct-q4f16_1-MLC", "Mistral-7B-Instruct-v0.3-q4f16_1-MLC", "Phi-3.5-mini-instruct-q4f16_1-MLC"], default: "Llama-3.1-8B-Instruct-q4f16_1-MLC" },
         style: { type: "select", label: "Style", options: ["bullets", "paragraph", "executive"], default: "bullets" },
         maxLength: { type: "number", label: "Max Length (words)", min: 50, max: 1000, default: 200 },
         chunking: { type: "select", label: "Chunking", options: ["auto", "always", "off"], default: "auto" },
@@ -242,7 +248,8 @@ window.localTranscriberWorkflow = (() => {
       icon: "✅",
       category: "process",
       configSchema: {
-        model: { type: "select", label: "Model", options: ["Llama-3.1-8B-Instruct-q4f16_1-MLC", "Qwen2.5-7B-Instruct-q4f16_1-MLC"], default: "Llama-3.1-8B-Instruct-q4f16_1-MLC" },
+        provider: { type: "select", label: "Provider", options: ["browser", "ollama", "openai", "anthropic", "huggingface"], default: "browser" },
+        model: { type: "select", label: "Model", options: ["Llama-3.1-8B-Instruct-q4f16_1-MLC", "Llama-3.1-8B-Instruct-q4f32_1-MLC", "Qwen2.5-7B-Instruct-q4f16_1-MLC", "Qwen2.5-Coder-7B-Instruct-q4f16_1-MLC", "Mistral-7B-Instruct-v0.3-q4f16_1-MLC", "Phi-3.5-mini-instruct-q4f16_1-MLC"], default: "Llama-3.1-8B-Instruct-q4f16_1-MLC" },
         format: { type: "select", label: "Output Format", options: ["markdown", "json", "checklist"], default: "checklist" },
         chunking: { type: "select", label: "Chunking", options: ["auto", "always", "off"], default: "auto" },
         contextWindow: { type: "number", label: "Context Window (tokens, 0=auto)", min: 0, max: 131072, default: 0 },
@@ -262,7 +269,8 @@ window.localTranscriberWorkflow = (() => {
       icon: "📄",
       category: "output",
       configSchema: {
-        model: { type: "select", label: "Model", options: ["Llama-3.1-8B-Instruct-q4f16_1-MLC", "Qwen2.5-7B-Instruct-q4f16_1-MLC"], default: "Llama-3.1-8B-Instruct-q4f16_1-MLC" },
+        provider: { type: "select", label: "Provider", options: ["browser", "ollama", "openai", "anthropic", "huggingface"], default: "browser" },
+        model: { type: "select", label: "Model", options: ["Llama-3.1-8B-Instruct-q4f16_1-MLC", "Llama-3.1-8B-Instruct-q4f32_1-MLC", "Qwen2.5-7B-Instruct-q4f16_1-MLC", "Qwen2.5-Coder-7B-Instruct-q4f16_1-MLC", "Mistral-7B-Instruct-v0.3-q4f16_1-MLC", "Phi-3.5-mini-instruct-q4f16_1-MLC"], default: "Llama-3.1-8B-Instruct-q4f16_1-MLC" },
         targetFormat: { type: "select", label: "Target Format", options: ["business-report", "meeting-notes", "blog-post", "email", "documentation", "custom"], default: "meeting-notes" },
         customTemplate: { type: "textarea", label: "Custom Template (if custom)", default: "" },
         chunking: { type: "select", label: "Chunking", options: ["auto", "always", "off"], default: "auto" },
@@ -347,7 +355,8 @@ window.localTranscriberWorkflow = (() => {
       icon: "🤖",
       category: "agent",
       configSchema: {
-        model: { type: "select", label: "Model", options: ["Llama-3.1-8B-Instruct-q4f16_1-MLC", "Qwen2.5-7B-Instruct-q4f16_1-MLC", "Phi-3.5-mini-instruct-q4f16_1-MLC"], default: "Llama-3.1-8B-Instruct-q4f16_1-MLC" },
+        provider: { type: "select", label: "Provider", options: ["browser", "ollama", "openai", "anthropic", "huggingface"], default: "browser" },
+        model: { type: "select", label: "Model", options: ["Llama-3.1-8B-Instruct-q4f16_1-MLC", "Llama-3.1-8B-Instruct-q4f32_1-MLC", "Qwen2.5-7B-Instruct-q4f16_1-MLC", "Qwen2.5-Coder-7B-Instruct-q4f16_1-MLC", "Mistral-7B-Instruct-v0.3-q4f16_1-MLC", "Phi-3.5-mini-instruct-q4f16_1-MLC"], default: "Llama-3.1-8B-Instruct-q4f16_1-MLC" },
         systemPrompt: { type: "textarea", label: "System Prompt", default: "You are a helpful assistant that outputs structured data." },
         userPromptTemplate: { type: "textarea", label: "User Prompt (use {variable} placeholders)", default: "Generate a list of interview questions about: {variables.topic}" },
         outputFormat: { type: "select", label: "Output Format", options: ["text", "json", "json-array"], default: "text" },
@@ -1270,6 +1279,13 @@ window.localTranscriberWorkflow = (() => {
   // ═══════════════════════════════════════════════════════════════
 
   async function executeStep(step, context, onProgress) {
+    const provider = step.config?.provider || null;
+
+    // Explicit provider routing — non-browser providers go through server
+    if (provider === "ollama" || provider === "openai" || provider === "anthropic" || provider === "huggingface") {
+      return executeStepServer(step, context, onProgress);
+    }
+
     // When server mode is active, dispatch all computationally-heavy step types to server
     if (transcriptionTargetOverride === "server") {
       const serverTypes = [
@@ -1289,22 +1305,7 @@ window.localTranscriberWorkflow = (() => {
       }
     }
 
-    const target = step.target || step.config?.target || "browser";
-
-    switch (target) {
-      case "browser":
-        return executeStepBrowser(step, context, onProgress);
-      case "server":
-        return executeStepServer(step, context, onProgress);
-      case "ollama":
-      case "openai":
-      case "anthropic":
-        // Future: dispatch to API targets
-        console.warn(`[Workflow] Execution target "${target}" not yet implemented, falling back to browser`);
-        return executeStepBrowser(step, context, onProgress);
-      default:
-        return executeStepBrowser(step, context, onProgress);
-    }
+    return executeStepBrowser(step, context, onProgress);
   }
 
   async function executeStepServer(step, context, onProgress) {
@@ -1481,6 +1482,7 @@ window.localTranscriberWorkflow = (() => {
       userPrompt,
       temperature: config.temperature || 0.3,
       maxTokens: config.maxTokens || 2000,
+      provider: config.provider || null,
     };
 
     if (serverConfig) {
@@ -1489,6 +1491,10 @@ window.localTranscriberWorkflow = (() => {
       if (serverConfig.hfEndpoint) body.hfEndpoint = serverConfig.hfEndpoint;
       if (serverConfig.hfModel) body.hfModel = serverConfig.hfModel;
       if (serverConfig.hfApiKey) body.hfApiKey = serverConfig.hfApiKey;
+      if (serverConfig.openaiApiKey) body.openaiApiKey = serverConfig.openaiApiKey;
+      if (serverConfig.openaiModel) body.openaiModel = serverConfig.openaiModel;
+      if (serverConfig.anthropicApiKey) body.anthropicApiKey = serverConfig.anthropicApiKey;
+      if (serverConfig.anthropicModel) body.anthropicModel = serverConfig.anthropicModel;
     }
 
     const resp = await fetch("/api/workflow/llm", {

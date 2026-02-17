@@ -13,7 +13,7 @@
 
 <PageTitle>LocalTranscriber Studio</PageTitle>
 
-<div class="screen-root @(_isStudioMode ? "studio" : "minimal")">
+<div class="screen-root @(_isStudioMode ? "studio" : "minimal")" data-testid="screen-root">
     <div class="top-left-brand">
         <p class="eyebrow">LocalTranscriber</p>
         <h1>Transcription Workspace</h1>
@@ -220,9 +220,19 @@
         else if (_minimalStage == MinimalStage.Processing)
         {
             <section class="minimal-processing">
-                <div class="orbit-loader"></div>
-                <h2>@_statusMessage</h2>
-                <p class="subtext">Processing audio and streaming step-by-step diagnostics.</p>
+                @if (_isRecording && _isLiveTranscribing)
+                {
+                    <button class="record-button recording live-stop-btn" type="button" @onclick="ToggleRecordAsync">
+                        <span class="record-core"></span>
+                        <span class="record-label">Stop</span>
+                    </button>
+                }
+                else
+                {
+                    <div class="orbit-loader"></div>
+                }
+                <h2>@(_isRecording && _isLiveTranscribing ? "Listening..." : _statusMessage)</h2>
+                <p class="subtext">@(_isRecording && _isLiveTranscribing ? "Tap stop when you're finished speaking." : "Processing audio and streaming step-by-step diagnostics.")</p>
 
                 @if (_phaseNames.Count > 0)
                 {
@@ -247,25 +257,58 @@
                     </div>
                 }
 
-                <div class="log-stream">
-                    @if (_timeline.Count == 0)
-                    {
-                        <div class="log-line">Waiting for first log event...</div>
-                    }
-                    else
-                    {
-                        var logs = GetLatestLogs(9);
-                        @for (var i = 0; i < logs.Count; i++)
+                @if (_isLiveTranscribing || !string.IsNullOrEmpty(_liveTranscriptText))
+                {
+                    <div class="live-transcript-panel @(_isSubmitting && !_isLiveTranscribing ? "live-transcript-refining" : "")" @ref="_liveTranscriptRef">
+                        <div class="live-transcript-label">
+                            @if (_isLiveTranscribing)
+                            {
+                                <span class="live-dot"></span>
+                                <span>Live</span>
+                                @if (!string.IsNullOrEmpty(_liveTranscriptText))
+                                {
+                                    <span class="live-word-count">@CountWords(_liveTranscriptText) words</span>
+                                }
+                            }
+                            else
+                            {
+                                <span class="live-refining-spinner"></span>
+                                <span>Refining with Whisper...</span>
+                            }
+                        </div>
+                        @if (_isLiveTranscribing && string.IsNullOrEmpty(_liveTranscriptText) && string.IsNullOrEmpty(_liveTranscriptInterim))
                         {
-                            var item = logs[i];
-                            var opacity = 1 - (i * 0.12);
-                            <div class="log-line @(item.IsError ? "error" : item.IsCompleted ? "complete" : "")" style="opacity:@opacity">
-                                <span>@item.Percent%</span>
-                                <span>@item.Message</span>
-                            </div>
+                            <span class="live-placeholder">Waiting for speech...</span>
                         }
-                    }
-                </div>
+                        else
+                        {
+                            <div class="live-transcript-text">@_liveTranscriptText<span class="live-interim">@_liveTranscriptInterim</span></div>
+                        }
+                    </div>
+                }
+
+                @if (!_isRecording)
+                {
+                    <div class="log-stream">
+                        @if (_timeline.Count == 0 && !_isLiveTranscribing)
+                        {
+                            <div class="log-line">Waiting for first log event...</div>
+                        }
+                        else
+                        {
+                            var logs = GetLatestLogs(9);
+                            @for (var i = 0; i < logs.Count; i++)
+                            {
+                                var item = logs[i];
+                                var opacity = 1 - (i * 0.12);
+                                <div class="log-line @(item.IsError ? "error" : item.IsCompleted ? "complete" : "")" style="opacity:@opacity">
+                                    <span>@item.Percent%</span>
+                                    <span>@item.Message</span>
+                                </div>
+                            }
+                        }
+                    </div>
+                }
 
                 @if (!string.IsNullOrWhiteSpace(_errorMessage))
                 {
@@ -279,7 +322,7 @@
             <section class="minimal-results">
                 <div class="panel-head">
                     <h2>Transcription Result</h2>
-                    <button class="ghost-btn" type="button" @onclick="ResetWorkflowAsync">Reset</button>
+                    <button class="ghost-btn" type="button" @onclick="ResetWorkflowAsync" data-testid="reset-button">Reset</button>
                 </div>
 
                 @if (!string.IsNullOrWhiteSpace(_errorMessage))
@@ -331,7 +374,7 @@
                     </div>
                 }
 
-                <div class="tab-row">
+                <div class="tab-row" data-testid="result-tab-row">
                     <button class="@GetTabClass(ResultTab.Input)" type="button" @onclick="() => SetResultTab(ResultTab.Input)">Input</button>
                     <button class="@GetTabClass(ResultTab.Final)" type="button" @onclick="() => SetResultTab(ResultTab.Final)">Processed</button>
                     <button class="@GetTabClass(ResultTab.Raw)" type="button" @onclick="() => SetResultTab(ResultTab.Raw)">Raw</button>
@@ -440,7 +483,7 @@
                 <div class="capture-hub">
                     @if (_hasAudio && !_isRecording)
                     {
-                        <button class="send-launch" type="button" title="Send for transcription" @onclick="LaunchAndSubmitAsync" disabled="@(_isSubmitting || _isLaunchAnimating)">
+                        <button class="send-launch" type="button" title="Send for transcription" @onclick="LaunchAndSubmitAsync" disabled="@(_isSubmitting || _isLaunchAnimating)" data-testid="transcribe-button">
                             <span class="rocket launch-icon" aria-hidden="true">
                                 <svg class="icon-svg" viewBox="0 0 24 24" aria-hidden="true">
                                     <path d="M3 11.5 21 3l-8.5 18-1.9-7.6z" />
@@ -452,12 +495,12 @@
                     }
 
                     <div class="record-stack">
-                        <button class="record-button @GetRecordClass()" type="button" @onclick="ToggleRecordAsync" disabled="@(_isSubmitting || _devices.Count == 0)">
+                        <button class="record-button @GetRecordClass()" type="button" @onclick="ToggleRecordAsync" disabled="@(_isSubmitting || _devices.Count == 0)" data-testid="record-button">
                             <span class="record-core"></span>
                             <span class="record-label">@(_isRecording ? "Stop" : "Record")</span>
                         </button>
 
-                        <label class="upload-fab @(_uploadedAudio is not null ? "active" : "")" title="Upload audio file" aria-label="Upload audio file">
+                        <label class="upload-fab @(_uploadedAudio is not null ? "active" : "")" title="Upload audio file" aria-label="Upload audio file" data-testid="upload-label">
                             <span class="upload-icon" aria-hidden="true">
                                 <svg class="icon-svg" viewBox="0 0 24 24" aria-hidden="true">
                                     <path d="M12 15V5" />
@@ -495,7 +538,7 @@
                         </div>
                     }
 
-                    <details class="settings-panel">
+                    <details class="settings-panel" data-testid="settings-panel">
                         <summary class="settings-panel-toggle">
                             <svg class="icon-svg" viewBox="0 0 24 24"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
                             <span>Settings</span>
@@ -503,7 +546,7 @@
                         <div class="settings-panel-content">
                             <label class="mic-select-wrap">
                                 <span>Microphone</span>
-                                <select @bind="_selectedDeviceId" disabled="@(_devices.Count == 0 || _isRecording || _isSubmitting)">
+                                <select @bind="_selectedDeviceId" disabled="@(_devices.Count == 0 || _isRecording || _isSubmitting)" data-testid="mic-select">
                                     @if (_devices.Count == 0)
                                     {
                                         <option value="">No microphone devices detected</option>
@@ -521,13 +564,25 @@
                             <div class="settings-row compact">
                                 <label>
                                     <span>Model Mirror @(_mirrorStatus)</span>
-                                    <select @bind="_selectedMirror" @bind:after="OnMirrorChangedAsync" disabled="@_isSubmitting">
+                                    <select @bind="_selectedMirror" @bind:after="OnMirrorChangedAsync" disabled="@_isSubmitting" data-testid="mirror-select">
                                         @foreach (var mirror in _mirrors)
                                         {
                                             <option value="@mirror.Url">@mirror.Name (@mirror.Region)</option>
                                         }
                                     </select>
                                 </label>
+                            </div>
+
+                            <div class="settings-row compact">
+                                <div class="toggle-label">
+                                    <label class="toggle-switch">
+                                        <input type="checkbox" checked="@_liveTranscriptionEnabled"
+                                               @onchange="OnLiveTranscriptionToggled" disabled="@_isSubmitting" data-testid="live-transcription-toggle" />
+                                        <span class="toggle-slider"></span>
+                                    </label>
+                                    <span>Live Transcription</span>
+                                </div>
+                                <p class="settings-hint" style="margin:0">Show real-time speech-to-text during recording (Chrome/Edge).</p>
                             </div>
 
                             <div class="settings-row compact">
@@ -553,7 +608,7 @@
                             <p class="settings-hint">Configure models and processing steps in the Workflow editor below.</p>
 
                     @* Advanced Settings Section *@
-                    <details class="settings-accordion">
+                    <details class="settings-accordion" data-testid="advanced-settings">
                         <summary class="settings-accordion-toggle">
                             <span>Advanced Settings</span>
                         </summary>
@@ -605,7 +660,7 @@
                     </details>
 
                     @* Prompt Editor Section *@
-                    <details class="settings-accordion">
+                    <details class="settings-accordion" data-testid="prompt-editor">
                         <summary class="settings-accordion-toggle">
                             <span>Edit Prompts</span>
                         </summary>
@@ -898,7 +953,7 @@
 
                     <label>
                         <span>Model Mirror</span>
-                        <select @bind="_modelMirror" disabled="@(_isSubmitting || _runInBrowser)">
+                        <select @bind="_modelMirror" disabled="@(_isSubmitting || _runInBrowser)" data-testid="mirror-select">
                             <option value="auto">Auto (try all)</option>
                             <option value="HuggingFace">HuggingFace</option>
                             <option value="HF-Mirror">HF-Mirror</option>
@@ -933,9 +988,12 @@
 
                     <label>
                         <span>Ollama Model (8B-20B)</span>
-                        <input list="ollama-model-presets" @bind="_ollamaModel" disabled="@(_isSubmitting || _runInBrowser)" />
+                        <div style="display:flex;gap:0.25rem;">
+                            <input list="ollama-model-presets" @bind="_ollamaModel" disabled="@(_isSubmitting || _runInBrowser)" style="flex:1;" />
+                            <button class="chip-btn ghost" type="button" @onclick="DiscoverOllamaModelsAsync" disabled="@(_isSubmitting || _runInBrowser)" title="Discover models from Ollama">Refresh</button>
+                        </div>
                         <datalist id="ollama-model-presets">
-                            @foreach (var model in _ollamaModelPresets)
+                            @foreach (var model in (_ollamaDiscoveredModels.Count > 0 ? _ollamaDiscoveredModels : _ollamaModelPresets.ToList()))
                             {
                                 <option value="@model"></option>
                             }
@@ -963,6 +1021,36 @@
                         <input type="password" @bind="_hfApiKey" placeholder="hf_..." disabled="@(_isSubmitting || _runInBrowser)" />
                     </label>
 
+                    <label>
+                        <span>OpenAI API Key</span>
+                        <input type="password" @bind="_openaiApiKey" placeholder="sk-..." disabled="@(_isSubmitting || _runInBrowser)" />
+                    </label>
+                    <label>
+                        <span>OpenAI Model</span>
+                        <input list="openai-model-presets" @bind="_openaiModel" disabled="@(_isSubmitting || _runInBrowser)" />
+                        <datalist id="openai-model-presets">
+                            @foreach (var model in _openaiModelPresets)
+                            {
+                                <option value="@model"></option>
+                            }
+                        </datalist>
+                    </label>
+
+                    <label>
+                        <span>Anthropic API Key</span>
+                        <input type="password" @bind="_anthropicApiKey" placeholder="sk-ant-..." disabled="@(_isSubmitting || _runInBrowser)" />
+                    </label>
+                    <label>
+                        <span>Anthropic Model</span>
+                        <input list="anthropic-model-presets" @bind="_anthropicModel" disabled="@(_isSubmitting || _runInBrowser)" />
+                        <datalist id="anthropic-model-presets">
+                            @foreach (var model in _anthropicModelPresets)
+                            {
+                                <option value="@model"></option>
+                            }
+                        </datalist>
+                    </label>
+
                     <label class="range-field">
                         <span>Format Sensitivity (@_formatSensitivity)</span>
                         <input type="range" min="0" max="100" step="1" @bind="_formatSensitivity" disabled="@_isSubmitting" />
@@ -977,6 +1065,15 @@
                         <span>Include Action Items</span>
                         <input type="checkbox" @bind="_formatIncludeActionItems" disabled="@_isSubmitting" />
                     </label>
+
+                    <div class="toggle-row">
+                        <span>Live Transcription</span>
+                        <label class="toggle-switch">
+                            <input type="checkbox" checked="@_liveTranscriptionEnabled"
+                                   @onchange="OnLiveTranscriptionToggled" disabled="@_isSubmitting" data-testid="live-transcription-toggle" />
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
 
                     <label class="toggle-row">
                         <span>Advanced Format Tuning</span>
@@ -1115,6 +1212,36 @@
                     <div class="meter-fill" style="width:@($"{_percent}%")"></div>
                 </div>
 
+                @if (_isLiveTranscribing || !string.IsNullOrEmpty(_liveTranscriptText))
+                {
+                    <div class="live-transcript-panel @(_isSubmitting && !_isLiveTranscribing ? "live-transcript-refining" : "")">
+                        <div class="live-transcript-label">
+                            @if (_isLiveTranscribing)
+                            {
+                                <span class="live-dot"></span>
+                                <span>Live</span>
+                                @if (!string.IsNullOrEmpty(_liveTranscriptText))
+                                {
+                                    <span class="live-word-count">@CountWords(_liveTranscriptText) words</span>
+                                }
+                            }
+                            else
+                            {
+                                <span class="live-refining-spinner"></span>
+                                <span>Refining with Whisper...</span>
+                            }
+                        </div>
+                        @if (_isLiveTranscribing && string.IsNullOrEmpty(_liveTranscriptText) && string.IsNullOrEmpty(_liveTranscriptInterim))
+                        {
+                            <span class="live-placeholder">Waiting for speech...</span>
+                        }
+                        else
+                        {
+                            <div class="live-transcript-text">@_liveTranscriptText<span class="live-interim">@_liveTranscriptInterim</span></div>
+                        }
+                    </div>
+                }
+
                 <div class="log-scroll">
                     @if (_timeline.Count == 0)
                     {
@@ -1151,7 +1278,7 @@
                     </button>
                 </header>
 
-                <div class="tab-row">
+                <div class="tab-row" data-testid="result-tab-row">
                     <button class="@GetTabClass(ResultTab.Input)" type="button" @onclick="() => SetResultTab(ResultTab.Input)">Input</button>
                     <button class="@GetTabClass(ResultTab.Final)" type="button" @onclick="() => SetResultTab(ResultTab.Final)">Processed</button>
                     <button class="@GetTabClass(ResultTab.Raw)" type="button" @onclick="() => SetResultTab(ResultTab.Raw)">Raw</button>
@@ -1388,6 +1515,16 @@
         "Mistral-7B-Instruct-v0.3-q4f16_1-MLC",
         "Phi-3.5-mini-instruct-q4f16_1-MLC"
     ];
+    private static readonly string[] _openaiModelPresets =
+    [
+        "gpt-4o-mini", "gpt-4o", "gpt-4.1-nano", "gpt-4.1-mini", "gpt-4.1", "o3-mini", "o4-mini"
+    ];
+    private static readonly string[] _anthropicModelPresets =
+    [
+        "claude-sonnet-4-5-20250929", "claude-haiku-4-5-20251001", "claude-opus-4-6"
+    ];
+
+    private readonly List<string> _ollamaDiscoveredModels = [];
 
     private HubConnection? _hub;
     private DotNetObjectReference<Home>? _dotNetRef;
@@ -1440,6 +1577,10 @@
     private string _hfEndpoint = "https://router.huggingface.co";
     private string _hfModel = "Qwen/Qwen2.5-14B-Instruct";
     private string _hfApiKey = Environment.GetEnvironmentVariable("HF_TOKEN") ?? string.Empty;
+    private string _openaiApiKey = Environment.GetEnvironmentVariable("OPENAI_API_KEY") ?? string.Empty;
+    private string _openaiModel = "gpt-4o-mini";
+    private string _anthropicApiKey = Environment.GetEnvironmentVariable("ANTHROPIC_API_KEY") ?? string.Empty;
+    private string _anthropicModel = "claude-sonnet-4-5-20250929";
     private int _formatSensitivity = 50;
     private bool _formatStrictTranscript = true;
     private bool _formatIncludeActionItems = true;
@@ -1473,6 +1614,15 @@
         HasAudioContext: false,
         HasMediaRecorder: false,
         Reason: "Checking browser capabilities...");
+
+    // Live transcription state
+    private bool _liveTranscriptionEnabled = true;
+    private bool _isLiveTranscribing;
+    private string _liveTranscriptText = "";
+    private string _liveTranscriptInterim = "";
+    private bool _liveTranscriptSupported;
+    private string? _liveTranscriptionMode;
+    private ElementReference _liveTranscriptRef;
 
     private bool _isRecording;
     private bool _isSubmitting;
@@ -1571,6 +1721,8 @@
             await LoadTuningAsync();
             await LoadTtsSettingsAsync();
             await LoadHistoryAsync();
+            var savedLive = await JS.InvokeAsync<string?>("localStorage.getItem", "lt-live-transcription");
+            if (savedLive != null) _liveTranscriptionEnabled = savedLive == "true";
             await InvokeAsync(StateHasChanged);
         }
 
@@ -1683,6 +1835,40 @@
 
         if (!_webLlmModelPresets.Contains(_webLlmModel, StringComparer.OrdinalIgnoreCase))
             _webLlmModelPresets.Insert(0, _webLlmModel);
+    }
+
+    private async Task DiscoverOllamaModelsAsync()
+    {
+        try
+        {
+            var client = HttpClientFactory.CreateClient();
+            var escapedUri = Uri.EscapeDataString(_ollamaUri);
+            var result = await client.GetFromJsonAsync<OllamaModelsResponse>(
+                $"{Navigation.BaseUri}api/ollama/models?uri={escapedUri}");
+            if (result?.Models is { Length: > 0 })
+            {
+                _ollamaDiscoveredModels.Clear();
+                _ollamaDiscoveredModels.AddRange(result.Models);
+            }
+        }
+        catch { }
+    }
+
+    private record OllamaModelsResponse(string[] Models);
+
+    [JSInvokable]
+    public async Task OnLiveTranscriptUpdate(LiveTranscriptPayload payload)
+    {
+        _liveTranscriptText = payload.FinalText ?? "";
+        _liveTranscriptInterim = payload.InterimText ?? "";
+        if (!string.IsNullOrEmpty(payload.Error))
+        {
+            _isLiveTranscribing = false;
+            _liveTranscriptInterim = "";
+            _errorMessage = $"Live transcription error: {payload.Error}";
+        }
+        await InvokeAsync(StateHasChanged);
+        try { await JS.InvokeVoidAsync("localTranscriberLive.scrollToBottom", _liveTranscriptRef); } catch { }
     }
 
     [JSInvokable]
@@ -1917,6 +2103,10 @@
                     hfEndpoint = _hfEndpoint,
                     hfModel = _hfModel,
                     hfApiKey = _hfApiKey,
+                    openaiApiKey = _openaiApiKey,
+                    openaiModel = _openaiModel,
+                    anthropicApiKey = _anthropicApiKey,
+                    anthropicModel = _anthropicModel,
                 });
             }
 
@@ -2029,6 +2219,13 @@
                 new { voice = _ttsVoice, speed = _ttsSpeed });
         }
         catch { }
+    }
+
+    private async Task OnLiveTranscriptionToggled(ChangeEventArgs e)
+    {
+        _liveTranscriptionEnabled = (bool)(e.Value ?? false);
+        await JS.InvokeVoidAsync("localStorage.setItem", "lt-live-transcription",
+            _liveTranscriptionEnabled.ToString().ToLowerInvariant());
     }
 
     private async Task ToggleServerTtsAsync(int index)
@@ -2290,6 +2487,22 @@
             await JS.InvokeVoidAsync("localTranscriberRecorder.startRecording", _selectedDeviceId);
             _isRecording = true;
             _minimalStage = MinimalStage.Capture;
+
+            // Start live transcription alongside recording
+            if (_liveTranscriptionEnabled)
+            {
+                _liveTranscriptSupported = await JS.InvokeAsync<bool>("localTranscriberLive.isSupported");
+                if (_liveTranscriptSupported)
+                {
+                    _isLiveTranscribing = true;
+                    _liveTranscriptText = "";
+                    _liveTranscriptInterim = "";
+                    _liveTranscriptionMode = "browser";
+                    _minimalStage = MinimalStage.Processing;
+                    await JS.InvokeVoidAsync("localTranscriberLive.start", _dotNetRef,
+                        new { language = "en-US" });
+                }
+            }
         }
         catch (Exception ex)
         {
@@ -2300,6 +2513,16 @@
     private async Task StopRecordingAsync()
     {
         _errorMessage = null;
+        var wasLiveTranscribing = _isLiveTranscribing;
+
+        // Stop live transcription
+        if (_isLiveTranscribing)
+        {
+            _isLiveTranscribing = false;
+            _liveTranscriptInterim = "";
+            try { await JS.InvokeVoidAsync("localTranscriberLive.stop"); } catch { }
+        }
+
         try
         {
             var stopTask = JS.InvokeAsync<BrowserAudioPayload?>("localTranscriberRecorder.stopRecording").AsTask();
@@ -2331,6 +2554,12 @@
             _isRecording = false;
             await InvokeAsync(StateHasChanged);
         }
+
+        // Auto-submit for Whisper refinement when live mode was active
+        if (wasLiveTranscribing && _browserRecording != null)
+        {
+            await SubmitAsync();
+        }
     }
 
     private async Task<bool> IsBrowserRecorderActiveAsync()
@@ -2356,6 +2585,7 @@
     private async Task HandleUploadAsync(InputFileChangeEventArgs args)
     {
         _errorMessage = null;
+        ClearLiveTranscriptState();
         try
         {
             var file = args.File;
@@ -2429,6 +2659,10 @@
                     hfEndpoint = _hfEndpoint,
                     hfModel = _hfModel,
                     hfApiKey = _hfApiKey,
+                    openaiApiKey = _openaiApiKey,
+                    openaiModel = _openaiModel,
+                    anthropicApiKey = _anthropicApiKey,
+                    anthropicModel = _anthropicModel,
                 });
             }
 
@@ -2462,6 +2696,7 @@
             if (result.SubtitleSegments is not null)
                 SetSubtitleSegments(result.SubtitleSegments);
 
+            _liveTranscriptText = "";
             _percent = 100;
             _statusMessage = "Workflow complete.";
             _minimalStage = MinimalStage.Results;
@@ -2470,9 +2705,21 @@
         }
         catch (Exception ex)
         {
-            _errorMessage = $"Transcription failed: {ex.Message}";
-            _isSubmitting = false;
-            _minimalStage = MinimalStage.Capture;
+            // If Whisper fails but we have live text, use it as fallback
+            if (!string.IsNullOrEmpty(_liveTranscriptText))
+            {
+                _rawWhisperText = _liveTranscriptText;
+                _markdownOutput = _liveTranscriptText;
+                _errorMessage = $"Whisper refinement failed (using live transcript): {ex.Message}";
+                _isSubmitting = false;
+                _minimalStage = MinimalStage.Results;
+            }
+            else
+            {
+                _errorMessage = $"Transcription failed: {ex.Message}";
+                _isSubmitting = false;
+                _minimalStage = MinimalStage.Capture;
+            }
             StopJobStatusPolling();
         }
     }
@@ -2699,6 +2946,7 @@
         _isSubmitting = false;
         _youtubeUrl = "";
         _showYouTubeInput = false;
+        ClearLiveTranscriptState();
         ClearActiveTabEditor();
         ClearInteractiveState();
         _phaseNames.Clear();
@@ -2730,8 +2978,20 @@
 
     private void BackToCapture()
     {
+        ClearLiveTranscriptState();
         _minimalStage = MinimalStage.Capture;
     }
+
+    private void ClearLiveTranscriptState()
+    {
+        _liveTranscriptText = "";
+        _liveTranscriptInterim = "";
+        _isLiveTranscribing = false;
+        _liveTranscriptionMode = null;
+    }
+
+    private static int CountWords(string text) =>
+        string.IsNullOrWhiteSpace(text) ? 0 : text.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length;
 
     private void ToggleLayoutMode()
     {
@@ -3269,6 +3529,10 @@
     {
         _isDisposed = true;
         StopJobStatusPolling();
+
+        try { await JS.InvokeVoidAsync("localTranscriberLive.stop"); } catch { }
+        _isLiveTranscribing = false;
+
         _dotNetRef?.Dispose();
 
         if (_subtitleSyncBound)
@@ -3683,6 +3947,7 @@
     private sealed record TuningOptionsJs(bool StrictTranscript, bool IncludeActionItems, int SummaryMinBullets, int SummaryMaxBullets, double Temperature, int Sensitivity);
     private sealed record TtsSettingsJs(string? Voice, double Speed);
     private sealed record TtsVoiceInfo(string Id, string Label, string Gender, string Accent);
+    public sealed record LiveTranscriptPayload(string? FinalText, string? InterimText, bool IsFinal, string? Error);
 
     // Diagnostics
     private class DiagnosticsData

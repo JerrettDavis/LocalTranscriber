@@ -1,7 +1,7 @@
 @inject IJSRuntime JS
 
-<div class="workflow-editor @(IsExpanded ? "expanded" : "collapsed")">
-    <div class="workflow-header" @onclick="ToggleExpanded">
+<div class="workflow-editor @(IsExpanded ? "expanded" : "collapsed")" data-testid="workflow-editor">
+    <div class="workflow-header" @onclick="ToggleExpanded" data-testid="workflow-header">
         <span class="workflow-toggle">@(IsExpanded ? "▼" : "▶")</span>
         <h3>Workflow: @_activeWorkflow?.Name</h3>
         <span class="workflow-steps-count">@GetStepCountLabel()</span>
@@ -10,18 +10,18 @@
     @if (IsExpanded)
     {
         <div class="workflow-toolbar">
-            <select class="workflow-select" @bind="_selectedWorkflowId" @bind:after="HandleWorkflowSelectionChanged">
+            <select class="workflow-select" @bind="_selectedWorkflowId" @bind:after="HandleWorkflowSelectionChanged" data-testid="workflow-select">
                 @foreach (var wf in _workflows)
                 {
                     <option value="@wf.Id">@wf.Name</option>
                 }
             </select>
-            <button class="chip-btn" type="button" @onclick="DuplicateWorkflow" title="Duplicate">📋</button>
-            <button class="chip-btn" type="button" @onclick="CreateNewWorkflow" title="New">➕</button>
-            <button class="chip-btn" type="button" @onclick="TogglePresetPicker" title="From Template">📦</button>
+            <button class="chip-btn" type="button" @onclick="DuplicateWorkflow" title="Duplicate" data-testid="workflow-duplicate">📋</button>
+            <button class="chip-btn" type="button" @onclick="CreateNewWorkflow" title="New" data-testid="workflow-new">➕</button>
+            <button class="chip-btn" type="button" @onclick="TogglePresetPicker" title="From Template" data-testid="workflow-template">📦</button>
             @if (_selectedWorkflowId != "default")
             {
-                <button class="chip-btn danger" type="button" @onclick="DeleteWorkflow" title="Delete">🗑️</button>
+                <button class="chip-btn danger" type="button" @onclick="DeleteWorkflow" title="Delete" data-testid="workflow-delete">🗑️</button>
             }
         </div>
 
@@ -51,9 +51,9 @@
 
         <div class="mode-toggle">
             <button class="mode-btn @(_viewMode == ViewMode.Simple ? "active" : "")" type="button"
-                    @onclick="() => SetViewMode(ViewMode.Simple)">Simple</button>
+                    @onclick="() => SetViewMode(ViewMode.Simple)" data-testid="view-simple">Simple</button>
             <button class="mode-btn @(_viewMode == ViewMode.Phase ? "active" : "")" type="button"
-                    @onclick="() => SetViewMode(ViewMode.Phase)">Phase</button>
+                    @onclick="() => SetViewMode(ViewMode.Phase)" data-testid="view-phase">Phase</button>
         </div>
 
         @if (_viewMode == ViewMode.Simple)
@@ -130,7 +130,7 @@
                 }
 
                 <div class="add-step-section">
-                    <button class="add-step-btn" type="button" @onclick="() => ToggleAddMenu(null)">
+                    <button class="add-step-btn" type="button" @onclick="() => ToggleAddMenu(null)" data-testid="add-step-btn">
                         <span>➕</span> Add Step
                     </button>
                 </div>

@@ -25,4 +25,16 @@ internal sealed class TranscriptionHub : Hub
         var config = JsonSerializer.Deserialize<Dictionary<string, object>>(configJson) ?? new();
         return await _pluginLoader.ExecuteStepAsync(stepTypeId, input, config, Context.ConnectionAborted);
     }
+
+    public async Task StreamAudioChunk(string jobId, string base64Audio)
+    {
+        // Stub: actual faster-whisper processing will be added
+        // when the streaming service is implemented
+        await Clients.Group(jobId).SendAsync("PartialTranscript", new
+        {
+            jobId,
+            text = "",
+            isFinal = false
+        });
+    }
 }
