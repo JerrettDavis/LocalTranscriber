@@ -1,0 +1,6 @@
+{
+  "$schema": "https://schemas.reqnroll.net/reqnroll-config-latest.json",
+  "allowDebugGeneratedFiles": false,
+  "allowRowTests": true,
+  "bindingCulture": { "name": "en-US" }
+}
