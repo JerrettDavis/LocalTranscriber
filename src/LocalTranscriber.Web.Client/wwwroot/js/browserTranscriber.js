@@ -1066,7 +1066,7 @@ Rules:
         applyMirrorToEnv(transformers, mirrorUrl);
       }
       
-      console.log(`[LocalTranscriber] Trying mirror: ${mirrorName}${isJsDelivr ? " (via fetch proxy)" : ""}`);
+      console.log(`[LocalTranscriber] Trying mirror: ${mirrorName}${needsProxy ? " (via fetch proxy)" : ""}`);
 
       try {
         // Try WebGPU first
