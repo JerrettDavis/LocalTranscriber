@@ -85,7 +85,7 @@ jobs:
         run: cp release/wwwroot/index.html release/wwwroot/404.html
 
       - name: Upload artifact
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@v4
         with:
           path: release/wwwroot
 
