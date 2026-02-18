@@ -928,10 +928,13 @@
                         </select>
                     </label>
 
-                    <label class="toggle-row">
+                    <div class="toggle-row">
                         <span>Speed Priority</span>
-                        <input type="checkbox" @bind="_turboMode" @bind:after="OnTurboModeChangedAsync" disabled="@_isSubmitting" data-testid="speed-priority-toggle" />
-                    </label>
+                        <label class="toggle-switch">
+                            <input type="checkbox" @bind="_turboMode" @bind:after="OnTurboModeChangedAsync" disabled="@_isSubmitting" data-testid="speed-priority-toggle" />
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
 
                     <div class="toggle-row">
                         <span>Live Transcription</span>
@@ -975,8 +978,12 @@
                                     <span>Ollama Model</span>
                                     <div style="display:flex;gap:0.25rem;">
                                         <input list="client-ollama-model-presets" @bind="_ollamaModel" disabled="@_isSubmitting" style="flex:1;" />
-                                        <button class="chip-btn ghost" type="button" @onclick="DiscoverOllamaModelsAsync" disabled="@_isSubmitting" title="Discover models from Ollama">Refresh</button>
+                                        <button class="chip-btn ghost" type="button" @onclick="DiscoverOllamaModelsAsync" disabled="@(_isSubmitting || _ollamaDiscovering)" title="Discover models from Ollama">@(_ollamaDiscovering ? "Discovering..." : "Refresh")</button>
                                     </div>
+                                    @if (!string.IsNullOrEmpty(_ollamaDiscoverError))
+                                    {
+                                        <span style="color:var(--danger);font-size:0.75rem;">@_ollamaDiscoverError</span>
+                                    }
                                     <datalist id="client-ollama-model-presets">
                                         @foreach (var model in (_ollamaDiscoveredModels.Count > 0 ? _ollamaDiscoveredModels : _ollamaModelPresets.ToList()))
                                         {
@@ -1374,6 +1381,38 @@
                 }
             </article>
         </section>
+
+        <footer class="studio-transport">
+            <div class="transport-section transport-controls">
+                <button class="transport-btn" @onclick="ToggleRecordAsync"
+                        disabled="@(_isSubmitting || _devices.Count == 0)" title="@(_isRecording ? "Stop" : "Record")">
+                    <span class="transport-icon @(_isRecording ? "recording" : "")">
+                        @(_isRecording ? "\u25A0" : "\u25CF")
+                    </span>
+                </button>
+                @if (_hasAudio || !string.IsNullOrEmpty(_markdownOutput))
+                {
+                    <button class="transport-btn" @onclick="LaunchAndSubmitAsync"
+                            disabled="@(_isSubmitting || _isLaunchAnimating)" title="Transcribe">
+                        <span class="transport-icon send">\u25B6</span>
+                    </button>
+                }
+            </div>
+            <div class="transport-section transport-status">
+                <span class="transport-label">@(_isRecording ? "REC" : _isSubmitting ? "PROCESSING" : "READY")</span>
+                @if (_uploadedAudio != null)
+                {
+                    <span class="transport-file">@_uploadedAudio.FileName</span>
+                }
+            </div>
+            <div class="transport-section transport-info">
+                @if (_isServerAvailable)
+                {
+                    <span class="transport-indicator online">SVR</span>
+                }
+                <span class="transport-model">@_model</span>
+            </div>
+        </footer>
     }
 </div>
 
@@ -1439,6 +1478,8 @@
     private string _anthropicApiKey = "";
     private string _anthropicModel = "claude-sonnet-4-5-20250929";
     private readonly List<string> _ollamaDiscoveredModels = [];
+    private bool _ollamaDiscovering;
+    private string? _ollamaDiscoverError;
 
     // Mirror configuration
     private readonly List<MirrorInfo> _mirrors = [];
@@ -1553,6 +1594,7 @@
             await LoadTurboModeAsync();
             await LoadTtsSettingsAsync();
             _isServerAvailable = await CheckServerAvailableAsync();
+            await DiscoverOllamaModelsAsync();
             var savedLayout = await JS.InvokeAsync<string?>("localStorage.getItem", "lt-layout-mode");
             if (savedLayout == "Studio") _layoutMode = LayoutMode.Studio;
             var savedLive = await JS.InvokeAsync<string?>("localStorage.getItem", "lt-live-transcription");
@@ -1719,18 +1761,55 @@
 
     private async Task DiscoverOllamaModelsAsync()
     {
+        _ollamaDiscovering = true;
+        _ollamaDiscoverError = null;
+        StateHasChanged();
         try
         {
-            var escapedUri = Uri.EscapeDataString(_ollamaUri);
-            var result = await JS.InvokeAsync<OllamaModelsResponse>(
-                "eval", $"fetch('/api/ollama/models?uri={escapedUri}').then(r=>r.json())");
-            if (result?.Models is { Length: > 0 })
+            string[]? models = null;
+
+            if (_isServerAvailable)
+            {
+                // Try server proxy first
+                try
+                {
+                    var escapedUri = Uri.EscapeDataString(_ollamaUri);
+                    var result = await JS.InvokeAsync<OllamaModelsResponse>(
+                        "eval", $"fetch('/api/ollama/models?uri={escapedUri}').then(r=>r.json())");
+                    models = result?.Models;
+                }
+                catch { /* fall through to direct */ }
+            }
+
+            if (models is not { Length: > 0 })
+            {
+                // Direct fetch to Ollama API (works from localhost origins)
+                var baseUri = _ollamaUri.TrimEnd('/');
+                var js = $"fetch('{baseUri}/api/tags',{{signal:AbortSignal.timeout(3000)}}).then(r=>r.json()).then(d=>({{models:d.models.map(m=>m.name)}}))";
+                var result = await JS.InvokeAsync<OllamaModelsResponse>("eval", js);
+                models = result?.Models;
+            }
+
+            if (models is { Length: > 0 })
             {
                 _ollamaDiscoveredModels.Clear();
-                _ollamaDiscoveredModels.AddRange(result.Models);
+                _ollamaDiscoveredModels.AddRange(models);
+                await JS.InvokeVoidAsync("localTranscriberWorkflow.setOllamaModels", models);
+            }
+            else
+            {
+                _ollamaDiscoverError = "No models found. Is Ollama running?";
             }
         }
-        catch { }
+        catch (Exception ex)
+        {
+            _ollamaDiscoverError = $"Could not reach Ollama: {ex.Message}";
+        }
+        finally
+        {
+            _ollamaDiscovering = false;
+            StateHasChanged();
+        }
     }
 
     private record OllamaModelsResponse(string[] Models);

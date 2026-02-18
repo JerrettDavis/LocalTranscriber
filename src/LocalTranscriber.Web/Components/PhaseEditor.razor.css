@@ -1,7 +1,7 @@
 .phase-card {
     background: var(--surface-elevated);
     border: 1px solid var(--border-soft);
-    border-radius: 14px;
+    border-radius: 0;
     overflow: hidden;
     transition: border-color 0.3s ease, box-shadow 0.3s ease;
 }
@@ -16,9 +16,9 @@
 }
 
 .phase-header {
-    background: color-mix(in srgb, var(--surface) 50%, var(--surface-elevated));
+    background: var(--panel-header);
     border-bottom: 1px solid var(--border-soft);
-    padding: 0.75rem 1rem;
+    padding: 0.5rem 0.75rem;
 }
 
 .phase-title-row {
@@ -29,15 +29,15 @@
 
 .phase-index {
     align-items: center;
-    background: color-mix(in srgb, var(--accent) 18%, var(--surface));
-    border-radius: 999px;
+    background: var(--surface);
+    border-radius: var(--radius-sm);
     color: var(--accent);
     display: inline-flex;
-    font-size: 0.78rem;
+    font-size: 0.72rem;
     font-weight: 700;
-    height: 1.8rem;
+    height: 1.5rem;
     justify-content: center;
-    min-width: 1.8rem;
+    min-width: 1.5rem;
 }
 
 .phase-card.active .phase-index {
@@ -121,10 +121,10 @@
 }
 
 .phase-step {
-    background: color-mix(in srgb, var(--surface) 65%, transparent);
+    background: var(--surface);
     border: 1px solid var(--border-soft);
-    border-radius: 10px;
-    margin-bottom: 0.45rem;
+    border-radius: var(--radius-sm);
+    margin-bottom: 0.35rem;
     transition: border-color 0.15s ease;
 }
 
@@ -208,13 +208,13 @@
 .phase-step .config-field select,
 .phase-step .config-field input,
 .phase-step .config-field textarea {
-    background: color-mix(in srgb, var(--surface-elevated) 90%, transparent);
+    background: var(--surface-elevated);
     border: 1px solid var(--border-soft);
-    border-radius: 8px;
+    border-radius: var(--radius-sm);
     color: var(--ink-strong);
     font-size: 0.82rem;
-    min-height: 2rem;
-    padding: 0.3rem 0.5rem;
+    min-height: 1.8rem;
+    padding: 0.25rem 0.45rem;
 }
 
 .phase-step .range-input {
@@ -232,16 +232,16 @@
 .add-step-in-phase {
     align-items: center;
     background: transparent;
-    border: 1px dashed var(--border-soft);
-    border-radius: 8px;
+    border: 1px dotted var(--border-soft);
+    border-radius: var(--radius-sm);
     color: var(--ink-muted);
     display: flex;
-    font-size: 0.78rem;
+    font-size: 0.72rem;
     font-weight: 600;
-    gap: 0.35rem;
+    gap: 0.3rem;
     justify-content: center;
-    margin-top: 0.35rem;
-    min-height: 2rem;
+    margin-top: 0.25rem;
+    min-height: 1.8rem;
     transition: border-color 0.15s ease, color 0.15s ease;
     width: 100%;
 }

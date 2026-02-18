@@ -1,49 +1,55 @@
 :root {
     color-scheme: dark light;
 
-    --bg-primary: #0b0f18;
-    --bg-secondary: #121827;
-    --bg-tertiary: #161f33;
-    --surface: rgba(18, 24, 39, 0.82);
-    --surface-elevated: rgba(23, 32, 52, 0.94);
-    --border-soft: rgba(148, 163, 184, 0.32);
-    --border-strong: rgba(148, 163, 184, 0.58);
-    --ink-strong: #eef3ff;
-    --ink-muted: #a6b5d1;
-    --ink-subtle: #8a9bb9;
-    --accent: #5ea4ff;
-    --accent-strong: #3f8dff;
-    --accent-alt: #58d6c7;
-    --danger: #ef5a5a;
-    --success: #25b37a;
-    --warning: #f0a44b;
-    --shadow-soft: 0 20px 48px rgba(2, 6, 16, 0.45);
-    --radius-sm: 10px;
-    --radius-md: 16px;
-    --radius-lg: 22px;
-    --font-ui: "Segoe UI Variable", "Bahnschrift", "IBM Plex Sans", "Trebuchet MS", sans-serif;
-    --font-mono: "Cascadia Mono", "Consolas", "JetBrains Mono", monospace;
+    --bg-primary: #1a1a1e;
+    --bg-secondary: #222226;
+    --bg-tertiary: #2a2a2f;
+    --surface: #2a2a2f;
+    --surface-elevated: #323238;
+    --border-soft: #3a3a42;
+    --border-strong: #4a4a55;
+    --ink-strong: #e8e8ec;
+    --ink-muted: #9898a0;
+    --ink-subtle: #6e6e78;
+    --accent: #4a9eff;
+    --accent-strong: #2d7fe0;
+    --accent-alt: #45c4a3;
+    --danger: #e55454;
+    --success: #3dba7a;
+    --warning: #e8a040;
+    --shadow-soft: 0 2px 8px rgba(0,0,0,0.4);
+    --radius-sm: 4px;
+    --radius-md: 6px;
+    --radius-lg: 8px;
+    --font-ui: "Segoe UI Variable", "SF Pro Display", "Bahnschrift", system-ui, sans-serif;
+    --font-mono: "Cascadia Mono", "JetBrains Mono", "Consolas", monospace;
+    --panel-header: #2e2e34;
+    --panel-gap: 2px;
+    --transport-bg: #1e1e22;
+    --transport-height: 3.5rem;
 }
 
 @media (prefers-color-scheme: light) {
     :root {
-        --bg-primary: #f0f3fb;
-        --bg-secondary: #e8edf8;
-        --bg-tertiary: #dce5f3;
-        --surface: rgba(255, 255, 255, 0.82);
-        --surface-elevated: rgba(255, 255, 255, 0.95);
-        --border-soft: rgba(71, 85, 105, 0.2);
-        --border-strong: rgba(71, 85, 105, 0.45);
-        --ink-strong: #172338;
-        --ink-muted: #425773;
-        --ink-subtle: #607595;
+        --bg-primary: #f2f2f4;
+        --bg-secondary: #e8e8ec;
+        --bg-tertiary: #dedee3;
+        --surface: #ffffff;
+        --surface-elevated: #f6f6f8;
+        --border-soft: #d0d0d6;
+        --border-strong: #b0b0b8;
+        --ink-strong: #1a1a1e;
+        --ink-muted: #4a4a55;
+        --ink-subtle: #6e6e78;
         --accent: #2563eb;
         --accent-strong: #1d4ed8;
         --accent-alt: #0891b2;
         --danger: #c03939;
         --success: #128757;
         --warning: #c97c21;
-        --shadow-soft: 0 18px 42px rgba(19, 33, 56, 0.16);
+        --shadow-soft: 0 2px 8px rgba(0, 0, 0, 0.1);
+        --panel-header: #ededf0;
+        --transport-bg: #e4e4e8;
     }
 }
 
@@ -60,10 +66,7 @@ body {
 }
 
 body {
-    background:
-        radial-gradient(circle at 8% 12%, rgba(94, 164, 255, 0.18), transparent 36%),
-        radial-gradient(circle at 88% 2%, rgba(88, 214, 199, 0.17), transparent 30%),
-        linear-gradient(145deg, var(--bg-primary) 0%, var(--bg-secondary) 48%, var(--bg-tertiary) 100%);
+    background: var(--bg-primary);
     color: var(--ink-strong);
     font-family: var(--font-ui);
     line-height: 1.42;
@@ -80,4 +83,164 @@ select,
 textarea {
     color: inherit;
     font: inherit;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   App Loader - Shown during WASM initialization
+   ═══════════════════════════════════════════════════════════════ */
+
+.app-loader {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+}
+
+.loader-backdrop {
+    position: absolute;
+    inset: 0;
+    background: var(--bg-primary);
+}
+
+.loader-content {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1.25rem;
+    padding: 2.5rem;
+    background: var(--surface);
+    backdrop-filter: blur(20px);
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-soft);
+    animation: loaderFadeIn 0.4s ease-out;
+}
+
+@keyframes loaderFadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(12px) scale(0.96);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+.loader-icon {
+    position: relative;
+    width: 64px;
+    height: 64px;
+    color: var(--accent);
+}
+
+.loader-icon svg {
+    width: 100%;
+    height: 100%;
+    animation: loaderBreathe 2s ease-in-out infinite;
+}
+
+@keyframes loaderBreathe {
+    0%, 100% { transform: scale(1); opacity: 1; }
+    50% { transform: scale(1.05); opacity: 0.85; }
+}
+
+.loader-pulse {
+    position: absolute;
+    inset: -8px;
+    border-radius: 50%;
+    background: var(--accent);
+    opacity: 0;
+    animation: loaderPulse 2s ease-out infinite;
+}
+
+@keyframes loaderPulse {
+    0% {
+        transform: scale(0.8);
+        opacity: 0.5;
+    }
+    100% {
+        transform: scale(1.6);
+        opacity: 0;
+    }
+}
+
+.loader-text {
+    font-size: 1.5rem;
+    font-weight: 600;
+    color: var(--ink-strong);
+    letter-spacing: -0.01em;
+}
+
+.loader-bar {
+    width: 180px;
+    height: 4px;
+    background: var(--border-soft);
+    border-radius: 2px;
+    overflow: hidden;
+}
+
+.loader-bar-fill {
+    height: 100%;
+    width: 30%;
+    background: linear-gradient(90deg, var(--accent), var(--accent-alt));
+    border-radius: 2px;
+    animation: loaderProgress 1.8s ease-in-out infinite;
+}
+
+@keyframes loaderProgress {
+    0% {
+        width: 0%;
+        margin-left: 0%;
+    }
+    50% {
+        width: 60%;
+        margin-left: 20%;
+    }
+    100% {
+        width: 0%;
+        margin-left: 100%;
+    }
+}
+
+.loader-status {
+    font-size: 0.875rem;
+    color: var(--ink-muted);
+}
+
+/* Hide loader once Blazor renders */
+.app-loader:has(+ *:not(script):not(#blazor-error-ui)) {
+    display: none;
+}
+
+/* Blazor error UI - hidden by default, shown on critical errors */
+#blazor-error-ui {
+    background: var(--danger);
+    color: white;
+    padding: 0.6rem 1rem;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 1000;
+    display: none;
+}
+
+#blazor-error-ui.visible {
+    display: block;
+}
+
+#blazor-error-ui .reload {
+    color: white;
+    text-decoration: underline;
+    margin-left: 0.5rem;
+}
+
+#blazor-error-ui .dismiss {
+    cursor: pointer;
+    position: absolute;
+    right: 1rem;
 }

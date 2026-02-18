@@ -132,7 +132,11 @@ public class WorkflowEditorPage
 
     public async Task<int> GetStepCountAsync()
     {
-        return await _page.Locator(Selectors.WorkflowStep).CountAsync();
+        // Simple view uses .workflow-step, Phase view uses .phase-step
+        var count = await _page.Locator(Selectors.WorkflowStep).CountAsync();
+        if (count == 0)
+            count = await _page.Locator(Selectors.PhaseStep).CountAsync();
+        return count;
     }
 
     public async Task<string> GetStepNameAsync(int index)

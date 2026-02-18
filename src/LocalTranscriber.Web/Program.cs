@@ -482,7 +482,7 @@ app.MapPost("/api/workflow/llm", async (
         }
     }
 
-    // ── Explicit Ollama provider ──
+    // ── Explicit Ollama provider (chat API) ──
     if (provider == "ollama")
     {
         var ollamaUri = new Uri(body.OllamaUri ?? "http://localhost:11434");
@@ -494,25 +494,26 @@ app.MapPost("/api/workflow/llm", async (
 
         try
         {
-            var ollama = new OllamaSharp.OllamaApiClient(ollamaUri)
+            using var http = new HttpClient { BaseAddress = ollamaUri };
+            var options = new Dictionary<string, object> { ["temperature"] = temperature };
+            if (body.ContextWindow is > 0)
+                options["num_ctx"] = body.ContextWindow.Value;
+
+            var payload = new
             {
-                SelectedModel = ollamaModel
+                model = ollamaModel,
+                messages = new object[]
+                {
+                    new { role = "system", content = systemPrompt },
+                    new { role = "user", content = userPrompt },
+                },
+                stream = false,
+                options,
             };
-
-            var prompt = string.IsNullOrWhiteSpace(systemPrompt)
-                ? userPrompt
-                : $"{systemPrompt}\n\n{userPrompt}";
-
-            var chunks = new List<string>();
-            var generateRequest = new OllamaSharp.Models.GenerateRequest
-            {
-                Model = ollamaModel,
-                Prompt = prompt,
-            };
-            await foreach (var stream in ollama.GenerateAsync(generateRequest))
-                chunks.Add(stream?.Response ?? string.Empty);
-
-            var text = string.Concat(chunks).Trim();
+            var resp = await http.PostAsJsonAsync("/api/chat", payload, ct);
+            resp.EnsureSuccessStatusCode();
+            var json = await resp.Content.ReadFromJsonAsync<System.Text.Json.JsonElement>(ct);
+            var text = json.GetProperty("message").GetProperty("content").GetString() ?? "";
             return Results.Ok(new { text });
         }
         catch (Exception ex)
@@ -531,25 +532,26 @@ app.MapPost("/api/workflow/llm", async (
     {
         try
         {
-            var ollama = new OllamaSharp.OllamaApiClient(legacyOllamaUri)
+            using var http = new HttpClient { BaseAddress = legacyOllamaUri };
+            var options = new Dictionary<string, object> { ["temperature"] = temperature };
+            if (body.ContextWindow is > 0)
+                options["num_ctx"] = body.ContextWindow.Value;
+
+            var payload = new
             {
-                SelectedModel = legacyOllamaModel
+                model = legacyOllamaModel,
+                messages = new object[]
+                {
+                    new { role = "system", content = systemPrompt },
+                    new { role = "user", content = userPrompt },
+                },
+                stream = false,
+                options,
             };
-
-            var prompt = string.IsNullOrWhiteSpace(systemPrompt)
-                ? userPrompt
-                : $"{systemPrompt}\n\n{userPrompt}";
-
-            var chunks = new List<string>();
-            var generateRequest = new OllamaSharp.Models.GenerateRequest
-            {
-                Model = legacyOllamaModel,
-                Prompt = prompt,
-            };
-            await foreach (var stream in ollama.GenerateAsync(generateRequest))
-                chunks.Add(stream?.Response ?? string.Empty);
-
-            var text = string.Concat(chunks).Trim();
+            var resp = await http.PostAsJsonAsync("/api/chat", payload, ct);
+            resp.EnsureSuccessStatusCode();
+            var json = await resp.Content.ReadFromJsonAsync<System.Text.Json.JsonElement>(ct);
+            var text = json.GetProperty("message").GetProperty("content").GetString() ?? "";
             return Results.Ok(new { text });
         }
         catch (Exception ex)
@@ -771,7 +773,8 @@ sealed record WorkflowLlmRequest(
     string? OllamaUri = null, string? OllamaModel = null,
     string? HfEndpoint = null, string? HfModel = null, string? HfApiKey = null,
     string? OpenaiApiKey = null, string? OpenaiModel = null,
-    string? AnthropicApiKey = null, string? AnthropicModel = null);
+    string? AnthropicApiKey = null, string? AnthropicModel = null,
+    int? ContextWindow = null);
 
 sealed record WorkflowSegmentInput(
     double StartSeconds, double EndSeconds, string? Text,

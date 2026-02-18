@@ -45,8 +45,9 @@ public static class Selectors
     public const string MinimalProcessing = "section.minimal-processing";
     public const string MinimalResults = "section.minimal-results";
 
-    // Workflow steps
+    // Workflow steps (simple view uses .workflow-step, phase view uses .phase-step)
     public const string WorkflowStep = ".workflow-step";
+    public const string PhaseStep = ".phase-step";
     public const string StepHeader = ".step-header";
     public const string StepRemoveButton = ".icon-btn.danger";
     public const string StepMoveDownButton = ".icon-btn[title='Move down']";

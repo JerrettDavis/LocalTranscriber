@@ -1,6 +1,6 @@
 .app-frame {
     min-height: 100vh;
-    padding: 0.75rem;
+    padding: 0;
 }
 
 #blazor-error-ui {
