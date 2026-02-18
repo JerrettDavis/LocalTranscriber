@@ -37,6 +37,20 @@ window.localTranscriberWorkflow = (() => {
   function getOllamaModels() {
     return [...discoveredOllamaModels];
   }
+  async function discoverOllamaModels(ollamaUri) {
+    const uri = (ollamaUri || (serverConfig && serverConfig.ollamaUri) || "http://localhost:11434").replace(/\/+$/, "");
+    try {
+      const resp = await fetch(`${uri}/api/tags`, { signal: AbortSignal.timeout(3000) });
+      const data = await resp.json();
+      const models = (data.models || []).map(m => m.name);
+      if (models.length > 0) {
+        discoveredOllamaModels = models;
+      }
+      return models;
+    } catch {
+      return [];
+    }
+  }
   function getModelOptionsForProvider(provider) {
     const browserModels = [
       "Llama-3.1-8B-Instruct-q4f16_1-MLC",
@@ -1510,19 +1524,16 @@ window.localTranscriberWorkflow = (() => {
       contextWindow: config.contextWindow || 0,
     };
 
+    // Connection details from global settings
     if (serverConfig) {
       if (serverConfig.ollamaUri) body.ollamaUri = serverConfig.ollamaUri;
-      if (serverConfig.ollamaModel) body.ollamaModel = serverConfig.ollamaModel;
       if (serverConfig.hfEndpoint) body.hfEndpoint = serverConfig.hfEndpoint;
-      if (serverConfig.hfModel) body.hfModel = serverConfig.hfModel;
       if (serverConfig.hfApiKey) body.hfApiKey = serverConfig.hfApiKey;
       if (serverConfig.openaiApiKey) body.openaiApiKey = serverConfig.openaiApiKey;
-      if (serverConfig.openaiModel) body.openaiModel = serverConfig.openaiModel;
       if (serverConfig.anthropicApiKey) body.anthropicApiKey = serverConfig.anthropicApiKey;
-      if (serverConfig.anthropicModel) body.anthropicModel = serverConfig.anthropicModel;
     }
 
-    // Per-step model override: if the step has both provider and model set, use the step's model
+    // Model from per-step config
     if (config.model && config.provider) {
       switch (config.provider) {
         case "ollama":      body.ollamaModel = config.model; break;
@@ -1645,8 +1656,8 @@ window.localTranscriberWorkflow = (() => {
       onProgress(30, "Transcribing audio...");
 
       const modelName = (step.config.model || "SmallEn").replace(/\s*\(Server\)$/i, "");
-      const result = await browser.transcribeAudio?.(context.audio, modelName, step.config.language, (p, m) => {
-        onProgress(30 + p * 0.6, m);
+      const result = await browser.transcribeAudio?.(context.audio, modelName, step.config.language, (p, m, extras) => {
+        onProgress(30 + p * 0.6, m, extras);
       });
 
       return {
@@ -2779,6 +2790,31 @@ window.localTranscriberWorkflow = (() => {
   }
 
   // ═══════════════════════════════════════════════════════════════
+  // Cancellation
+  // ═══════════════════════════════════════════════════════════════
+
+  function cancelExecution() {
+    if (!activeExecution) return false;
+    activeExecution.abort();
+
+    // Resolve all pending interactive promises so the loop can unblock
+    for (const [, review] of pendingReviews) {
+      review.resolve({ processedText: "", navigated: true });
+    }
+    pendingReviews.clear();
+    for (const [, choice] of pendingChoices) {
+      choice.resolve(null);
+    }
+    pendingChoices.clear();
+    for (const [, rec] of pendingMultiRecords) {
+      rec.resolve({ processedText: "", navigated: true });
+    }
+    pendingMultiRecords.clear();
+
+    return true;
+  }
+
+  // ═══════════════════════════════════════════════════════════════
   // Phase Navigation
   // ═══════════════════════════════════════════════════════════════
 
@@ -3084,6 +3120,7 @@ window.localTranscriberWorkflow = (() => {
     completeChoice,
     completeMultiRecord,
     navigateToPhase,
+    cancelExecution,
     getPendingReviews: () => Array.from(pendingReviews.keys()),
     getPendingChoices: () => Array.from(pendingChoices.keys()),
     getPendingMultiRecords: () => Array.from(pendingMultiRecords.keys()),
@@ -3110,6 +3147,7 @@ window.localTranscriberWorkflow = (() => {
     setServerConfig,
     setOllamaModels,
     getOllamaModels,
+    discoverOllamaModels,
     getModelOptionsForProvider,
 
     // Utilities (exposed for plugins)
