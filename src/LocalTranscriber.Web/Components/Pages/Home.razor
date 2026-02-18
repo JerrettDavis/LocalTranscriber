@@ -562,6 +562,17 @@
                             </label>
 
                             <div class="settings-row compact">
+                                <label class="toggle-row">
+                                    <span>Browser-Only Mode</span>
+                                    <input type="checkbox" @bind="_runInBrowser" disabled="@(!_browserCapabilities.Supported || _isSubmitting)" />
+                                </label>
+                                @if (!string.IsNullOrEmpty(_browserCapabilities.Reason))
+                                {
+                                    <p class="settings-hint" style="margin:0">@_browserCapabilities.Reason</p>
+                                }
+                            </div>
+
+                            <div class="settings-row compact">
                                 <label>
                                     <span>Model Mirror @(_mirrorStatus)</span>
                                     <select @bind="_selectedMirror" @bind:after="OnMirrorChangedAsync" disabled="@_isSubmitting" data-testid="mirror-select">
@@ -891,6 +902,15 @@
                         </span>
                         <span>Transcribe</span>
                     </button>
+                    <button class="solid-btn ghost btn-with-icon" type="button" @onclick="ToggleYouTubeInput" disabled="@(_isRecording || _isSubmitting)">
+                        <span class="btn-icon" aria-hidden="true">
+                            <svg class="icon-svg" viewBox="0 0 24 24">
+                                <path d="m10 8 6 4-6 4z" />
+                                <rect x="2" y="4" width="20" height="16" rx="4" ry="4" fill="none" stroke="currentColor" stroke-width="1.6" />
+                            </svg>
+                        </span>
+                        <span>YouTube</span>
+                    </button>
                     <button class="solid-btn ghost btn-with-icon" type="button" @onclick="ResetWorkflowAsync" disabled="@_isSubmitting">
                         <span class="btn-icon" aria-hidden="true">
                             <svg class="icon-svg" viewBox="0 0 24 24">
@@ -901,6 +921,18 @@
                         <span>New Project</span>
                     </button>
                 </div>
+
+                @if (_showYouTubeInput)
+                {
+                    <div class="youtube-url-panel">
+                        <input type="url" @bind="_youtubeUrl" @bind:event="oninput" placeholder="Paste YouTube URL..."
+                               disabled="@_isSubmitting" />
+                        <button class="chip-btn" type="button" @onclick="SubmitYouTubeAsync"
+                                disabled="@(string.IsNullOrWhiteSpace(_youtubeUrl) || _isSubmitting)">
+                            Transcribe
+                        </button>
+                    </div>
+                }
 
                 @if (!string.IsNullOrWhiteSpace(_previewUrl))
                 {
@@ -939,6 +971,11 @@
                                 <option value="@device.DeviceId">@device.Label</option>
                             }
                         </select>
+                    </label>
+
+                    <label class="toggle-row">
+                        <span>Browser-Only Mode</span>
+                        <input type="checkbox" @bind="_runInBrowser" disabled="@(!_browserCapabilities.Supported || _isSubmitting)" />
                     </label>
 
                     <label>
@@ -989,15 +1026,18 @@
                     <label>
                         <span>Ollama Model (8B-20B)</span>
                         <div style="display:flex;gap:0.25rem;">
-                            <input list="ollama-model-presets" @bind="_ollamaModel" disabled="@(_isSubmitting || _runInBrowser)" style="flex:1;" />
-                            <button class="chip-btn ghost" type="button" @onclick="DiscoverOllamaModelsAsync" disabled="@(_isSubmitting || _runInBrowser)" title="Discover models from Ollama">Refresh</button>
+                            <select @bind="_ollamaModel" disabled="@(_isSubmitting || _runInBrowser)" style="flex:1;">
+                                @foreach (var model in GetOllamaModelOptions())
+                                {
+                                    <option value="@model">@model</option>
+                                }
+                            </select>
+                            <button class="chip-btn ghost" type="button" @onclick="DiscoverOllamaModelsAsync" disabled="@(_isSubmitting || _runInBrowser || _ollamaDiscovering)" title="Discover models from Ollama">@(_ollamaDiscovering ? "Discovering..." : "Refresh")</button>
                         </div>
-                        <datalist id="ollama-model-presets">
-                            @foreach (var model in (_ollamaDiscoveredModels.Count > 0 ? _ollamaDiscoveredModels : _ollamaModelPresets.ToList()))
-                            {
-                                <option value="@model"></option>
-                            }
-                        </datalist>
+                        @if (!string.IsNullOrEmpty(_ollamaDiscoverError))
+                        {
+                            <span style="color:var(--danger);font-size:0.75rem;">@_ollamaDiscoverError</span>
+                        }
                     </label>
 
                     <label>
@@ -1066,14 +1106,11 @@
                         <input type="checkbox" @bind="_formatIncludeActionItems" disabled="@_isSubmitting" />
                     </label>
 
-                    <div class="toggle-row">
+                    <label class="toggle-row">
                         <span>Live Transcription</span>
-                        <label class="toggle-switch">
-                            <input type="checkbox" checked="@_liveTranscriptionEnabled"
-                                   @onchange="OnLiveTranscriptionToggled" disabled="@_isSubmitting" data-testid="live-transcription-toggle" />
-                            <span class="toggle-slider"></span>
-                        </label>
-                    </div>
+                        <input type="checkbox" checked="@_liveTranscriptionEnabled"
+                               @onchange="OnLiveTranscriptionToggled" disabled="@_isSubmitting" data-testid="live-transcription-toggle" />
+                    </label>
 
                     <label class="toggle-row">
                         <span>Advanced Format Tuning</span>
@@ -1467,17 +1504,37 @@
                 }
             </article>
         </section>
+
+        <footer class="studio-transport">
+            <div class="transport-section transport-controls">
+                <button class="transport-btn" @onclick="ToggleRecordAsync"
+                        disabled="@(_isSubmitting || _devices.Count == 0)" title="@(_isRecording ? "Stop" : "Record")">
+                    <span class="transport-icon @(_isRecording ? "recording" : "")">
+                        @(_isRecording ? "\u25A0" : "\u25CF")
+                    </span>
+                </button>
+                @if (_hasAudio || !string.IsNullOrEmpty(_markdownOutput))
+                {
+                    <button class="transport-btn" @onclick="SubmitAsync"
+                            disabled="@_isSubmitting" title="Transcribe">
+                        <span class="transport-icon send">\u25B6</span>
+                    </button>
+                }
+            </div>
+            <div class="transport-section transport-status">
+                <span class="transport-label">@(_isRecording ? "REC" : _isSubmitting ? "PROCESSING" : "READY")</span>
+                @if (_uploadedAudio != null)
+                {
+                    <span class="transport-file">@_uploadedAudio.FileName</span>
+                }
+            </div>
+            <div class="transport-section transport-info">
+                <span class="transport-model">@_model</span>
+            </div>
+        </footer>
     }
 </div>
 
-<div class="browser-dock">
-    <div class="dock-title">Browser-Only Mode</div>
-    <label class="dock-toggle">
-        <input type="checkbox" @bind="_runInBrowser" disabled="@(!_browserCapabilities.Supported || _isSubmitting)" />
-        <span>@(_runInBrowser ? "Enabled" : "Disabled")</span>
-    </label>
-    <p class="dock-note">@_browserCapabilities.Reason</p>
-</div>
 
 @code {
     private static readonly string[] _models =
@@ -1525,6 +1582,8 @@
     ];
 
     private readonly List<string> _ollamaDiscoveredModels = [];
+    private bool _ollamaDiscovering;
+    private string? _ollamaDiscoverError;
 
     private HubConnection? _hub;
     private DotNetObjectReference<Home>? _dotNetRef;
@@ -1721,6 +1780,7 @@
             await LoadTuningAsync();
             await LoadTtsSettingsAsync();
             await LoadHistoryAsync();
+            await DiscoverOllamaModelsAsync();
             var savedLive = await JS.InvokeAsync<string?>("localStorage.getItem", "lt-live-transcription");
             if (savedLive != null) _liveTranscriptionEnabled = savedLive == "true";
             await InvokeAsync(StateHasChanged);
@@ -1839,6 +1899,9 @@
 
     private async Task DiscoverOllamaModelsAsync()
     {
+        _ollamaDiscovering = true;
+        _ollamaDiscoverError = null;
+        StateHasChanged();
         try
         {
             var client = HttpClientFactory.CreateClient();
@@ -1849,12 +1912,38 @@
             {
                 _ollamaDiscoveredModels.Clear();
                 _ollamaDiscoveredModels.AddRange(result.Models);
+                await JS.InvokeVoidAsync("localTranscriberWorkflow.setOllamaModels", result.Models);
+            }
+            else
+            {
+                _ollamaDiscoverError = "No models found. Is Ollama running?";
             }
         }
-        catch { }
+        catch (Exception ex)
+        {
+            _ollamaDiscoverError = $"Could not reach Ollama: {ex.Message}";
+        }
+        finally
+        {
+            _ollamaDiscovering = false;
+            StateHasChanged();
+        }
     }
 
     private record OllamaModelsResponse(string[] Models);
+
+    private IEnumerable<string> GetOllamaModelOptions()
+    {
+        var models = _ollamaDiscoveredModels.Count > 0
+            ? _ollamaDiscoveredModels
+            : _ollamaModelPresets.ToList();
+
+        if (!string.IsNullOrEmpty(_ollamaModel) && !models.Contains(_ollamaModel, StringComparer.OrdinalIgnoreCase))
+            yield return _ollamaModel;
+
+        foreach (var m in models)
+            yield return m;
+    }
 
     [JSInvokable]
     public async Task OnLiveTranscriptUpdate(LiveTranscriptPayload payload)

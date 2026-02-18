@@ -59,36 +59,71 @@
                                 {
                                     <div class="config-field">
                                         <label>@schema.Label</label>
-                                        @switch (schema.Type)
+                                        @if (key == "model" && typeDef.ConfigSchema.ContainsKey("provider"))
                                         {
-                                            case "select":
+                                            var provider = GetConfigValue(step, "provider", typeDef);
+                                            if (provider == "browser" || string.IsNullOrEmpty(provider))
+                                            {
                                                 <select value="@GetConfigValue(step, key, typeDef)" @onchange="e => SetConfigValue(step, key, e.Value?.ToString())">
                                                     @foreach (var opt in schema.Options ?? Array.Empty<string>())
                                                     {
                                                         <option value="@opt" selected="@(GetConfigValue(step, key, typeDef) == opt)">@opt</option>
                                                     }
                                                 </select>
-                                                break;
-                                            case "textarea":
-                                                <textarea rows="3" @onchange="e => SetConfigValue(step, key, e.Value?.ToString())">@GetConfigValue(step, key, typeDef)</textarea>
-                                                break;
-                                            case "range":
-                                                <div class="range-input">
-                                                    <input type="range" min="@schema.Min" max="@schema.Max" step="@(schema.Step ?? 1)"
+                                            }
+                                            else if (provider == "ollama")
+                                            {
+                                                <select value="@GetConfigValue(step, key, typeDef)" @onchange="e => SetConfigValue(step, key, e.Value?.ToString())">
+                                                    @foreach (var m in _ollamaModels)
+                                                    {
+                                                        <option value="@m" selected="@(GetConfigValue(step, key, typeDef) == m)">@m</option>
+                                                    }
+                                                    @if (_ollamaModels.Count == 0)
+                                                    {
+                                                        <option value="" disabled>No models discovered</option>
+                                                    }
+                                                </select>
+                                            }
+                                            else
+                                            {
+                                                <input type="text" value="@GetConfigValue(step, key, typeDef)"
+                                                       placeholder="e.g. gpt-4o, claude-sonnet-4-5..."
+                                                       @onchange="e => SetConfigValue(step, key, e.Value?.ToString())" />
+                                            }
+                                        }
+                                        else
+                                        {
+                                            @switch (schema.Type)
+                                            {
+                                                case "select":
+                                                    <select value="@GetConfigValue(step, key, typeDef)" @onchange="e => SetConfigValue(step, key, e.Value?.ToString())">
+                                                        @foreach (var opt in schema.Options ?? Array.Empty<string>())
+                                                        {
+                                                            <option value="@opt" selected="@(GetConfigValue(step, key, typeDef) == opt)">@opt</option>
+                                                        }
+                                                    </select>
+                                                    break;
+                                                case "textarea":
+                                                    <textarea rows="3" @onchange="e => SetConfigValue(step, key, e.Value?.ToString())">@GetConfigValue(step, key, typeDef)</textarea>
+                                                    break;
+                                                case "range":
+                                                    <div class="range-input">
+                                                        <input type="range" min="@schema.Min" max="@schema.Max" step="@(schema.Step ?? 1)"
+                                                               value="@GetConfigValue(step, key, typeDef)"
+                                                               @onchange="e => SetConfigValue(step, key, e.Value?.ToString())" />
+                                                        <span>@GetConfigValue(step, key, typeDef)</span>
+                                                    </div>
+                                                    break;
+                                                case "number":
+                                                    <input type="number" min="@schema.Min" max="@schema.Max"
                                                            value="@GetConfigValue(step, key, typeDef)"
                                                            @onchange="e => SetConfigValue(step, key, e.Value?.ToString())" />
-                                                    <span>@GetConfigValue(step, key, typeDef)</span>
-                                                </div>
-                                                break;
-                                            case "number":
-                                                <input type="number" min="@schema.Min" max="@schema.Max"
-                                                       value="@GetConfigValue(step, key, typeDef)"
-                                                       @onchange="e => SetConfigValue(step, key, e.Value?.ToString())" />
-                                                break;
-                                            default:
-                                                <input type="text" value="@GetConfigValue(step, key, typeDef)"
-                                                       @onchange="e => SetConfigValue(step, key, e.Value?.ToString())" />
-                                                break;
+                                                    break;
+                                                default:
+                                                    <input type="text" value="@GetConfigValue(step, key, typeDef)"
+                                                           @onchange="e => SetConfigValue(step, key, e.Value?.ToString())" />
+                                                    break;
+                                            }
                                         }
                                     </div>
                                 }
@@ -134,10 +169,34 @@
 
     private string? _expandedStepId;
     private bool _isEditingName;
+    private List<string> _ollamaModels = new();
 
-    private void ToggleStepEdit(string stepId)
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            try
+            {
+                var models = await JS.InvokeAsync<string[]>("localTranscriberWorkflow.getOllamaModels");
+                _ollamaModels = models?.ToList() ?? new();
+                StateHasChanged();
+            }
+            catch { }
+        }
+    }
+
+    private async Task ToggleStepEdit(string stepId)
     {
         _expandedStepId = _expandedStepId == stepId ? null : stepId;
+        if (_expandedStepId is not null)
+        {
+            try
+            {
+                var models = await JS.InvokeAsync<string[]>("localTranscriberWorkflow.getOllamaModels");
+                _ollamaModels = models?.ToList() ?? new();
+            }
+            catch { }
+        }
     }
 
     private void ToggleStep(WorkflowStep step)
@@ -175,10 +234,21 @@
         return "";
     }
 
-    private void SetConfigValue(WorkflowStep step, string key, string? value)
+    private async Task SetConfigValue(WorkflowStep step, string key, string? value)
     {
         step.Config[key] = value ?? "";
-        OnPhaseChanged.InvokeAsync(Phase);
+        await OnPhaseChanged.InvokeAsync(Phase);
+
+        if (key == "provider")
+        {
+            try
+            {
+                var models = await JS.InvokeAsync<string[]>("localTranscriberWorkflow.getOllamaModels");
+                _ollamaModels = models?.ToList() ?? new();
+            }
+            catch { }
+            StateHasChanged();
+        }
     }
 
     private void HandleNameKeyDown(KeyboardEventArgs e)

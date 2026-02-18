@@ -29,6 +29,30 @@ window.localTranscriberWorkflow = (() => {
   let serverConfig = null;
   function setServerConfig(config) { serverConfig = config || null; }
 
+  // Discovered Ollama models (pushed from Settings panel)
+  let discoveredOllamaModels = [];
+  function setOllamaModels(models) {
+    discoveredOllamaModels = Array.isArray(models) ? models : [];
+  }
+  function getOllamaModels() {
+    return [...discoveredOllamaModels];
+  }
+  function getModelOptionsForProvider(provider) {
+    const browserModels = [
+      "Llama-3.1-8B-Instruct-q4f16_1-MLC",
+      "Llama-3.1-8B-Instruct-q4f32_1-MLC",
+      "Qwen2.5-7B-Instruct-q4f16_1-MLC",
+      "Qwen2.5-Coder-7B-Instruct-q4f16_1-MLC",
+      "Mistral-7B-Instruct-v0.3-q4f16_1-MLC",
+      "Phi-3.5-mini-instruct-q4f16_1-MLC",
+    ];
+    switch (provider) {
+      case "ollama": return discoveredOllamaModels.length > 0 ? discoveredOllamaModels : [];
+      case "browser": case null: case undefined: case "": return browserModels;
+      default: return []; // openai/anthropic/hf use free-form text input
+    }
+  }
+
   // ═══════════════════════════════════════════════════════════════
   // Utility: Nested Value Access
   // ═══════════════════════════════════════════════════════════════
@@ -1483,6 +1507,7 @@ window.localTranscriberWorkflow = (() => {
       temperature: config.temperature || 0.3,
       maxTokens: config.maxTokens || 2000,
       provider: config.provider || null,
+      contextWindow: config.contextWindow || 0,
     };
 
     if (serverConfig) {
@@ -1495,6 +1520,16 @@ window.localTranscriberWorkflow = (() => {
       if (serverConfig.openaiModel) body.openaiModel = serverConfig.openaiModel;
       if (serverConfig.anthropicApiKey) body.anthropicApiKey = serverConfig.anthropicApiKey;
       if (serverConfig.anthropicModel) body.anthropicModel = serverConfig.anthropicModel;
+    }
+
+    // Per-step model override: if the step has both provider and model set, use the step's model
+    if (config.model && config.provider) {
+      switch (config.provider) {
+        case "ollama":      body.ollamaModel = config.model; break;
+        case "openai":      body.openaiModel = config.model; break;
+        case "anthropic":   body.anthropicModel = config.model; break;
+        case "huggingface": body.hfModel = config.model; break;
+      }
     }
 
     const resp = await fetch("/api/workflow/llm", {
@@ -3073,6 +3108,9 @@ window.localTranscriberWorkflow = (() => {
     downloadYouTubeAudio,
     setTranscriptionTarget,
     setServerConfig,
+    setOllamaModels,
+    getOllamaModels,
+    getModelOptionsForProvider,
 
     // Utilities (exposed for plugins)
     resolveTemplate,
