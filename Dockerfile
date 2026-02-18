@@ -28,12 +28,19 @@ COPY Directory.Build.props ./
 COPY version.json ./
 COPY global.json ./
 COPY src/*/*.csproj ./src/
+COPY tests/*/*.csproj ./tests/
 
 # Restructure project files
 RUN for file in src/*.csproj; do \
         dir=$(basename "$file" .csproj); \
         mkdir -p "src/$dir"; \
         mv "$file" "src/$dir/"; \
+    done \
+    && for file in tests/*.csproj; do \
+        [ -f "$file" ] || continue; \
+        dir=$(basename "$file" .csproj); \
+        mkdir -p "tests/$dir"; \
+        mv "$file" "tests/$dir/"; \
     done
 
 # Restore dependencies
