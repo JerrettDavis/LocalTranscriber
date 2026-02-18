@@ -232,6 +232,13 @@
                     <div class="orbit-loader"></div>
                 }
                 <h2>@(_isRecording && _isLiveTranscribing ? "Listening..." : _statusMessage)</h2>
+                @if (!_isRecording || !_isLiveTranscribing)
+                {
+                    <button class="stop-btn" type="button" @onclick="CancelWorkflowAsync">
+                        <span class="stop-icon">&#x25A0;</span>
+                        <span>Stop</span>
+                    </button>
+                }
                 <p class="subtext">@(_isRecording && _isLiveTranscribing ? "Tap stop when you're finished speaking." : "Processing audio and streaming step-by-step diagnostics.")</p>
 
                 @if (_phaseNames.Count > 0)
@@ -254,6 +261,18 @@
                                 </div>
                             }
                         }
+                    </div>
+                }
+
+                @if (_isSubmitting && !_isLiveTranscribing && !string.IsNullOrEmpty(_rawWhisperText))
+                {
+                    <div class="streaming-transcript-panel">
+                        <div class="live-transcript-label">
+                            <span class="live-refining-spinner"></span>
+                            <span>Streaming</span>
+                            <span class="live-word-count">@CountWords(_rawWhisperText) words</span>
+                        </div>
+                        <div class="live-transcript-text">@_rawWhisperText</div>
                     </div>
                 }
 
@@ -596,134 +615,7 @@
                                 <p class="settings-hint" style="margin:0">Show real-time speech-to-text during recording (Chrome/Edge).</p>
                             </div>
 
-                            <div class="settings-row compact">
-                                <label>
-                                    <span>TTS Voice</span>
-                                    <select @bind="_ttsVoice" @bind:after="OnTtsSettingsChanged" disabled="@_isSubmitting">
-                                        @foreach (var voice in _ttsVoices)
-                                        {
-                                            <option value="@voice.Id">@voice.Label (@voice.Accent, @voice.Gender)</option>
-                                        }
-                                    </select>
-                                </label>
-                            </div>
-
-                            <div class="settings-row compact">
-                                <label>
-                                    <span>TTS Speed</span>
-                                    <input type="range" @bind="_ttsSpeed" @bind:after="OnTtsSettingsChanged" min="0.5" max="2.0" step="0.1" disabled="@_isSubmitting" />
-                                    <span class="range-value">@_ttsSpeed.ToString("F1")x</span>
-                                </label>
-                            </div>
-
-                            <p class="settings-hint">Configure models and processing steps in the Workflow editor below.</p>
-
-                    @* Advanced Settings Section *@
-                    <details class="settings-accordion" data-testid="advanced-settings">
-                        <summary class="settings-accordion-toggle">
-                            <span>Advanced Settings</span>
-                        </summary>
-                        <div class="settings-accordion-content">
-                            <div class="settings-grid">
-                                <label>
-                                    <span>Strict Transcript</span>
-                                    <select @bind="_tuningStrictTranscript">
-                                        <option value="true">Preserve wording strictly</option>
-                                        <option value="false">Allow light smoothing</option>
-                                    </select>
-                                </label>
-
-                                <label>
-                                    <span>Include Action Items</span>
-                                    <select @bind="_tuningIncludeActionItems">
-                                        <option value="true">Yes - extract action items</option>
-                                        <option value="false">No - minimal actions</option>
-                                    </select>
-                                </label>
-
-                                <label>
-                                    <span>Summary Min Bullets</span>
-                                    <input type="number" @bind="_tuningSummaryMin" min="1" max="12" />
-                                </label>
-
-                                <label>
-                                    <span>Summary Max Bullets</span>
-                                    <input type="number" @bind="_tuningSummaryMax" min="1" max="20" />
-                                </label>
-
-                                <label>
-                                    <span>Temperature</span>
-                                    <input type="range" @bind="_tuningTemperature" min="0" max="1.0" step="0.05" />
-                                    <span class="range-value">@_tuningTemperature.ToString("F2")</span>
-                                </label>
-
-                                <label>
-                                    <span>Sensitivity</span>
-                                    <input type="range" @bind="_tuningSensitivity" min="0" max="100" step="5" />
-                                    <span class="range-value">@_tuningSensitivity%</span>
-                                </label>
-                            </div>
-                            <div class="settings-actions">
-                                <button class="chip-btn" type="button" @onclick="SaveTuningAsync">Save Settings</button>
-                                <button class="chip-btn ghost" type="button" @onclick="ResetTuningAsync">Reset to Defaults</button>
-                            </div>
-                        </div>
-                    </details>
-
-                    @* Prompt Editor Section *@
-                    <details class="settings-accordion" data-testid="prompt-editor">
-                        <summary class="settings-accordion-toggle">
-                            <span>Edit Prompts</span>
-                        </summary>
-                        <div class="prompt-editor-layout">
-                            <div class="prompt-editor-content">
-                                <div class="prompt-field">
-                                    <label>
-                                        <span>System Message</span>
-                                        <textarea @bind="_promptSystemMessage" rows="2" placeholder="You are a transcription editor."></textarea>
-                                    </label>
-                                </div>
-                                <div class="prompt-field">
-                                    <label>
-                                        <span>Cleanup Prompt</span>
-                                        <textarea @bind="_promptCleanup" rows="8" placeholder="Rules for formatting..."></textarea>
-                                    </label>
-                                </div>
-                                <div class="prompt-field">
-                                    <label>
-                                        <span>Output Template</span>
-                                        <textarea @bind="_promptOutputTemplate" rows="8" placeholder="# Transcription..."></textarea>
-                                    </label>
-                                </div>
-                                <div class="prompt-actions">
-                                    <button class="chip-btn" type="button" @onclick="SavePromptsAsync">Save Prompts</button>
-                                    <button class="chip-btn ghost" type="button" @onclick="ResetPromptsAsync">Reset to Defaults</button>
-                                </div>
-                            </div>
-                            <aside class="prompt-placeholders">
-                                <strong>Available Placeholders</strong>
-                                <dl>
-                                    <dt><code>{strictness}</code></dt>
-                                    <dd>Wording strictness rule (based on settings)</dd>
-
-                                    <dt><code>{actionItemRule}</code></dt>
-                                    <dd>Action items inclusion rule</dd>
-
-                                    <dt><code>{summaryMinBullets}</code></dt>
-                                    <dd>Minimum summary bullet points</dd>
-
-                                    <dt><code>{summaryMaxBullets}</code></dt>
-                                    <dd>Maximum summary bullet points</dd>
-
-                                    <dt><code>{model}</code></dt>
-                                    <dd>Whisper model used (e.g., "small.en")</dd>
-
-                                    <dt><code>{language}</code></dt>
-                                    <dd>Detected/specified language</dd>
-                                </dl>
-                            </aside>
-                        </div>
-                    </details>
+                            <p class="settings-hint">Configure models, prompts, and processing steps in the Workflow editor below.</p>
 
                     @* Workflow Editor *@
                     <WorkflowEditor
@@ -959,7 +851,7 @@
             <article class="studio-card settings-card">
                 <header>
                     <h2>Settings</h2>
-                    <p>Model, language, formatting, and speaker controls.</p>
+                    <p>Device, connections, and API credentials.</p>
                 </header>
 
                 <div class="field-grid">
@@ -978,14 +870,10 @@
                         <input type="checkbox" @bind="_runInBrowser" disabled="@(!_browserCapabilities.Supported || _isSubmitting)" />
                     </label>
 
-                    <label>
-                        <span>Whisper Model</span>
-                        <select @bind="_model" disabled="@_isSubmitting">
-                            @foreach (var model in _models)
-                            {
-                                <option value="@model">@model</option>
-                            }
-                        </select>
+                    <label class="toggle-row">
+                        <span>Live Transcription</span>
+                        <input type="checkbox" checked="@_liveTranscriptionEnabled"
+                               @onchange="OnLiveTranscriptionToggled" disabled="@_isSubmitting" data-testid="live-transcription-toggle" />
                     </label>
 
                     <label>
@@ -1009,51 +897,13 @@
                     }
 
                     <label>
-                        <span>Formatter</span>
-                        <select @bind="_formatProvider" disabled="@(_isSubmitting || _runInBrowser)">
-                            <option value="auto">auto</option>
-                            <option value="local">local</option>
-                            <option value="ollama">ollama</option>
-                            <option value="huggingface">huggingface</option>
-                        </select>
-                    </label>
-
-                    <label>
                         <span>Ollama Endpoint</span>
                         <input @bind="_ollamaUri" placeholder="http://localhost:11434" disabled="@(_isSubmitting || _runInBrowser)" />
                     </label>
 
                     <label>
-                        <span>Ollama Model (8B-20B)</span>
-                        <div style="display:flex;gap:0.25rem;">
-                            <select @bind="_ollamaModel" disabled="@(_isSubmitting || _runInBrowser)" style="flex:1;">
-                                @foreach (var model in GetOllamaModelOptions())
-                                {
-                                    <option value="@model">@model</option>
-                                }
-                            </select>
-                            <button class="chip-btn ghost" type="button" @onclick="DiscoverOllamaModelsAsync" disabled="@(_isSubmitting || _runInBrowser || _ollamaDiscovering)" title="Discover models from Ollama">@(_ollamaDiscovering ? "Discovering..." : "Refresh")</button>
-                        </div>
-                        @if (!string.IsNullOrEmpty(_ollamaDiscoverError))
-                        {
-                            <span style="color:var(--danger);font-size:0.75rem;">@_ollamaDiscoverError</span>
-                        }
-                    </label>
-
-                    <label>
                         <span>HF Endpoint</span>
                         <input @bind="_hfEndpoint" placeholder="https://router.huggingface.co" disabled="@(_isSubmitting || _runInBrowser)" />
-                    </label>
-
-                    <label>
-                        <span>HF Model (8B-20B)</span>
-                        <input list="hf-model-presets" @bind="_hfModel" disabled="@(_isSubmitting || _runInBrowser)" />
-                        <datalist id="hf-model-presets">
-                            @foreach (var model in _hfModelPresets)
-                            {
-                                <option value="@model"></option>
-                            }
-                        </datalist>
                     </label>
 
                     <label>
@@ -1065,184 +915,24 @@
                         <span>OpenAI API Key</span>
                         <input type="password" @bind="_openaiApiKey" placeholder="sk-..." disabled="@(_isSubmitting || _runInBrowser)" />
                     </label>
-                    <label>
-                        <span>OpenAI Model</span>
-                        <input list="openai-model-presets" @bind="_openaiModel" disabled="@(_isSubmitting || _runInBrowser)" />
-                        <datalist id="openai-model-presets">
-                            @foreach (var model in _openaiModelPresets)
-                            {
-                                <option value="@model"></option>
-                            }
-                        </datalist>
-                    </label>
 
                     <label>
                         <span>Anthropic API Key</span>
                         <input type="password" @bind="_anthropicApiKey" placeholder="sk-ant-..." disabled="@(_isSubmitting || _runInBrowser)" />
-                    </label>
-                    <label>
-                        <span>Anthropic Model</span>
-                        <input list="anthropic-model-presets" @bind="_anthropicModel" disabled="@(_isSubmitting || _runInBrowser)" />
-                        <datalist id="anthropic-model-presets">
-                            @foreach (var model in _anthropicModelPresets)
-                            {
-                                <option value="@model"></option>
-                            }
-                        </datalist>
-                    </label>
-
-                    <label class="range-field">
-                        <span>Format Sensitivity (@_formatSensitivity)</span>
-                        <input type="range" min="0" max="100" step="1" @bind="_formatSensitivity" disabled="@_isSubmitting" />
-                    </label>
-
-                    <label class="toggle-row">
-                        <span>Strict Transcript Preservation</span>
-                        <input type="checkbox" @bind="_formatStrictTranscript" disabled="@_isSubmitting" />
-                    </label>
-
-                    <label class="toggle-row">
-                        <span>Include Action Items</span>
-                        <input type="checkbox" @bind="_formatIncludeActionItems" disabled="@_isSubmitting" />
-                    </label>
-
-                    <label class="toggle-row">
-                        <span>Live Transcription</span>
-                        <input type="checkbox" checked="@_liveTranscriptionEnabled"
-                               @onchange="OnLiveTranscriptionToggled" disabled="@_isSubmitting" data-testid="live-transcription-toggle" />
-                    </label>
-
-                    <label class="toggle-row">
-                        <span>Advanced Format Tuning</span>
-                        <input type="checkbox" @bind="_useAdvancedFormatTuning" disabled="@_isSubmitting" />
-                    </label>
-
-                    @if (_useAdvancedFormatTuning)
-                    {
-                        <label>
-                            <span>Overlap Threshold</span>
-                            <input type="number" min="0.05" max="0.95" step="0.01" @bind="_formatOverlapThreshold" disabled="@_isSubmitting" />
-                        </label>
-
-                        <label>
-                            <span>Summary Min Bullets</span>
-                            <input type="number" min="1" max="12" step="1" @bind="_formatSummaryMinBullets" disabled="@_isSubmitting" />
-                        </label>
-
-                        <label>
-                            <span>Summary Max Bullets</span>
-                            <input type="number" min="1" max="20" step="1" @bind="_formatSummaryMaxBullets" disabled="@_isSubmitting" />
-                        </label>
-
-                        <label>
-                            <span>LLM Temperature</span>
-                            <input type="number" min="0" max="1.2" step="0.01" @bind="_formatTemperature" disabled="@_isSubmitting" />
-                        </label>
-
-                        <label>
-                            <span>LLM Max Tokens</span>
-                            <input type="number" min="200" max="6000" step="10" @bind="_formatMaxTokens" disabled="@_isSubmitting" />
-                        </label>
-
-                        <label>
-                            <span>Local Big Gap (s)</span>
-                            <input type="number" min="0.2" max="10" step="0.1" @bind="_formatLocalBigGapSeconds" disabled="@_isSubmitting" />
-                        </label>
-
-                        <label>
-                            <span>Local Small Gap (s)</span>
-                            <input type="number" min="0.1" max="6" step="0.1" @bind="_formatLocalSmallGapSeconds" disabled="@_isSubmitting" />
-                        </label>
-                    }
-
-                    <label>
-                        <span>Language</span>
-                        <input @bind="_language" placeholder="auto" disabled="@_isSubmitting" />
-                    </label>
-
-                    <label>
-                        <span>Max Segment Length (s)</span>
-                        <input type="number" min="0" max="120" step="1" @bind="_maxSegmentLength" disabled="@_isSubmitting" />
-                    </label>
-
-                    <label class="toggle-row">
-                        <span>Detect Speaker Swaps</span>
-                        <input type="checkbox" @bind="_enableSpeakerLabels" disabled="@_isSubmitting" />
-                    </label>
-
-                    <label class="range-field">
-                        <span>Speaker Sensitivity (@_speakerSensitivity)</span>
-                        <input type="range" min="0" max="100" step="1" @bind="_speakerSensitivity" disabled="@_isSubmitting" />
-                    </label>
-
-                    <label class="toggle-row">
-                        <span>Advanced Speaker Tuning</span>
-                        <input type="checkbox" @bind="_useAdvancedSpeakerTuning" disabled="@_isSubmitting" />
-                    </label>
-
-                    @if (_useAdvancedSpeakerTuning)
-                    {
-                        <label>
-                            <span>Min Score Gain</span>
-                            <input type="number" min="0" max="1" step="0.01" @bind="_speakerMinScoreGain" disabled="@_isSubmitting" />
-                        </label>
-
-                        <label>
-                            <span>Max Switch Rate</span>
-                            <input type="number" min="0" max="1" step="0.01" @bind="_speakerMaxSwitchRate" disabled="@_isSubmitting" />
-                        </label>
-
-                        <label>
-                            <span>Min Separation</span>
-                            <input type="number" min="0.1" max="5" step="0.05" @bind="_speakerMinSeparation" disabled="@_isSubmitting" />
-                        </label>
-
-                        <label>
-                            <span>Min Cluster Size</span>
-                            <input type="number" min="1" max="12" step="1" @bind="_speakerMinClusterSize" disabled="@_isSubmitting" />
-                        </label>
-
-                        <label>
-                            <span>Max Auto Speakers</span>
-                            <input type="number" min="1" max="12" step="1" @bind="_speakerMaxAutoSpeakers" disabled="@_isSubmitting" />
-                        </label>
-
-                        <label>
-                            <span>Variance Gate</span>
-                            <input type="number" min="0.05" max="4" step="0.01" @bind="_speakerGlobalVarianceGate" disabled="@_isSubmitting" />
-                        </label>
-
-                        <label>
-                            <span>Short Run Merge (s)</span>
-                            <input type="number" min="0.2" max="8" step="0.1" @bind="_speakerShortRunMergeSeconds" disabled="@_isSubmitting" />
-                        </label>
-                    }
-
-                    <label>
-                        <span>Browser Cleanup</span>
-                        <select @bind="_browserCleanupMode" disabled="@(!_runInBrowser || _isSubmitting)">
-                            <option value="webllm">webllm</option>
-                            <option value="local">local</option>
-                        </select>
-                    </label>
-
-                    <label>
-                        <span>WebLLM Model</span>
-                        <input list="webllm-model-presets" @bind="_webLlmModel" disabled="@(!_runInBrowser || !_isWebLlmCleanup || _isSubmitting)" />
-                        <datalist id="webllm-model-presets">
-                            @foreach (var model in _webLlmModelPresets)
-                            {
-                                <option value="@model"></option>
-                            }
-                        </datalist>
                     </label>
                 </div>
             </article>
 
             <article class="studio-card progress-card">
                 <header>
-                    <h2>Progress</h2>
-                    <p>@_statusMessage</p>
+                    <div>
+                        <h2>Progress</h2>
+                        <p>@_statusMessage</p>
+                    </div>
+                    @if (_isSubmitting)
+                    {
+                        <button class="stop-btn-small" type="button" @onclick="CancelWorkflowAsync" title="Stop">&#x25A0;</button>
+                    }
                 </header>
 
                 <div class="meter">
@@ -1520,6 +1210,12 @@
                         <span class="transport-icon send">\u25B6</span>
                     </button>
                 }
+                @if (_isSubmitting)
+                {
+                    <button class="transport-btn stop" @onclick="CancelWorkflowAsync" title="Stop">
+                        <svg class="icon-svg" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor"/></svg>
+                    </button>
+                }
             </div>
             <div class="transport-section transport-status">
                 <span class="transport-label">@(_isRecording ? "REC" : _isSubmitting ? "PROCESSING" : "READY")</span>
@@ -1529,7 +1225,7 @@
                 }
             </div>
             <div class="transport-section transport-info">
-                <span class="transport-model">@_model</span>
+                <span class="transport-model">Workflow</span>
             </div>
         </footer>
     }
@@ -1537,50 +1233,6 @@
 
 
 @code {
-    private static readonly string[] _models =
-    [
-        "Tiny", "TinyEn", "Base", "BaseEn", "Small", "SmallEn", "Medium", "MediumEn", "LargeV1", "LargeV2", "LargeV3", "LargeV3Turbo"
-    ];
-    private static readonly string[] _ollamaModelPresets =
-    [
-        "llama3.1:8b",
-        "mistral-nemo:12b",
-        "qwen2.5:14b",
-        "qwen2.5-coder:14b",
-        "gemma2:9b",
-        "phi4:14b",
-        "phi4-reasoning:14b",
-        "deepseek-r1:8b",
-        "deepseek-r1:14b"
-    ];
-    private static readonly string[] _hfModelPresets =
-    [
-        "meta-llama/Llama-3.1-8B-Instruct",
-        "mistralai/Mistral-Nemo-Instruct-2407",
-        "Qwen/Qwen2.5-14B-Instruct",
-        "Qwen/Qwen2.5-Coder-14B-Instruct",
-        "google/gemma-2-9b-it",
-        "microsoft/phi-4",
-        "deepseek-ai/DeepSeek-R1-Distill-Qwen-14B"
-    ];
-    private static readonly string[] _preferredWebLlmModels =
-    [
-        "Llama-3.1-8B-Instruct-q4f16_1-MLC",
-        "Llama-3.1-8B-Instruct-q4f32_1-MLC",
-        "Qwen2.5-7B-Instruct-q4f16_1-MLC",
-        "Qwen2.5-Coder-7B-Instruct-q4f16_1-MLC",
-        "Mistral-7B-Instruct-v0.3-q4f16_1-MLC",
-        "Phi-3.5-mini-instruct-q4f16_1-MLC"
-    ];
-    private static readonly string[] _openaiModelPresets =
-    [
-        "gpt-4o-mini", "gpt-4o", "gpt-4.1-nano", "gpt-4.1-mini", "gpt-4.1", "o3-mini", "o4-mini"
-    ];
-    private static readonly string[] _anthropicModelPresets =
-    [
-        "claude-sonnet-4-5-20250929", "claude-haiku-4-5-20251001", "claude-opus-4-6"
-    ];
-
     private readonly List<string> _ollamaDiscoveredModels = [];
     private bool _ollamaDiscovering;
     private string? _ollamaDiscoverError;
@@ -1592,7 +1244,6 @@
     private readonly List<HistorySession> _history = [];
     private readonly HashSet<string> _savedSessionIds = [];
     private readonly List<TranscriptionSubtitleSegment> _subtitleSegments = [];
-    private readonly List<string> _webLlmModelPresets = [];
     private BrowserAudioPayload? _browserRecording;
     private UploadedAudioPayload? _uploadedAudio;
 
@@ -1604,69 +1255,21 @@
     private string _selectedMirror = "https://huggingface.co";
     private string _mirrorStatus = "";
 
-    // Prompt templates (browser-side, stored in localStorage)
-    private string _promptSystemMessage = "";
-    private string _promptCleanup = "";
-    private string _promptOutputTemplate = "";
-
-    // Tuning options (browser-side, stored in localStorage)
-    private string _tuningStrictTranscript = "true";
-    private string _tuningIncludeActionItems = "true";
-    private int _tuningSummaryMin = 3;
-    private int _tuningSummaryMax = 8;
-    private double _tuningTemperature = 0.2;
-    private int _tuningSensitivity = 50;
-
-    // TTS settings
-    private string _ttsVoice = "af_heart";
-    private double _ttsSpeed = 1.0;
-    private List<TtsVoiceInfo> _ttsVoices = new();
-    private int? _ttsPlayingIndex;
-
     private DiagnosticsData? _diagnostics;
 
     private string? _selectedDeviceId;
-    private string _model = "SmallEn";
     private string _modelMirror = "auto";
     private string _modelMirrorUrl = "";
-    private string _language = "auto";
-    private string _formatProvider = "auto";
     private string _ollamaUri = "http://localhost:11434";
-    private string _ollamaModel = "mistral-nemo:12b";
     private string _hfEndpoint = "https://router.huggingface.co";
-    private string _hfModel = "Qwen/Qwen2.5-14B-Instruct";
     private string _hfApiKey = Environment.GetEnvironmentVariable("HF_TOKEN") ?? string.Empty;
     private string _openaiApiKey = Environment.GetEnvironmentVariable("OPENAI_API_KEY") ?? string.Empty;
-    private string _openaiModel = "gpt-4o-mini";
     private string _anthropicApiKey = Environment.GetEnvironmentVariable("ANTHROPIC_API_KEY") ?? string.Empty;
-    private string _anthropicModel = "claude-sonnet-4-5-20250929";
-    private int _formatSensitivity = 50;
-    private bool _formatStrictTranscript = true;
-    private bool _formatIncludeActionItems = true;
-    private bool _useAdvancedFormatTuning;
-    private double _formatOverlapThreshold = 0.28;
-    private int _formatSummaryMinBullets = 3;
-    private int _formatSummaryMaxBullets = 8;
-    private double _formatTemperature = 0.15;
-    private int _formatMaxTokens = 1200;
-    private double _formatLocalBigGapSeconds = 1.2;
-    private double _formatLocalSmallGapSeconds = 0.4;
-    private int _maxSegmentLength;
-    private bool _enableSpeakerLabels = true;
-    private int _speakerSensitivity = 25;
-    private bool _useAdvancedSpeakerTuning;
-    private double _speakerMinScoreGain = 0.12;
-    private double _speakerMaxSwitchRate = 0.42;
-    private double _speakerMinSeparation = 0.8;
-    private int _speakerMinClusterSize = 2;
-    private int _speakerMaxAutoSpeakers = 6;
-    private double _speakerGlobalVarianceGate = 0.58;
-    private double _speakerShortRunMergeSeconds = 1.6;
+
+    private int? _ttsPlayingIndex;
 
     private bool _runInBrowser;
     private bool _workflowEditorExpanded;
-    private string _browserCleanupMode = "webllm";
-    private string _webLlmModel = "Llama-3.1-8B-Instruct-q4f16_1-MLC";
     private BrowserExecutionCapabilities _browserCapabilities = new(
         Supported: false,
         HasWebGpu: false,
@@ -1740,7 +1343,6 @@
     private string? _previewUrl => _browserRecording?.PreviewUrl;
     private bool _hasAudio => _browserRecording is not null || _uploadedAudio is not null || !string.IsNullOrWhiteSpace(_youtubeUrl);
     private bool _isStudioMode => _layoutMode == LayoutMode.Studio;
-    private bool _isWebLlmCleanup => string.Equals(_browserCleanupMode, "webllm", StringComparison.OrdinalIgnoreCase);
     private bool ShouldShowSubtitlePlayer =>
         !string.IsNullOrWhiteSpace(_inputDownloadHref) &&
         _subtitleSegments.Count > 0 &&
@@ -1774,11 +1376,7 @@
         {
             _dotNetRef = DotNetObjectReference.Create(this);
             await RefreshBrowserCapabilitiesAsync();
-            await RefreshWebLlmModelPresetsAsync();
             await RefreshMirrorsAsync();
-            await LoadPromptsAsync();
-            await LoadTuningAsync();
-            await LoadTtsSettingsAsync();
             await LoadHistoryAsync();
             await DiscoverOllamaModelsAsync();
             var savedLive = await JS.InvokeAsync<string?>("localStorage.getItem", "lt-live-transcription");
@@ -1854,49 +1452,6 @@
         }
     }
 
-    private async Task RefreshWebLlmModelPresetsAsync()
-    {
-        _webLlmModelPresets.Clear();
-
-        try
-        {
-            var available = await JS.InvokeAsync<string[]>("localTranscriberBrowser.listWebLlmModels");
-            if (available is { Length: > 0 })
-            {
-                var availableSet = available
-                    .Where(x => !string.IsNullOrWhiteSpace(x))
-                    .Select(x => x.Trim())
-                    .Distinct(StringComparer.OrdinalIgnoreCase)
-                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
-
-                foreach (var preferred in _preferredWebLlmModels)
-                {
-                    if (availableSet.Contains(preferred))
-                        _webLlmModelPresets.Add(preferred);
-                }
-
-                if (_webLlmModelPresets.Count < 6)
-                {
-                    var extras = available
-                        .Where(IsConsumerRangeModel)
-                        .Where(x => !_webLlmModelPresets.Contains(x, StringComparer.OrdinalIgnoreCase))
-                        .Take(10 - _webLlmModelPresets.Count);
-                    _webLlmModelPresets.AddRange(extras);
-                }
-            }
-        }
-        catch
-        {
-            // Fall back to static presets if WebLLM module enumeration fails.
-        }
-
-        if (_webLlmModelPresets.Count == 0)
-            _webLlmModelPresets.AddRange(_preferredWebLlmModels);
-
-        if (!_webLlmModelPresets.Contains(_webLlmModel, StringComparer.OrdinalIgnoreCase))
-            _webLlmModelPresets.Insert(0, _webLlmModel);
-    }
-
     private async Task DiscoverOllamaModelsAsync()
     {
         _ollamaDiscovering = true;
@@ -1931,19 +1486,6 @@
     }
 
     private record OllamaModelsResponse(string[] Models);
-
-    private IEnumerable<string> GetOllamaModelOptions()
-    {
-        var models = _ollamaDiscoveredModels.Count > 0
-            ? _ollamaDiscoveredModels
-            : _ollamaModelPresets.ToList();
-
-        if (!string.IsNullOrEmpty(_ollamaModel) && !models.Contains(_ollamaModel, StringComparer.OrdinalIgnoreCase))
-            yield return _ollamaModel;
-
-        foreach (var m in models)
-            yield return m;
-    }
 
     [JSInvokable]
     public async Task OnLiveTranscriptUpdate(LiveTranscriptPayload payload)
@@ -2152,7 +1694,6 @@
     {
         if (string.IsNullOrWhiteSpace(_youtubeUrl) || _isSubmitting) return;
 
-        NormalizeTunableInputs();
         PrepareForSubmission();
         _activeJobId = Guid.NewGuid().ToString("N");
         _isSubmitting = true;
@@ -2188,14 +1729,10 @@
                 await JS.InvokeVoidAsync("localTranscriberWorkflow.setServerConfig", new
                 {
                     ollamaUri = _ollamaUri,
-                    ollamaModel = _ollamaModel,
                     hfEndpoint = _hfEndpoint,
-                    hfModel = _hfModel,
                     hfApiKey = _hfApiKey,
                     openaiApiKey = _openaiApiKey,
-                    openaiModel = _openaiModel,
                     anthropicApiKey = _anthropicApiKey,
-                    anthropicModel = _anthropicModel,
                 });
             }
 
@@ -2283,33 +1820,6 @@
         });
     }
 
-    private async Task LoadTtsSettingsAsync()
-    {
-        try
-        {
-            var voicesArr = await JS.InvokeAsync<List<TtsVoiceInfo>>("localTranscriberTts.getAvailableVoices");
-            if (voicesArr?.Count > 0) _ttsVoices = voicesArr;
-
-            var settings = await JS.InvokeAsync<TtsSettingsJs?>("localTranscriberTts.getTtsSettings");
-            if (settings != null)
-            {
-                _ttsVoice = settings.Voice ?? "af_heart";
-                _ttsSpeed = settings.Speed;
-            }
-        }
-        catch { }
-    }
-
-    private async Task OnTtsSettingsChanged()
-    {
-        try
-        {
-            await JS.InvokeVoidAsync("localTranscriberTts.setTtsSettings",
-                new { voice = _ttsVoice, speed = _ttsSpeed });
-        }
-        catch { }
-    }
-
     private async Task OnLiveTranscriptionToggled(ChangeEventArgs e)
     {
         _liveTranscriptionEnabled = (bool)(e.Value ?? false);
@@ -2344,99 +1854,6 @@
 
         _ttsPlayingIndex = null;
         StateHasChanged();
-    }
-
-    private async Task LoadPromptsAsync()
-    {
-        try
-        {
-            var templates = await JS.InvokeAsync<PromptTemplatesJs>("localTranscriberBrowser.getPromptTemplates");
-            if (templates != null)
-            {
-                _promptSystemMessage = templates.SystemMessage ?? "";
-                _promptCleanup = templates.CleanupPrompt ?? "";
-                _promptOutputTemplate = templates.OutputTemplate ?? "";
-            }
-        }
-        catch { }
-    }
-
-    private async Task SavePromptsAsync()
-    {
-        try
-        {
-            var templates = new PromptTemplatesJs(_promptSystemMessage, _promptCleanup, _promptOutputTemplate);
-            await JS.InvokeVoidAsync("localTranscriberBrowser.setPromptTemplates", templates);
-        }
-        catch { }
-    }
-
-    private async Task ResetPromptsAsync()
-    {
-        try
-        {
-            var defaults = await JS.InvokeAsync<PromptTemplatesJs>("localTranscriberBrowser.resetPromptTemplates");
-            if (defaults != null)
-            {
-                _promptSystemMessage = defaults.SystemMessage ?? "";
-                _promptCleanup = defaults.CleanupPrompt ?? "";
-                _promptOutputTemplate = defaults.OutputTemplate ?? "";
-            }
-        }
-        catch { }
-    }
-
-    private async Task LoadTuningAsync()
-    {
-        try
-        {
-            var tuning = await JS.InvokeAsync<TuningOptionsJs>("localTranscriberBrowser.getTuningOptions");
-            if (tuning != null)
-            {
-                _tuningStrictTranscript = tuning.StrictTranscript ? "true" : "false";
-                _tuningIncludeActionItems = tuning.IncludeActionItems ? "true" : "false";
-                _tuningSummaryMin = tuning.SummaryMinBullets;
-                _tuningSummaryMax = tuning.SummaryMaxBullets;
-                _tuningTemperature = tuning.Temperature;
-                _tuningSensitivity = tuning.Sensitivity;
-            }
-        }
-        catch { }
-    }
-
-    private async Task SaveTuningAsync()
-    {
-        try
-        {
-            var tuning = new TuningOptionsJs(
-                _tuningStrictTranscript == "true",
-                _tuningIncludeActionItems == "true",
-                _tuningSummaryMin,
-                _tuningSummaryMax,
-                _tuningTemperature,
-                _tuningSensitivity
-            );
-            await JS.InvokeVoidAsync("localTranscriberBrowser.setTuningOptions", tuning);
-        }
-        catch { }
-    }
-
-    private async Task ResetTuningAsync()
-    {
-        try
-        {
-            var defaults = await JS.InvokeAsync<TuningOptionsJs>("localTranscriberBrowser.resetTuningOptions");
-            if (defaults != null)
-            {
-                _tuningStrictTranscript = defaults.StrictTranscript ? "true" : "false";
-                _tuningIncludeActionItems = defaults.IncludeActionItems ? "true" : "false";
-                _tuningSummaryMin = defaults.SummaryMinBullets;
-                _tuningSummaryMax = defaults.SummaryMaxBullets;
-                _tuningTemperature = defaults.Temperature;
-                _tuningSensitivity = defaults.Sensitivity;
-            }
-        }
-        catch { }
     }
 
     private void OnActiveWorkflowChanged(WorkflowEditor.WorkflowModel? workflow)
@@ -2527,6 +1944,20 @@
         _statusMessage = "Navigating...";
         StateHasChanged();
         await JS.InvokeVoidAsync("localTranscriberWorkflow.navigateToPhase", targetPhaseIndex);
+    }
+
+    private async Task CancelWorkflowAsync()
+    {
+        if (!_isSubmitting) return;
+        try
+        {
+            await JS.InvokeVoidAsync("localTranscriberWorkflow.cancelExecution");
+        }
+        catch { }
+        _isSubmitting = false;
+        _statusMessage = "Cancelled";
+        _activeJobId = null;
+        if (!_isStudioMode) _minimalStage = MinimalStage.Capture;
     }
 
     [JSInvokable]
@@ -2715,7 +2146,6 @@
             return;
         }
 
-        NormalizeTunableInputs();
         PrepareForSubmission();
         _activeJobId = Guid.NewGuid().ToString("N");
         _isSubmitting = true;
@@ -2744,14 +2174,10 @@
                 await JS.InvokeVoidAsync("localTranscriberWorkflow.setServerConfig", new
                 {
                     ollamaUri = _ollamaUri,
-                    ollamaModel = _ollamaModel,
                     hfEndpoint = _hfEndpoint,
-                    hfModel = _hfModel,
                     hfApiKey = _hfApiKey,
                     openaiApiKey = _openaiApiKey,
-                    openaiModel = _openaiModel,
                     anthropicApiKey = _anthropicApiKey,
-                    anthropicModel = _anthropicModel,
                 });
             }
 
@@ -2811,29 +2237,6 @@
             }
             StopJobStatusPolling();
         }
-    }
-
-    private void NormalizeTunableInputs()
-    {
-        _formatSensitivity = Math.Clamp(_formatSensitivity, 0, 100);
-        _speakerSensitivity = Math.Clamp(_speakerSensitivity, 0, 100);
-        _maxSegmentLength = Math.Clamp(_maxSegmentLength, 0, 120);
-
-        _formatSummaryMinBullets = Math.Clamp(_formatSummaryMinBullets, 1, 12);
-        _formatSummaryMaxBullets = Math.Clamp(_formatSummaryMaxBullets, _formatSummaryMinBullets, 20);
-        _formatMaxTokens = Math.Clamp(_formatMaxTokens, 200, 6000);
-        _formatOverlapThreshold = Math.Clamp(_formatOverlapThreshold, 0.05, 0.95);
-        _formatTemperature = Math.Clamp(_formatTemperature, 0.0, 1.2);
-        _formatLocalBigGapSeconds = Math.Clamp(_formatLocalBigGapSeconds, 0.2, 10.0);
-        _formatLocalSmallGapSeconds = Math.Clamp(_formatLocalSmallGapSeconds, 0.1, 6.0);
-
-        _speakerMinScoreGain = Math.Clamp(_speakerMinScoreGain, 0.0, 1.0);
-        _speakerMaxSwitchRate = Math.Clamp(_speakerMaxSwitchRate, 0.0, 1.0);
-        _speakerMinSeparation = Math.Clamp(_speakerMinSeparation, 0.1, 5.0);
-        _speakerMinClusterSize = Math.Clamp(_speakerMinClusterSize, 1, 12);
-        _speakerMaxAutoSpeakers = Math.Clamp(_speakerMaxAutoSpeakers, 1, 12);
-        _speakerGlobalVarianceGate = Math.Clamp(_speakerGlobalVarianceGate, 0.05, 4.0);
-        _speakerShortRunMergeSeconds = Math.Clamp(_speakerShortRunMergeSeconds, 0.2, 8.0);
     }
 
     private async Task LaunchAndSubmitAsync()
@@ -2935,7 +2338,7 @@
                 key,
                 DateTimeOffset.UtcNow.ToString("O"),
                 _sourceDescription,
-                _model,
+                "Workflow",
                 _formatterUsed,
                 _markdownOutput,
                 _rawWhisperText,
@@ -3836,40 +3239,6 @@
     private static string NormalizeTextInput(string? value, string fallback)
         => string.IsNullOrWhiteSpace(value) ? fallback : value.Trim();
 
-    private static bool IsConsumerRangeModel(string? modelId)
-    {
-        if (string.IsNullOrWhiteSpace(modelId))
-            return false;
-
-        var normalized = modelId.ToLowerInvariant();
-        if (normalized.Contains("70b") ||
-            normalized.Contains("72b") ||
-            normalized.Contains("120b") ||
-            normalized.Contains("405b") ||
-            normalized.Contains("671b") ||
-            normalized.Contains("32b") ||
-            normalized.Contains("27b") ||
-            normalized.Contains("24b") ||
-            normalized.Contains("22b"))
-        {
-            return false;
-        }
-
-        return normalized.Contains("8b") ||
-               normalized.Contains("9b") ||
-               normalized.Contains("10b") ||
-               normalized.Contains("11b") ||
-               normalized.Contains("12b") ||
-               normalized.Contains("13b") ||
-               normalized.Contains("14b") ||
-               normalized.Contains("15b") ||
-               normalized.Contains("16b") ||
-               normalized.Contains("17b") ||
-               normalized.Contains("18b") ||
-               normalized.Contains("19b") ||
-               normalized.Contains("20b");
-    }
-
     private static void TrySetContentType(HttpContent content, string? mimeType)
     {
         if (!string.IsNullOrWhiteSpace(mimeType) && MediaTypeHeaderValue.TryParse(mimeType, out var mediaType))
@@ -4032,10 +3401,6 @@
 
     // Mirror/Prompt/Tuning records (for browser-side settings via localStorage)
     private sealed record MirrorInfo(string Url, string Name, string Region);
-    private sealed record PromptTemplatesJs(string? SystemMessage, string? CleanupPrompt, string? OutputTemplate);
-    private sealed record TuningOptionsJs(bool StrictTranscript, bool IncludeActionItems, int SummaryMinBullets, int SummaryMaxBullets, double Temperature, int Sensitivity);
-    private sealed record TtsSettingsJs(string? Voice, double Speed);
-    private sealed record TtsVoiceInfo(string Id, string Label, string Gender, string Accent);
     public sealed record LiveTranscriptPayload(string? FinalText, string? InterimText, bool IsFinal, string? Error);
 
     // Diagnostics

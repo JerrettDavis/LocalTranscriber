@@ -440,25 +440,41 @@ Rules:
     const turbo = getTurboMode();
     const timestampMode = turbo ? true : "word";
 
+    const THRESHOLD_SAMPLES = 30 * 16000; // 30s
+
     let asrResult;
-    try {
-      asrResult = await runAsrWithRecovery(asr, audioData, {
-        chunk_length_s: 30,
-        stride_length_s: 5,
+    if (audioData.length <= THRESHOLD_SAMPLES) {
+      // Short audio: single-pass (existing behavior)
+      try {
+        asrResult = await runAsrWithRecovery(asr, audioData, {
+          chunk_length_s: 30,
+          stride_length_s: 5,
+          return_timestamps: timestampMode,
+          ...(language ? { language } : {}),
+        }, request.model, (pct) =>
+          emitProgress(dotNetRef, request, Math.min(43, Math.max(30, pct)), "transcribe", "Reloading model...")
+        );
+      } catch {
+        asrResult = await runAsrWithRecovery(asr, audioData, {
+          chunk_length_s: 30,
+          stride_length_s: 5,
+          return_timestamps: true,
+          ...(language ? { language } : {}),
+        }, request.model, (pct) =>
+          emitProgress(dotNetRef, request, Math.min(43, Math.max(30, pct)), "transcribe", "Reloading model...")
+        );
+      }
+    } else {
+      // Long audio: chunked with per-chunk progress
+      asrResult = await runChunkedTranscription(asr, audioData, {
         return_timestamps: timestampMode,
         ...(language ? { language } : {}),
-      }, request.model, (pct) =>
-        emitProgress(dotNetRef, request, Math.min(43, Math.max(30, pct)), "transcribe", "Reloading model...")
-      );
-    } catch {
-      asrResult = await runAsrWithRecovery(asr, audioData, {
-        chunk_length_s: 30,
-        stride_length_s: 5,
-        return_timestamps: true,
-        ...(language ? { language } : {}),
-      }, request.model, (pct) =>
-        emitProgress(dotNetRef, request, Math.min(43, Math.max(30, pct)), "transcribe", "Reloading model...")
-      );
+      }, request.model, (accText, segments, chunkIdx, totalChunks) => {
+        const pct = 45 + (chunkIdx / totalChunks) * 15; // 45-60%
+        emitProgress(dotNetRef, request, pct, "transcribe",
+          `Transcribing chunk ${chunkIdx}/${totalChunks}...`,
+          { rawWhisperText: accText });
+      });
     }
 
     const rawText = normalizeText(asrResult?.text ?? "");
@@ -694,6 +710,51 @@ Rules:
         throw retryErr;
       }
     }
+  }
+
+  // Chunked streaming transcription for long audio (>30s).
+  // Splits audio into overlapping 30s windows, processes each sequentially,
+  // and calls onChunkComplete with accumulated text after every chunk.
+  async function runChunkedTranscription(asr, audioData, options, modelName, onChunkComplete) {
+    const SR = 16000;
+    const CHUNK_S = 30;
+    const STRIDE_S = 5;
+    const chunkSamples = CHUNK_S * SR;     // 480,000
+    const strideSamples = STRIDE_S * SR;   // 80,000
+    const stepSamples = chunkSamples - strideSamples; // 400,000 (25s advance)
+
+    const totalChunks = Math.ceil(Math.max(1, (audioData.length - strideSamples) / stepSamples));
+    const allSegments = [];
+
+    for (let i = 0; i < totalChunks; i++) {
+      const start = i * stepSamples;
+      const end = Math.min(start + chunkSamples, audioData.length);
+      const chunkAudio = audioData.slice(start, end);
+      const chunkStartTime = start / SR;
+
+      // Process this ≤30s window — no chunk_length_s needed
+      const result = await runAsrWithRecovery(asr, chunkAudio, {
+        return_timestamps: options.return_timestamps,
+        ...(options.language ? { language: options.language } : {}),
+      }, modelName);
+
+      // Offset timestamps and skip overlap region
+      const overlapThreshold = i > 0 ? STRIDE_S : 0;
+      for (const seg of (result.chunks || [])) {
+        const [ws, we] = seg.timestamp;
+        if (ws < overlapThreshold) continue; // skip words from overlap zone
+        allSegments.push({
+          text: seg.text,
+          timestamp: [ws + chunkStartTime, (we ?? ws) + chunkStartTime],
+        });
+      }
+
+      const accumulatedText = allSegments.map(s => s.text).join("").trim();
+      onChunkComplete?.(accumulatedText, allSegments, i + 1, totalChunks);
+    }
+
+    const finalText = allSegments.map(s => s.text).join("").trim();
+    return { chunks: allSegments, text: finalText };
   }
 
   async function getWhisperPipeline(modelName, onProgress) {
@@ -1879,36 +1940,14 @@ Rules:
     if (onProgress) onProgress(50, "Transcribing...");
 
     const turbo = getTurboMode();
-    let asrResult;
-    if (turbo) {
-      asrResult = await runAsrWithRecovery(asr, audioData, {
-        chunk_length_s: 30,
-        stride_length_s: 5,
-        return_timestamps: true,
-        ...(resolvedLang ? { language: resolvedLang } : {}),
-      }, resolvedModel, (pct) => {
-        if (onProgress) onProgress(30 + pct * 0.2, "Reloading model...");
-      });
-    } else {
-      try {
-        asrResult = await runAsrWithRecovery(asr, audioData, {
-          chunk_length_s: 30,
-          stride_length_s: 5,
-          return_timestamps: "word",
-          ...(resolvedLang ? { language: resolvedLang } : {}),
-        }, resolvedModel, (pct) => {
-          if (onProgress) onProgress(30 + pct * 0.2, "Reloading model...");
-        });
-      } catch (wordTsErr) {
-        // If the WASM runtime is corrupted, don't retry — let the error propagate
-        if (wasmRuntimeCorrupted) throw wordTsErr;
+    const timestampMode = turbo ? true : "word";
+    const THRESHOLD_SAMPLES = 30 * 16000; // 30s
 
-        // Word-level timestamps failed — retry with segment timestamps.
-        // Get a fresh pipeline reference in case the old one was evicted.
-        const freshAsr = await getWhisperPipeline(resolvedModel, (pct) => {
-          if (onProgress) onProgress(30 + pct * 0.2, "Reloading model...");
-        });
-        asrResult = await runAsrWithRecovery(freshAsr, audioData, {
+    let asrResult;
+    if (audioData.length <= THRESHOLD_SAMPLES) {
+      // Short audio: single-pass (existing behavior)
+      if (turbo) {
+        asrResult = await runAsrWithRecovery(asr, audioData, {
           chunk_length_s: 30,
           stride_length_s: 5,
           return_timestamps: true,
@@ -1916,7 +1955,46 @@ Rules:
         }, resolvedModel, (pct) => {
           if (onProgress) onProgress(30 + pct * 0.2, "Reloading model...");
         });
+      } else {
+        try {
+          asrResult = await runAsrWithRecovery(asr, audioData, {
+            chunk_length_s: 30,
+            stride_length_s: 5,
+            return_timestamps: "word",
+            ...(resolvedLang ? { language: resolvedLang } : {}),
+          }, resolvedModel, (pct) => {
+            if (onProgress) onProgress(30 + pct * 0.2, "Reloading model...");
+          });
+        } catch (wordTsErr) {
+          // If the WASM runtime is corrupted, don't retry — let the error propagate
+          if (wasmRuntimeCorrupted) throw wordTsErr;
+
+          // Word-level timestamps failed — retry with segment timestamps.
+          // Get a fresh pipeline reference in case the old one was evicted.
+          const freshAsr = await getWhisperPipeline(resolvedModel, (pct) => {
+            if (onProgress) onProgress(30 + pct * 0.2, "Reloading model...");
+          });
+          asrResult = await runAsrWithRecovery(freshAsr, audioData, {
+            chunk_length_s: 30,
+            stride_length_s: 5,
+            return_timestamps: true,
+            ...(resolvedLang ? { language: resolvedLang } : {}),
+          }, resolvedModel, (pct) => {
+            if (onProgress) onProgress(30 + pct * 0.2, "Reloading model...");
+          });
+        }
       }
+    } else {
+      // Long audio: chunked with per-chunk progress
+      asrResult = await runChunkedTranscription(asr, audioData, {
+        return_timestamps: timestampMode,
+        ...(resolvedLang ? { language: resolvedLang } : {}),
+      }, resolvedModel, (accText, segments, chunkIdx, totalChunks) => {
+        const pct = 50 + (chunkIdx / totalChunks) * 45; // 50-95%
+        if (onProgress) onProgress(pct, `Transcribing chunk ${chunkIdx}/${totalChunks}...`, {
+          rawWhisperText: accText,
+        });
+      });
     }
 
     const text = normalizeText(asrResult?.text ?? "");

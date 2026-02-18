@@ -194,6 +194,12 @@
             {
                 var models = await JS.InvokeAsync<string[]>("localTranscriberWorkflow.getOllamaModels");
                 _ollamaModels = models?.ToList() ?? new();
+                if (_ollamaModels.Count == 0)
+                {
+                    var discovered = await JS.InvokeAsync<string[]>("localTranscriberWorkflow.discoverOllamaModels");
+                    if (discovered?.Length > 0)
+                        _ollamaModels = discovered.ToList();
+                }
             }
             catch { }
         }
@@ -245,6 +251,12 @@
             {
                 var models = await JS.InvokeAsync<string[]>("localTranscriberWorkflow.getOllamaModels");
                 _ollamaModels = models?.ToList() ?? new();
+                if (_ollamaModels.Count == 0 && (value == "ollama"))
+                {
+                    var discovered = await JS.InvokeAsync<string[]>("localTranscriberWorkflow.discoverOllamaModels");
+                    if (discovered?.Length > 0)
+                        _ollamaModels = discovered.ToList();
+                }
             }
             catch { }
             StateHasChanged();
