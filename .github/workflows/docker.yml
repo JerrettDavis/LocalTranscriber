@@ -72,5 +72,10 @@ jobs:
       - name: Build
         run: dotnet build -c Release --no-restore
 
+      - name: Install Playwright browsers
+        shell: pwsh
+        run: |
+          ./tests/LocalTranscriber.Tests.E2E/bin/Release/net10.0/playwright.ps1 install chromium
+
       - name: Test
         run: dotnet test -c Release --no-build --verbosity normal
