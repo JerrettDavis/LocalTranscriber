@@ -1,5 +1,16 @@
 # LocalTranscriber (.NET 10)
 
+[![CI](https://github.com/JerrettDavis/LocalTranscriber/actions/workflows/ci.yml/badge.svg)](https://github.com/JerrettDavis/LocalTranscriber/actions/workflows/ci.yml)
+[![Docker Build](https://github.com/JerrettDavis/LocalTranscriber/actions/workflows/docker.yml/badge.svg)](https://github.com/JerrettDavis/LocalTranscriber/actions/workflows/docker.yml)
+[![Release](https://github.com/JerrettDavis/LocalTranscriber/actions/workflows/release.yml/badge.svg)](https://github.com/JerrettDavis/LocalTranscriber/actions/workflows/release.yml)
+[![Deploy Pages](https://github.com/JerrettDavis/LocalTranscriber/actions/workflows/deploy-pages.yml/badge.svg)](https://github.com/JerrettDavis/LocalTranscriber/actions/workflows/deploy-pages.yml)
+[![Sync Browser Models](https://github.com/JerrettDavis/LocalTranscriber/actions/workflows/sync-browser-models.yml/badge.svg)](https://github.com/JerrettDavis/LocalTranscriber/actions/workflows/sync-browser-models.yml)
+[![GitHub Release](https://img.shields.io/github/v/release/JerrettDavis/LocalTranscriber)](https://github.com/JerrettDavis/LocalTranscriber/releases)
+[![NuGet](https://img.shields.io/badge/NuGet-none-lightgrey)](https://www.nuget.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+![.NET 10](https://img.shields.io/badge/.NET-10.0-512BD4)
+![Platforms](https://img.shields.io/badge/platforms-Windows%20%7C%20Linux%20%7C%20macOS-informational)
+
 A small **local** voice-to-text starter that can:
 
 - Record from a selected Windows capture device (WASAPI)
