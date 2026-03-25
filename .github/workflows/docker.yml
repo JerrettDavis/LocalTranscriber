@@ -77,5 +77,5 @@ jobs:
         run: |
           ./tests/LocalTranscriber.Tests.E2E/bin/Release/net10.0/playwright.ps1 install chromium
 
-      - name: Test
-        run: dotnet test -c Release --no-build --verbosity normal
+      - name: Test (exclude E2E in Docker validation lane)
+        run: dotnet test -c Release --no-build --verbosity normal --filter "FullyQualifiedName!~Tests.E2E"
