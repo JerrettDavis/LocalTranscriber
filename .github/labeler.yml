@@ -1,22 +1,32 @@
 area:cli:
-  - "src/LocalTranscriber.Cli/**"
+  - changed-files:
+      - any-glob-to-any-file:
+          - "src/LocalTranscriber.Cli/**"
 
 area:web:
-  - "src/LocalTranscriber.Web/**"
+  - changed-files:
+      - any-glob-to-any-file:
+          - "src/LocalTranscriber.Web/**"
 
 area:docs:
-  - "*.md"
-  - ".github/**/*.md"
-  - ".github/ISSUE_TEMPLATE/**"
+  - changed-files:
+      - any-glob-to-any-file:
+          - "*.md"
+          - ".github/**/*.md"
+          - ".github/ISSUE_TEMPLATE/**"
 
 area:ci:
-  - ".github/workflows/**"
-  - ".github/dependabot.yml"
-  - ".github/labeler.yml"
-  - ".github/labels.yml"
+  - changed-files:
+      - any-glob-to-any-file:
+          - ".github/workflows/**"
+          - ".github/dependabot.yml"
+          - ".github/labeler.yml"
+          - ".github/labels.yml"
 
 area:infra:
-  - ".editorconfig"
-  - ".gitattributes"
-  - ".gitignore"
-  - "global.json"
+  - changed-files:
+      - any-glob-to-any-file:
+          - ".editorconfig"
+          - ".gitattributes"
+          - ".gitignore"
+          - "global.json"
