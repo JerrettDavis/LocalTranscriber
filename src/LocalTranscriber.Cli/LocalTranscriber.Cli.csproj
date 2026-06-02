@@ -19,7 +19,7 @@
     <PackageReference Include="NAudio" Version="2.3.0" />
     <PackageReference Include="OllamaSharp" Version="5.4.25" />
     <PackageReference Include="Whisper.net" Version="1.9.1" />
-    <PackageReference Include="Whisper.net.Runtime" Version="1.9.0" />
+    <PackageReference Include="Whisper.net.Runtime" Version="1.9.1" />
     <PackageReference Include="Whisper.net.Runtime.Cuda" Version="1.9.1" />
     <PackageReference Include="YoutubeExplode" Version="6.*" />
   </ItemGroup>
