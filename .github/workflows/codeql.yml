@@ -20,7 +20,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0  # Required by Nerdbank.GitVersioning
 
@@ -30,7 +30,7 @@ jobs:
           dotnet-version: '10.0.x'
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@v3
+        uses: github/codeql-action/init@v4
         with:
           languages: csharp
           queries: security-extended
@@ -39,6 +39,6 @@ jobs:
         run: dotnet build LocalTranscriber.sln -c Release
 
       - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@v3
+        uses: github/codeql-action/analyze@v4
         with:
           category: /language:csharp
