@@ -53,54 +53,84 @@ jobs:
       - name: Sync Models
         run: |
           set -e
-          
-          MODELS="${{ github.event.inputs.models || 'tiny,tiny.en,base,base.en,small,small.en' }}"
-          
+
+          # NOTE: small/small.en quantized ONNX files exceed GitHub's 100MB
+          # per-file limit (no git-lfs tracking is configured for this branch),
+          # so they are intentionally excluded from the default set used by
+          # the unattended monthly schedule. They remain selectable via
+          # workflow_dispatch for anyone syncing to LFS-backed storage.
+          MODELS="${{ github.event.inputs.models || 'tiny,tiny.en,base,base.en' }}"
+
           # Files to download for each model
           CONFIG_FILES="config.json tokenizer.json tokenizer_config.json preprocessor_config.json generation_config.json vocab.json merges.txt added_tokens.json special_tokens_map.json normalizer.json"
-          ONNX_FILES="model_quantized.onnx decoder_model_merged_quantized.onnx encoder_model_quantized.onnx decoder_with_past_model_quantized.onnx"
-          
+          ONNX_FILES="decoder_model_quantized.onnx decoder_model_merged_quantized.onnx encoder_model_quantized.onnx decoder_with_past_model_quantized.onnx"
+
+          # Download with retry/backoff to tolerate transient CDN skew. Uses a
+          # single -f GET (no separate HEAD probe) so there is no chance of a
+          # HEAD/GET mismatch: whatever the GET says is authoritative.
+          download() {
+            local url="$1" dest="$2"
+            if curl -fSL --retry 5 --retry-all-errors --retry-delay 3 --connect-timeout 15 -o "${dest}" "${url}"; then
+              return 0
+            else
+              rm -f "${dest}"
+              return 1
+            fi
+          }
+
           for MODEL_SUFFIX in ${MODELS//,/ }; do
             MODEL_NAME="whisper-${MODEL_SUFFIX}"
             HF_MODEL="Xenova/${MODEL_NAME}"
             MODEL_DIR="${MODEL_NAME}"
-            
+
             echo ""
             echo "=========================================="
             echo "Processing: ${MODEL_NAME}"
             echo "=========================================="
-            
+
             # Create model directory
             mkdir -p "${MODEL_DIR}/onnx"
-            
+
             # Download config files
             for FILE in ${CONFIG_FILES}; do
               URL="https://huggingface.co/${HF_MODEL}/resolve/main/${FILE}"
               DEST="${MODEL_DIR}/${FILE}"
-              
-              if curl -fsSL --head "${URL}" 2>/dev/null | grep -q "200"; then
+
+              if download "${URL}" "${DEST}"; then
                 echo "  ↓ ${FILE}"
-                curl -fsSL -o "${DEST}" "${URL}"
+              else
+                echo "  ⚠ ${FILE} not found upstream, skipping"
               fi
             done
-            
+
+            # Discover which ONNX files actually exist upstream via the HF
+            # tree API instead of guessing filenames — avoids drift when
+            # upstream renames/removes quantization variants.
+            AVAILABLE_ONNX=$(curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 \
+              "https://huggingface.co/api/models/${HF_MODEL}/tree/main/onnx" \
+              | jq -r '.[].path | sub("^onnx/"; "")' 2>/dev/null || true)
+
             # Download ONNX files
             for FILE in ${ONNX_FILES}; do
+              if ! printf '%s\n' "${AVAILABLE_ONNX}" | grep -qx "${FILE}"; then
+                echo "  ⚠ onnx/${FILE} not present upstream, skipping"
+                continue
+              fi
+
               URL="https://huggingface.co/${HF_MODEL}/resolve/main/onnx/${FILE}"
               DEST="${MODEL_DIR}/onnx/${FILE}"
-              
-              if curl -fsSL --head "${URL}" 2>/dev/null | grep -q "200"; then
-                echo "  ↓ onnx/${FILE} (this may take a while...)"
-                curl -fsSL -o "${DEST}" "${URL}"
-                
+
+              if download "${URL}" "${DEST}"; then
                 SIZE=$(du -h "${DEST}" | cut -f1)
-                echo "    Size: ${SIZE}"
+                echo "  ↓ onnx/${FILE} (${SIZE})"
+              else
+                echo "  ⚠ onnx/${FILE} download failed after retries, skipping"
               fi
             done
-            
+
             echo "  ✓ ${MODEL_NAME} complete"
           done
-          
+
           echo ""
           echo "=========================================="
           echo "All models downloaded"
@@ -125,7 +155,7 @@ jobs:
       - name: Purge jsDelivr cache
         run: |
           # Purge cache for updated models (best effort)
-          MODELS="${{ github.event.inputs.models || 'tiny,tiny.en,base,base.en,small,small.en' }}"
+          MODELS="${{ github.event.inputs.models || 'tiny,tiny.en,base,base.en' }}"
           
           for MODEL_SUFFIX in ${MODELS//,/ }; do
             MODEL_NAME="whisper-${MODEL_SUFFIX}"
