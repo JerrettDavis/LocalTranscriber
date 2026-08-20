@@ -129,7 +129,7 @@ internal sealed class SpeakerLabelService
         var all = new List<float>(chunk.Length * 4);
 
         int read;
-        while ((read = provider.Read(chunk, 0, chunk.Length)) > 0)
+        while ((read = provider.Read(chunk.AsSpan())) > 0)
             all.AddRange(chunk.Take(read));
 
         return all.ToArray();
